@@ -23,13 +23,22 @@ Generates fantasy football draft tier lists from your league settings and a conf
 
 ---
 
-## Run with Docker (recommended)
+## Run with Docker or Podman (recommended)
 
-The fastest way to get a working local environment is `docker compose`. Spins up a Postgres container, runs migrations, seeds ~10 sample players, and starts the API with hot reload.
+The fastest way to get a working local environment is `docker compose` (or its Podman equivalent). Spins up a Postgres container, runs migrations, seeds ~10 sample players, and starts the API with hot reload.
 
 ```bash
-docker compose up --build
+docker compose up --build         # Docker
+podman compose up --build         # Podman 4.4+ (recommended for Podman users)
+podman-compose up --build         # older podman-compose
 ```
+
+**Podman on macOS:** initialize and start the machine first if you haven't already:
+```bash
+podman machine init && podman machine start
+```
+
+The entrypoint script explicitly waits for Postgres to accept connections before running migrations, so any of the above command variants behave the same — even older `podman-compose` versions that don't honor `depends_on.condition: service_healthy`.
 
 Then open:
 - API: http://localhost:8000
