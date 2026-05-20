@@ -10,7 +10,6 @@ _CATEGORIES = {
     "Dynasty Youth": "Age/Longevity",
     "RB Committee": "Usage",
     "Target Share": "Usage",
-    "Red Zone": "Usage",
     "Declining Snap": "Usage",
     "New Team": "Situation",
     "New Head Coach": "Situation",

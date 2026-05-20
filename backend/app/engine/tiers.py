@@ -11,8 +11,8 @@ class TieredPlayer:
     player_id: str
     name: str
     position: str
-    team: str
-    age: int
+    team: Optional[str]
+    age: Optional[int]
     adjusted_score: float
     projected_score_raw: float
     prior_year_actual: Optional[float]
