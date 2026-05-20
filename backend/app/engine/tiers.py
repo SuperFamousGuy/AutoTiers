@@ -55,7 +55,11 @@ def _cluster_position(players: list[TieredPlayer], position: str, max_tiers: int
         p.positional_tier = f"{position}{tier_num}"
 
 
-def assign_tiers(all_players: list[TieredPlayer], league_size: int = 12) -> list[TieredPlayer]:
+def assign_tiers(
+    all_players: list[TieredPlayer],
+    league_size: int = 12,
+    tiebreak_adp_attr: str = "adp_ppr",
+) -> list[TieredPlayer]:
     if not all_players:
         return []
 
@@ -71,8 +75,11 @@ def assign_tiers(all_players: list[TieredPlayer], league_size: int = 12) -> list
     for position, group in by_position.items():
         _cluster_position(group, position, _max_tiers(position))
 
-    # Step 2: overall ranking by adjusted score, with ADP as tiebreaker
-    ranked = sorted(all_players, key=lambda p: (-p.adjusted_score, p.adp_ppr or 9999))
+    # Step 2: overall ranking by adjusted score, with format-appropriate ADP as tiebreaker
+    ranked = sorted(
+        all_players,
+        key=lambda p: (-p.adjusted_score, getattr(p, tiebreak_adp_attr, None) or 9999),
+    )
     for rank, player in enumerate(ranked, start=1):
         player.overall_rank = rank
 

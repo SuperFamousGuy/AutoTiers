@@ -37,7 +37,7 @@ class Rule:
 class PlayerContext:
     player_id: str
     position: str
-    age: int
+    age: Optional[int]
     snap_pct: Optional[float]
     carry_share: Optional[float]
     target_share: Optional[float]
@@ -69,7 +69,10 @@ def _evaluate(condition: RuleCondition, ctx: PlayerContext) -> bool:
     val = getattr(ctx, condition.field, None)
     if val is None:
         return False
-    return _OPS[condition.operator](val, condition.value)
+    op_fn = _OPS.get(condition.operator)
+    if op_fn is None:
+        return False
+    return op_fn(val, condition.value)
 
 
 def apply_rules(base_score: float, ctx: PlayerContext, rules: list[Rule]) -> RuleResult:

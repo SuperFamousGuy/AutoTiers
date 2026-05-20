@@ -1,5 +1,5 @@
 from typing import Optional
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from app.engine.scoring import ScoringFormat, LeagueType
 from app.schemas.rules import RuleSchema
 
@@ -15,7 +15,7 @@ class GenerateRequest(BaseModel):
     weight_prior_year: float = 0.40
     weight_espn: float = 0.30
     weight_consensus: float = 0.30
-    rules: list[RuleSchema] = []
+    rules: list[RuleSchema] = Field(default_factory=list)
 
     @field_validator("league_size")
     @classmethod

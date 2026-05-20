@@ -4,7 +4,7 @@ import io
 from datetime import date
 from typing import Optional
 from fastapi import APIRouter, Depends
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -153,7 +153,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
         ctx = PlayerContext(
             player_id=player.id,
             position=player.position,
-            age=player.age or 0,
+            age=player.age,
             snap_pct=stat.snap_pct if stat else None,
             carry_share=stat.carry_share if stat else None,
             target_share=stat.target_share if stat else None,
@@ -189,7 +189,16 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
             positional_tier="",
         ))
 
-    return assign_tiers(tiered, league_size=req.league_size)
+    league_type_str = req.league_type.value if hasattr(req.league_type, "value") else req.league_type
+    scoring_fmt_str = req.scoring_format.value if hasattr(req.scoring_format, "value") else req.scoring_format
+    if league_type_str == "dynasty":
+        tiebreak_adp_attr = "adp_dynasty"
+    elif scoring_fmt_str in ("ppr", "te_premium"):
+        tiebreak_adp_attr = "adp_ppr"
+    else:
+        tiebreak_adp_attr = "adp_standard"
+
+    return assign_tiers(tiered, league_size=req.league_size, tiebreak_adp_attr=tiebreak_adp_attr)
 
 
 @router.post("/generate", response_model=GenerateResponse)
