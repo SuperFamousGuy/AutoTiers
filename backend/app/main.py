@@ -1,8 +1,19 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import generate, rules, players, data
+from app.scheduler import setup_scheduler, scheduler
 
-app = FastAPI(title="AutoTiers API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    setup_scheduler()
+    yield
+    if scheduler.running:
+        scheduler.shutdown()
+
+
+app = FastAPI(title="AutoTiers API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
