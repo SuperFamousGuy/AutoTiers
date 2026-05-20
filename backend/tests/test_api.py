@@ -1,3 +1,5 @@
+import csv as csv_module
+import io as io_module
 import pytest
 from datetime import date
 from app.models.player import Player, PlayerStat
@@ -138,3 +140,12 @@ async def test_generate_csv_returns_csv_file(async_client, test_db):
     assert "overall_rank" in header
     assert "player" in header
     assert "positional_tier" in header
+
+    reader = csv_module.reader(io_module.StringIO(response.text))
+    rows = list(reader)
+    # 3 seeded players = 4 rows total (header + 3 data rows)
+    assert len(rows) == 4
+    data_row = rows[1]  # first data row (highest ranked player)
+    assert data_row[0].isdigit()  # overall_rank is a number
+    assert data_row[1] in {"Chase", "Henry", "Allen"}  # player name present
+    assert data_row[2] in {"WR", "RB", "QB"}  # position present

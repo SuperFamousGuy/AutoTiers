@@ -4,7 +4,7 @@ import io
 from datetime import date
 from typing import Optional
 from fastapi import APIRouter, Depends
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -186,8 +186,8 @@ async def generate_tiers(req: GenerateRequest, db: AsyncSession = Depends(get_db
     )
 
 
-@router.post("/generate/csv")
-async def generate_csv(req: GenerateRequest, db: AsyncSession = Depends(get_db)) -> StreamingResponse:
+@router.post("/generate/csv", response_class=Response)
+async def generate_csv(req: GenerateRequest, db: AsyncSession = Depends(get_db)) -> Response:
     tiered_players = await _run_generate(req, db)
 
     output = io.StringIO()
@@ -206,12 +206,12 @@ async def generate_csv(req: GenerateRequest, db: AsyncSession = Depends(get_db))
             round(p.adjusted_score, 2), round(p.projected_score_raw, 2),
             round(p.prior_year_actual, 2) if p.prior_year_actual is not None else "",
             p.adp_standard or "", p.adp_ppr or "", p.adp_dynasty or "",
-            "|".join(p.flags), "|".join(p.rules_applied),
+            ";".join(p.flags), ";".join(p.rules_applied),
         ])
 
     output.seek(0)
-    return StreamingResponse(
-        iter([output.getvalue()]),
+    return Response(
+        content=output.getvalue(),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="tiers.csv"'},
     )
