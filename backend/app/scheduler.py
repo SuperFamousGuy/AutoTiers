@@ -2,10 +2,11 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from app.data.fetcher import fetcher
 from app.database import AsyncSessionLocal
+from zoneinfo import ZoneInfo
 import logging
 
 logger = logging.getLogger(__name__)
-scheduler = AsyncIOScheduler()
+scheduler = AsyncIOScheduler(timezone=ZoneInfo("UTC"))
 
 
 async def _refresh_job() -> None:
@@ -21,4 +22,4 @@ def setup_scheduler() -> None:
         scheduler.add_job(_refresh_job, CronTrigger(hour=0, month="8,9"), id="daily_refresh")
     if not scheduler.running:
         scheduler.start()
-    logger.info("Scheduler started")
+        logger.info("Scheduler started")
