@@ -31,7 +31,11 @@ def _jenks_interior_breaks(scores: list[float], max_classes: int) -> list[float]
     n_classes = min(max_classes, len(unique))
     if n_classes < 2:
         return []
-    breaks = jenkspy.jenks_breaks(scores, n_classes=n_classes)
+    try:
+        breaks = jenkspy.jenks_breaks(scores, n_classes=n_classes)
+    except (ValueError, Exception):
+        # All scores identical or insufficient variance — single tier
+        return []
     return list(breaks[1:-1])  # drop min and max; keep interior breakpoints only
 
 
@@ -43,8 +47,7 @@ def _assign_tier_from_breaks(score: float, breaks: list[float], descending_score
     return tier
 
 
-def _cluster_position(players: list[TieredPlayer], position: str) -> None:
-    max_tiers = POSITION_MAX_TIERS.get(position, 3)
+def _cluster_position(players: list[TieredPlayer], position: str, max_tiers: int) -> None:
     scores = [p.adjusted_score for p in players]
     breaks = _jenks_interior_breaks(scores, max_tiers)
     for p in players:
@@ -52,19 +55,24 @@ def _cluster_position(players: list[TieredPlayer], position: str) -> None:
         p.positional_tier = f"{position}{tier_num}"
 
 
-def assign_tiers(all_players: list[TieredPlayer]) -> list[TieredPlayer]:
+def assign_tiers(all_players: list[TieredPlayer], league_size: int = 12) -> list[TieredPlayer]:
     if not all_players:
         return []
+
+    def _max_tiers(position: str) -> int:
+        base = POSITION_MAX_TIERS.get(position, 3)
+        scaled = max(1, round(base * league_size / 12))
+        return min(scaled, base + 2)  # never more than base+2 even for large leagues
 
     # Step 1: positional clustering
     by_position: dict[str, list[TieredPlayer]] = {}
     for p in all_players:
         by_position.setdefault(p.position, []).append(p)
     for position, group in by_position.items():
-        _cluster_position(group, position)
+        _cluster_position(group, position, _max_tiers(position))
 
-    # Step 2: overall ranking by adjusted score
-    ranked = sorted(all_players, key=lambda p: p.adjusted_score, reverse=True)
+    # Step 2: overall ranking by adjusted score, with ADP as tiebreaker
+    ranked = sorted(all_players, key=lambda p: (-p.adjusted_score, p.adp_ppr or 9999))
     for rank, player in enumerate(ranked, start=1):
         player.overall_rank = rank
 

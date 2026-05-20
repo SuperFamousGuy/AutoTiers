@@ -59,9 +59,15 @@ def _get_projection(projections: list[Projection], source: str, fmt: str) -> Opt
     return None
 
 
-def _get_adp(adp_entries: list[ADPData], fmt: str) -> Optional[float]:
+def _get_adp(adp_entries: list[ADPData], scoring_fmt: str, league_type: str = "redraft") -> Optional[float]:
+    if league_type == "dynasty":
+        adp_fmt = "dynasty"
+    elif scoring_fmt == "te_premium":
+        adp_fmt = "ppr"
+    else:
+        adp_fmt = scoring_fmt
     for a in adp_entries:
-        if a.format == fmt:
+        if a.format == adp_fmt:
             return a.adp
     return None
 
@@ -70,21 +76,31 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
     settings = _build_league_settings(req)
     scoring_fmt = req.scoring_format.value
 
-    # Merge built-in + user-provided rules.
-    # Use dataclasses.replace to avoid mutating the shared BUILTIN_RULES globals.
+    # Merge built-in + user-provided rules, deduplicating by name.
+    # For each built-in: apply user's enabled/weight overrides if submitted.
+    # Custom rules (names not in BUILTIN_RULES) are appended after.
+    # User-submitted values always take precedence; last write wins for any
+    # remaining duplicates via the merged dict.
     builtin_by_name = {r.name: r for r in BUILTIN_RULES}
-    rules: list[Rule] = []
-    for schema in req.rules:
-        if schema.name in builtin_by_name:
-            br = builtin_by_name[schema.name]
-            rules.append(dataclasses.replace(br, enabled=schema.enabled, weight=schema.weight))
+    user_rule_map = {
+        schema.name: dataclasses.replace(builtin_by_name[schema.name], enabled=schema.enabled, weight=schema.weight)
+        for schema in req.rules
+        if schema.name in builtin_by_name
+    }
+    custom_rules = [
+        _schema_to_rule(schema)
+        for schema in req.rules
+        if schema.name not in builtin_by_name
+    ]
+    merged: dict[str, Rule] = {}
+    for br in BUILTIN_RULES:
+        if br.name in user_rule_map:
+            merged[br.name] = user_rule_map[br.name]
         else:
-            rules.append(_schema_to_rule(schema))
-    # Add any built-in rules not mentioned by the user (with defaults)
-    mentioned = {s.name for s in req.rules}
-    for r in BUILTIN_RULES:
-        if r.name not in mentioned:
-            rules.append(r)
+            merged[br.name] = br
+    for cr in custom_rules:
+        merged[cr.name] = cr  # custom always wins (already deduplicated by name)
+    rules = list(merged.values())
 
     result = await db.execute(
         select(Player)
@@ -133,6 +149,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
         elif espn_pts is None and fp_pts is None:
             flags_list.append("Projection Unavailable")
 
+        league_type_val = req.league_type.value if hasattr(req.league_type, "value") else req.league_type
         ctx = PlayerContext(
             player_id=player.id,
             position=player.position,
@@ -142,7 +159,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
             target_share=stat.target_share if stat else None,
             games_played=stat.games_played if stat else None,
             years_exp=player.years_exp or 0,
-            adp=_get_adp(player.adp_entries, scoring_fmt),
+            adp=_get_adp(player.adp_entries, scoring_fmt, league_type_val),
             projected_score=blended,
             new_team=False,
             new_coach=False,
@@ -172,7 +189,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
             positional_tier="",
         ))
 
-    return assign_tiers(tiered)
+    return assign_tiers(tiered, league_size=req.league_size)
 
 
 @router.post("/generate", response_model=GenerateResponse)

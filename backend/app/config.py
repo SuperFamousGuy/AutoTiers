@@ -7,6 +7,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://localhost/autotiers"
     database_url_sync: str = "postgresql+psycopg2://localhost/autotiers"
     debug: bool = False
+    cors_origins: list[str] = ["*"]
+    run_scheduler: bool = False
+    admin_api_key: str = ""
 
 
 settings = Settings()

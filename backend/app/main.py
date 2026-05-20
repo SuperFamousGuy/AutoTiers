@@ -3,13 +3,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import generate, rules, players, data
 from app.scheduler import setup_scheduler, scheduler
+from app.config import settings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    setup_scheduler()
+    if settings.run_scheduler:
+        setup_scheduler()
     yield
-    if scheduler.running:
+    if settings.run_scheduler and scheduler.running:
         scheduler.shutdown()
 
 
@@ -17,7 +19,7 @@ app = FastAPI(title="AutoTiers API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten in production
+    allow_origins=settings.cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
