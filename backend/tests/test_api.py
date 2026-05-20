@@ -110,3 +110,31 @@ async def test_data_status_returns_dict(async_client, test_db):
     resp = await async_client.get("/api/data/status")
     assert resp.status_code == 200
     assert isinstance(resp.json(), dict)
+
+
+async def test_generate_csv_returns_csv_file(async_client, test_db):
+    await _seed(test_db)
+    payload = {
+        "scoring_format": "ppr",
+        "league_type": "standard",
+        "league_size": 12,
+        "qb_td_points": 4.0,
+        "bonus_100yd_rushing": False,
+        "bonus_100yd_receiving": False,
+        "bonus_first_downs": False,
+        "weight_prior_year": 0.40,
+        "weight_espn": 0.30,
+        "weight_consensus": 0.30,
+        "rules": []
+    }
+    response = await async_client.post("/api/generate/csv", json=payload)
+    assert response.status_code == 200
+    assert "text/csv" in response.headers["content-type"]
+    assert "attachment" in response.headers.get("content-disposition", "")
+
+    lines = response.text.strip().split("\n")
+    assert len(lines) >= 2  # header + at least 1 data row
+    header = lines[0].strip()
+    assert "overall_rank" in header
+    assert "player" in header
+    assert "positional_tier" in header

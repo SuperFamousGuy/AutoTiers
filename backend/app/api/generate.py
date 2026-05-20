@@ -1,7 +1,10 @@
+import csv
 import dataclasses
+import io
 from datetime import date
 from typing import Optional
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -63,8 +66,7 @@ def _get_adp(adp_entries: list[ADPData], fmt: str) -> Optional[float]:
     return None
 
 
-@router.post("/generate", response_model=GenerateResponse)
-async def generate_tiers(req: GenerateRequest, db: AsyncSession = Depends(get_db)) -> GenerateResponse:
+async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPlayer]:
     settings = _build_league_settings(req)
     scoring_fmt = req.scoring_format.value
 
@@ -170,11 +172,46 @@ async def generate_tiers(req: GenerateRequest, db: AsyncSession = Depends(get_db
             positional_tier="",
         ))
 
-    ranked = assign_tiers(tiered)
-    today = str(date.today())
+    return assign_tiers(tiered)
 
+
+@router.post("/generate", response_model=GenerateResponse)
+async def generate_tiers(req: GenerateRequest, db: AsyncSession = Depends(get_db)) -> GenerateResponse:
+    ranked = await _run_generate(req, db)
+    today = str(date.today())
     return GenerateResponse(
         players=[TieredPlayerOut(**p.__dict__) for p in ranked],
         total=len(ranked),
         data_as_of=today,
+    )
+
+
+@router.post("/generate/csv")
+async def generate_csv(req: GenerateRequest, db: AsyncSession = Depends(get_db)) -> StreamingResponse:
+    tiered_players = await _run_generate(req, db)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "overall_rank", "player", "position", "team", "age",
+        "overall_tier", "positional_tier",
+        "adjusted_score", "projected_score_raw", "prior_year_actual",
+        "adp_standard", "adp_ppr", "adp_dynasty",
+        "flags", "rules_applied",
+    ])
+    for p in tiered_players:
+        writer.writerow([
+            p.overall_rank, p.name, p.position, p.team, p.age,
+            p.overall_tier, p.positional_tier,
+            round(p.adjusted_score, 2), round(p.projected_score_raw, 2),
+            round(p.prior_year_actual, 2) if p.prior_year_actual is not None else "",
+            p.adp_standard or "", p.adp_ppr or "", p.adp_dynasty or "",
+            "|".join(p.flags), "|".join(p.rules_applied),
+        ])
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="tiers.csv"'},
     )
