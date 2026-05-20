@@ -23,7 +23,45 @@ Generates fantasy football draft tier lists from your league settings and a conf
 
 ---
 
-## Backend — Local Setup
+## Run with Docker or Podman (recommended)
+
+The fastest way to get a working local environment is `docker compose` (or its Podman equivalent). Spins up a Postgres container, runs migrations, seeds ~10 sample players, and starts the API with hot reload.
+
+```bash
+docker compose up --build         # Docker
+podman compose up --build         # Podman 4.4+ (recommended for Podman users)
+podman-compose up --build         # older podman-compose
+```
+
+**Podman on macOS:** initialize and start the machine first if you haven't already:
+```bash
+podman machine init && podman machine start
+```
+
+The entrypoint script explicitly waits for Postgres to accept connections before running migrations, so any of the above command variants behave the same — even older `podman-compose` versions that don't honor `depends_on.condition: service_healthy`.
+
+Then open:
+- API: http://localhost:8000
+- Interactive docs: http://localhost:8000/docs
+- Health check: http://localhost:8000/health
+
+Try a request against the seeded data:
+```bash
+curl -X POST http://localhost:8000/api/generate \
+  -H "Content-Type: application/json" \
+  -d '{"scoring_format":"ppr","league_type":"standard","league_size":12,"qb_td_points":4.0,"bonus_100yd_rushing":false,"bonus_100yd_receiving":false,"bonus_first_downs":false,"weight_prior_year":0.40,"weight_espn":0.30,"weight_consensus":0.30,"rules":[]}'
+```
+
+Override defaults by copying `.env.example` to `.env` (port mappings, postgres credentials, whether to seed). To skip seeding on first start, set `SEED_DEV_DATA=false`. To reset the database completely:
+
+```bash
+docker compose down -v   # -v also removes the postgres volume
+docker compose up --build
+```
+
+Code in `backend/app/`, `backend/alembic/`, `backend/scripts/`, and `backend/tests/` is mounted into the container — edits trigger hot reload.
+
+## Backend — Local Setup (without Docker)
 
 ```bash
 cd backend
@@ -42,6 +80,12 @@ Run migrations:
 
 ```bash
 alembic upgrade head
+```
+
+Optionally seed sample data:
+
+```bash
+python -m scripts.seed_dev
 ```
 
 Start the server:
