@@ -21,6 +21,16 @@ from app.schemas.generate import GenerateRequest, GenerateResponse, TieredPlayer
 router = APIRouter()
 
 
+async def _compute_data_as_of(db: AsyncSession) -> Optional[str]:
+    """Return ISO date of the oldest successful source refresh, or None if no source has succeeded."""
+    from app.models import DataSourceStatus
+    rows = (await db.scalars(select(DataSourceStatus).where(DataSourceStatus.last_updated.is_not(None)))).all()
+    if not rows:
+        return None
+    oldest = min(r.last_updated for r in rows)
+    return oldest.date().isoformat()
+
+
 def _build_league_settings(req: GenerateRequest) -> LeagueSettings:
     return LeagueSettings(
         scoring_format=req.scoring_format,
@@ -165,6 +175,12 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
             new_coach=False,
             actual_tds=stat.actual_tds if stat else None,
             expected_tds=stat.expected_tds if stat else None,
+            actual_tds_above_expected=(
+                stat.actual_tds - stat.expected_tds
+                if stat and stat.actual_tds is not None and stat.expected_tds is not None
+                else None
+            ),
+            red_zone_looks=stat.red_zone_looks if stat else None,
         )
 
         rule_result = apply_rules(blended, ctx, rules)
@@ -204,11 +220,11 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
 @router.post("/generate", response_model=GenerateResponse)
 async def generate_tiers(req: GenerateRequest, db: AsyncSession = Depends(get_db)) -> GenerateResponse:
     ranked = await _run_generate(req, db)
-    today = str(date.today())
+    data_as_of = await _compute_data_as_of(db)
     return GenerateResponse(
         players=[TieredPlayerOut(**p.__dict__) for p in ranked],
         total=len(ranked),
-        data_as_of=today,
+        data_as_of=data_as_of,
     )
 
 

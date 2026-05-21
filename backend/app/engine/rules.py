@@ -49,6 +49,8 @@ class PlayerContext:
     new_coach: bool
     actual_tds: Optional[int]
     expected_tds: Optional[float]
+    actual_tds_above_expected: Optional[float] = None
+    red_zone_looks: Optional[int] = None
 
 
 @dataclass

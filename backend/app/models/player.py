@@ -1,6 +1,6 @@
 from datetime import date
 from typing import Optional
-from sqlalchemy import String, Integer, Float, ForeignKey, Date, UniqueConstraint
+from sqlalchemy import String, Integer, Float, ForeignKey, Date, Boolean, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
@@ -15,6 +15,9 @@ class Player(Base):
     age: Mapped[Optional[int]] = mapped_column(Integer)
     years_exp: Mapped[Optional[int]] = mapped_column(Integer)
     last_updated: Mapped[Optional[date]] = mapped_column(Date)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
+    gsis_id: Mapped[Optional[str]] = mapped_column(String(20), index=True)
+    espn_id: Mapped[Optional[str]] = mapped_column(String(20), index=True)
 
     stats: Mapped[list["PlayerStat"]] = relationship(back_populates="player", cascade="all, delete-orphan")
     projections: Mapped[list["Projection"]] = relationship(back_populates="player", cascade="all, delete-orphan")
