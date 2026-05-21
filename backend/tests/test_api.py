@@ -1,9 +1,10 @@
 import csv as csv_module
 import io as io_module
 import pytest
-from datetime import date
+from datetime import date, datetime
 from app.models.player import Player, PlayerStat
 from app.models.projection import Projection
+from app.models import DataSourceStatus
 
 
 async def _seed(db):
@@ -112,6 +113,61 @@ async def test_data_status_returns_dict(async_client, test_db):
     resp = await async_client.get("/api/data/status")
     assert resp.status_code == 200
     assert isinstance(resp.json(), dict)
+
+
+@pytest.mark.asyncio
+async def test_data_status_returns_per_source_dict(async_client, test_db):
+    test_db.add(DataSourceStatus(
+        source="sleeper",
+        last_updated=datetime(2026, 5, 20, 3, 0, 0),
+        last_attempted=datetime(2026, 5, 20, 3, 0, 0),
+        last_error=None, rows_upserted=1500,
+    ))
+    test_db.add(DataSourceStatus(
+        source="espn",
+        last_updated=datetime(2026, 5, 19, 3, 0, 0),
+        last_attempted=datetime(2026, 5, 20, 3, 0, 0),
+        last_error="HTTP 503", rows_upserted=0,
+    ))
+    await test_db.commit()
+
+    resp = await async_client.get("/api/data/status")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert set(body.keys()) == {"sleeper", "espn"}
+    assert body["sleeper"]["rows_upserted"] == 1500
+    assert body["sleeper"]["last_error"] is None
+    assert body["espn"]["last_error"] == "HTTP 503"
+    assert body["espn"]["last_updated"].startswith("2026-05-19")
+
+
+@pytest.mark.asyncio
+async def test_generate_data_as_of_uses_minimum_last_updated(async_client, test_db):
+    """data_as_of should reflect the oldest source's last successful update, not request time."""
+    test_db.add(DataSourceStatus(
+        source="sleeper",
+        last_updated=datetime(2026, 5, 20, 3, 0, 0),
+        last_attempted=datetime(2026, 5, 20, 3, 0, 0),
+        last_error=None, rows_upserted=1500,
+    ))
+    test_db.add(DataSourceStatus(
+        source="espn",
+        last_updated=datetime(2026, 5, 15, 3, 0, 0),  # oldest
+        last_attempted=datetime(2026, 5, 20, 3, 0, 0),
+        last_error=None, rows_upserted=600,
+    ))
+    test_db.add(DataSourceStatus(
+        source="fantasypros",
+        last_updated=datetime(2026, 5, 18, 3, 0, 0),
+        last_attempted=datetime(2026, 5, 18, 3, 0, 0),
+        last_error=None, rows_upserted=580,
+    ))
+    await _seed(test_db)
+
+    resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["data_as_of"].startswith("2026-05-15")  # the espn last_updated
 
 
 async def test_generate_csv_returns_csv_file(async_client, test_db):
