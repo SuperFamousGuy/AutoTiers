@@ -33,6 +33,8 @@ BUILTIN_RULES: list[Rule] = [
 
     # Regression
     _rule("Injury History Penalty", [("games_played", "<", 12)],                               EffectType.MULTIPLIER, 0.88),
+    _rule("TD Regression (positive)", [("actual_tds_above_expected", ">=", 3.0)],              EffectType.MULTIPLIER, 0.90),
+    _rule("Red Zone Usage Premium", [("red_zone_looks", ">=", 25)],                            EffectType.MULTIPLIER, 1.07),
 
     # Flags
     _rule("Handcuff Flag",          [("position", "==", "RB"), ("carry_share", "<", 0.30)],    EffectType.FLAG, "Handcuff"),

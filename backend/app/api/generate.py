@@ -165,6 +165,12 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
             new_coach=False,
             actual_tds=stat.actual_tds if stat else None,
             expected_tds=stat.expected_tds if stat else None,
+            actual_tds_above_expected=(
+                stat.actual_tds - stat.expected_tds
+                if stat and stat.actual_tds is not None and stat.expected_tds is not None
+                else None
+            ),
+            red_zone_looks=stat.red_zone_looks if stat else None,
         )
 
         rule_result = apply_rules(blended, ctx, rules)

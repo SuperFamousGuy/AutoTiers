@@ -13,6 +13,20 @@ def _ctx(**overrides) -> PlayerContext:
         games_played=16, years_exp=3, adp=5.0,
         projected_score=200.0, new_team=False, new_coach=False,
         actual_tds=8, expected_tds=7.0,
+        actual_tds_above_expected=None, red_zone_looks=None,
+    )
+    defaults.update(overrides)
+    return PlayerContext(**defaults)
+
+
+def make_ctx(**overrides) -> PlayerContext:
+    defaults = dict(
+        player_id="p1", position="WR", age=27,
+        snap_pct=None, carry_share=None, target_share=None,
+        games_played=17, years_exp=4, adp=None,
+        projected_score=100.0, new_team=False, new_coach=False,
+        actual_tds=None, expected_tds=None, actual_tds_above_expected=None,
+        red_zone_looks=None,
     )
     defaults.update(overrides)
     return PlayerContext(**defaults)
@@ -121,3 +135,38 @@ def test_builtin_rules_is_nonempty_list_of_rules():
         assert isinstance(rule, Rule)
         assert rule.name
         assert rule.conditions
+
+
+def test_builtin_rules_count_is_18():
+    """Spec calls for 18 built-in rules at launch."""
+    assert len(BUILTIN_RULES) == 18
+
+
+def test_td_regression_positive_fires_above_threshold():
+    rule = next(r for r in BUILTIN_RULES if r.name == "TD Regression (positive)")
+    ctx = make_ctx(actual_tds_above_expected=4.0)
+    result = apply_rules(100.0, ctx, [rule])
+    assert result.adjusted_score < 100.0  # multiplier < 1.0
+
+
+def test_td_regression_positive_does_not_fire_below_threshold():
+    rule = next(r for r in BUILTIN_RULES if r.name == "TD Regression (positive)")
+    ctx = make_ctx(actual_tds_above_expected=2.0)  # below threshold of 3.0
+    result = apply_rules(100.0, ctx, [rule])
+    assert result.adjusted_score == 100.0
+    assert "TD Regression (positive)" not in result.rules_applied
+
+
+def test_red_zone_premium_fires_above_25():
+    rule = next(r for r in BUILTIN_RULES if r.name == "Red Zone Usage Premium")
+    ctx = make_ctx(red_zone_looks=30)
+    result = apply_rules(100.0, ctx, [rule])
+    assert result.adjusted_score > 100.0
+
+
+def test_red_zone_premium_skipped_when_none():
+    rule = next(r for r in BUILTIN_RULES if r.name == "Red Zone Usage Premium")
+    ctx = make_ctx(red_zone_looks=None)
+    result = apply_rules(100.0, ctx, [rule])
+    assert result.adjusted_score == 100.0
+    assert "Red Zone Usage Premium" not in result.rules_applied
