@@ -43,7 +43,9 @@ class NflDataFetcher:
         rz_looks: dict[str, int] = {}
         xtds: dict[str, float] = {}
         if not pbp_df.empty:
-            rz = pbp_df[pbp_df["yardline_100"] <= 20]
+            # Filter to actual offensive plays — exclude no_plays (penalties) and other non-scrimmage rows.
+            valid_plays = pbp_df[pbp_df["play_type"].isin(["run", "pass"])]
+            rz = valid_plays[valid_plays["yardline_100"] <= 20]
             for _, play in rz.iterrows():
                 td_prob = float(play.get("td_prob") or 0)
                 rusher = play.get("rusher_player_id")

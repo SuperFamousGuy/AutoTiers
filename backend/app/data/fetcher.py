@@ -37,6 +37,8 @@ class DataFetcher:
                     success=False, error="skipped — sleeper refresh failed",
                 )
                 await self._persist(db, skipped)
+            # Flush DataSourceStatus rows staged by _persist().
+            # Fetcher internals already committed their domain data.
             await db.commit()
             return await get_all_status(db)
 
@@ -57,6 +59,8 @@ class DataFetcher:
                 )
             await self._persist(db, result)
 
+        # Flush DataSourceStatus rows staged by _persist().
+        # Fetcher internals already committed their domain data.
         await db.commit()
         return await get_all_status(db)
 

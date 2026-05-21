@@ -15,7 +15,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("players", sa.Column("active", sa.Boolean(), nullable=False, server_default="1"))
+    op.add_column("players", sa.Column("active", sa.Boolean(), nullable=False, server_default=sa.text("true")))
     op.add_column("players", sa.Column("gsis_id", sa.String(length=20), nullable=True))
     op.add_column("players", sa.Column("espn_id", sa.String(length=20), nullable=True))
     op.create_index("ix_players_gsis_id", "players", ["gsis_id"])
