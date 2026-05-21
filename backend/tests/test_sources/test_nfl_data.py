@@ -73,3 +73,35 @@ async def test_nfl_data_skips_unknown_gsis(test_db, mock_nfl_data):
     result = await fetcher.fetch(test_db)
     assert result.success
     assert result.rows_upserted == 0
+
+
+@pytest.fixture
+def mock_nfl_data_with_pbp(monkeypatch):
+    seasonal_df = pd.read_csv(FIXTURES / "nfl_data_seasonal.csv")
+    snap_df = pd.read_csv(FIXTURES / "nfl_data_snap_counts.csv")
+    pbp_df = pd.read_csv(FIXTURES / "nfl_data_pbp.csv")
+
+    import app.data.sources.nfl_data as mod
+    monkeypatch.setattr(mod, "import_seasonal_data", lambda years: seasonal_df.copy())
+    monkeypatch.setattr(mod, "import_snap_counts", lambda years: snap_df.copy())
+    monkeypatch.setattr(mod, "import_pbp_data", lambda years: pbp_df.copy())
+
+
+@pytest.mark.asyncio
+async def test_nfl_data_computes_pbp_derived_fields(test_db, mock_nfl_data_with_pbp):
+    test_db.add(Player(id="8112", name="Bijan Robinson", position="RB", team="ATL", gsis_id="00-0039169"))
+    test_db.add(Player(id="6794", name="Ja'Marr Chase", position="WR", team="CIN", gsis_id="00-0036900"))
+    test_db.add(Player(id="4866", name="Saquon Barkley", position="RB", team="PHI", gsis_id="00-0034844"))
+    test_db.add(Player(id="6786", name="Justin Jefferson", position="WR", team="MIN", gsis_id="00-0036322"))
+    await test_db.commit()
+
+    fetcher = NflDataFetcher(season=2025)
+    await fetcher.fetch(test_db)
+
+    bijan = await test_db.scalar(select(PlayerStat).where(PlayerStat.player_id == "8112"))
+    assert bijan.red_zone_looks == 2
+    assert bijan.expected_tds == pytest.approx(0.80, abs=0.01)
+
+    chase = await test_db.scalar(select(PlayerStat).where(PlayerStat.player_id == "6794"))
+    assert chase.red_zone_looks == 3
+    assert chase.expected_tds == pytest.approx(1.38, abs=0.01)

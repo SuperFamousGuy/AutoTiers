@@ -23,6 +23,7 @@ class NflDataFetcher:
         try:
             seasonal_df = import_seasonal_data([self.season])
             snap_df = import_snap_counts([self.season])
+            pbp_df = import_pbp_data([self.season])
         except Exception as e:
             return SourceResult(source=self.name, rows_upserted=0,
                                 last_attempted=attempted, success=False, error=str(e))
@@ -37,6 +38,22 @@ class NflDataFetcher:
             # snap_df has multiple rows per player (one per game). Aggregate to season pct.
             aggregated = snap_df.groupby("gsis_id")["offense_pct"].mean()
             snap_by_gsis = aggregated.to_dict()
+
+        # PBP-derived: red_zone_looks and expected_tds per gsis_id.
+        rz_looks: dict[str, int] = {}
+        xtds: dict[str, float] = {}
+        if not pbp_df.empty:
+            rz = pbp_df[pbp_df["yardline_100"] <= 20]
+            for _, play in rz.iterrows():
+                td_prob = float(play.get("td_prob") or 0)
+                rusher = play.get("rusher_player_id")
+                receiver = play.get("receiver_player_id")
+                if isinstance(rusher, str) and rusher:
+                    rz_looks[rusher] = rz_looks.get(rusher, 0) + 1
+                    xtds[rusher] = xtds.get(rusher, 0.0) + td_prob
+                if isinstance(receiver, str) and receiver:
+                    rz_looks[receiver] = rz_looks.get(receiver, 0) + 1
+                    xtds[receiver] = xtds.get(receiver, 0.0) + td_prob
 
         # Index existing stats by (player_id, season) to allow upsert.
         existing_stats = (await db.scalars(
@@ -73,6 +90,10 @@ class NflDataFetcher:
 
             if gsis in snap_by_gsis:
                 stat.snap_pct = float(snap_by_gsis[gsis])
+            if gsis in rz_looks:
+                stat.red_zone_looks = rz_looks[gsis]
+            if gsis in xtds:
+                stat.expected_tds = round(xtds[gsis], 3)
 
             upserted += 1
 
