@@ -22,7 +22,10 @@ class SleeperFetcher:
     async def fetch(self, db: AsyncSession) -> SourceResult:
         attempted = datetime.utcnow()
         try:
-            async with httpx.AsyncClient(base_url=self.base_url, timeout=30.0) as client:
+            async with httpx.AsyncClient(
+                base_url=self.base_url, timeout=30.0, follow_redirects=True,
+                headers={"User-Agent": "Mozilla/5.0 AutoTiers/0.1"},
+            ) as client:
                 resp = await client.get("/v1/players/nfl")
                 resp.raise_for_status()
                 payload = resp.json()

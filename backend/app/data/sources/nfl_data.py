@@ -20,13 +20,26 @@ class NflDataFetcher:
 
     async def fetch(self, db: AsyncSession) -> SourceResult:
         attempted = datetime.utcnow()
-        try:
-            seasonal_df = import_seasonal_data([self.season])
-            snap_df = import_snap_counts([self.season])
-            pbp_df = import_pbp_data([self.season])
-        except Exception as e:
+        season_to_use = self.season
+        seasonal_df = snap_df = pbp_df = None
+        last_err: Exception | None = None
+        for candidate in (self.season, self.season - 1):
+            try:
+                seasonal_df = import_seasonal_data([candidate])
+                snap_df = import_snap_counts([candidate])
+                pbp_df = import_pbp_data([candidate])
+                season_to_use = candidate
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+                continue
+
+        if last_err is not None or seasonal_df is None:
             return SourceResult(source=self.name, rows_upserted=0,
-                                last_attempted=attempted, success=False, error=str(e))
+                                last_attempted=attempted,
+                                success=False,
+                                error=f"could not fetch any season (tried {self.season}, {self.season - 1}): {last_err}")
 
         # Build gsis_id → Player.id map.
         players = (await db.scalars(select(Player).where(Player.gsis_id.is_not(None)))).all()
@@ -59,7 +72,7 @@ class NflDataFetcher:
 
         # Index existing stats by (player_id, season) to allow upsert.
         existing_stats = (await db.scalars(
-            select(PlayerStat).where(PlayerStat.season == self.season)
+            select(PlayerStat).where(PlayerStat.season == season_to_use)
         )).all()
         stats_by_pid = {s.player_id: s for s in existing_stats}
 
@@ -72,7 +85,7 @@ class NflDataFetcher:
 
             stat = stats_by_pid.get(pid)
             if stat is None:
-                stat = PlayerStat(player_id=pid, season=self.season)
+                stat = PlayerStat(player_id=pid, season=season_to_use)
                 db.add(stat)
                 stats_by_pid[pid] = stat
 

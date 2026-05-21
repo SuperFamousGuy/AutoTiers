@@ -29,7 +29,10 @@ class EspnFetcher:
         headers = {"x-fantasy-filter": '{"players":{"limit":1500,"sortPercOwned":{"sortAsc":false,"sortPriority":1}}}'}
 
         try:
-            async with httpx.AsyncClient(base_url=self.base_url, timeout=30.0) as client:
+            async with httpx.AsyncClient(
+                base_url=self.base_url, timeout=30.0, follow_redirects=True,
+                headers={"User-Agent": "Mozilla/5.0 AutoTiers/0.1"},
+            ) as client:
                 resp = await client.get(url, params=params, headers=headers)
                 resp.raise_for_status()
                 payload = resp.json()

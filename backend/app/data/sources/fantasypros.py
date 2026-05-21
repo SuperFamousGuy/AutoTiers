@@ -32,7 +32,7 @@ class FantasyProsFetcher:
         upserted = 0
 
         try:
-            async with httpx.AsyncClient(base_url=self.base_url, timeout=30.0,
+            async with httpx.AsyncClient(base_url=self.base_url, timeout=30.0, follow_redirects=True,
                                           headers={"User-Agent": "Mozilla/5.0 AutoTiers/0.1"}) as client:
                 # Projections: position × scoring_format
                 for position in _POSITIONS:
