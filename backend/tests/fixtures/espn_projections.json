@@ -1,0 +1,44 @@
+{
+  "players": [
+    {
+      "id": 3918298,
+      "player": {
+        "fullName": "Josh Allen",
+        "defaultPositionId": 1,
+        "stats": [
+          {"statSourceId": 1, "scoringPeriodId": 0, "seasonId": 2026, "appliedTotal": 388.5}
+        ]
+      }
+    },
+    {
+      "id": 4362628,
+      "player": {
+        "fullName": "Ja'Marr Chase",
+        "defaultPositionId": 4,
+        "stats": [
+          {"statSourceId": 1, "scoringPeriodId": 0, "seasonId": 2026, "appliedTotal": 346.0}
+        ]
+      }
+    },
+    {
+      "id": 4262921,
+      "player": {
+        "fullName": "Justin Jefferson",
+        "defaultPositionId": 4,
+        "stats": [
+          {"statSourceId": 1, "scoringPeriodId": 0, "seasonId": 2026, "appliedTotal": 318.0}
+        ]
+      }
+    },
+    {
+      "id": 4430807,
+      "player": {
+        "fullName": "Bijan Robinson",
+        "defaultPositionId": 2,
+        "stats": [
+          {"statSourceId": 1, "scoringPeriodId": 0, "seasonId": 2026, "appliedTotal": 308.0}
+        ]
+      }
+    }
+  ]
+}
