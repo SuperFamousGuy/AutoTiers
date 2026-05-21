@@ -48,9 +48,18 @@ class NflDataFetcher:
         # Build gsis_id → snap_pct map from snap_df.
         snap_by_gsis: dict[str, float] = {}
         if not snap_df.empty:
-            # snap_df has multiple rows per player (one per game). Aggregate to season pct.
-            aggregated = snap_df.groupby("gsis_id")["offense_pct"].mean()
-            snap_by_gsis = aggregated.to_dict()
+            try:
+                # snap_df has multiple rows per player (one per game). Aggregate to season pct.
+                aggregated = snap_df.groupby("gsis_id")["offense_pct"].mean()
+                snap_by_gsis = aggregated.to_dict()
+            except KeyError as e:
+                # Real nfl_data_py snap_counts uses pfr_player_id, not gsis_id.
+                # Joining via pfr_player_id → gsis_id requires import_ids() — deferred.
+                # For now: skip snap_pct rather than fail the entire fetcher.
+                import logging
+                logging.getLogger(__name__).warning(
+                    "[nfl_data] snap_counts schema mismatch (missing %s); skipping snap_pct", e
+                )
 
         # PBP-derived: red_zone_looks and expected_tds per gsis_id.
         rz_looks: dict[str, int] = {}
