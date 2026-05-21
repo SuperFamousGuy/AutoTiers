@@ -20,5 +20,4 @@ async def data_status(db: AsyncSession = Depends(get_db)) -> dict:
 
 @router.post("/data/refresh")
 async def data_refresh(db: AsyncSession = Depends(get_db), _: None = Depends(require_admin)) -> dict:
-    status = await fetcher.refresh_all(db)
-    return {"status": status}
+    return await fetcher.refresh_all(db)
