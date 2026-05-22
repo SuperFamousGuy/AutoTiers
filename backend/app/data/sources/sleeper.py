@@ -60,9 +60,14 @@ class SleeperFetcher:
             existing.active = True
             upserted += 1
 
+        # Hard-delete players not in the current Sleeper response.
+        # Cascade FKs on Player.stats/projections/adp_entries clean up dependent rows.
+        # Trade-off: loses history for traded/retired players who fall off the roster,
+        # but eliminates the duplicate-identity problem with seed data and ensures
+        # the post-refresh DB reflects exactly what Sleeper currently knows about.
         for pid, p in existing_by_id.items():
             if pid not in seen_ids:
-                p.active = False
+                await db.delete(p)
 
         await db.commit()
         return SourceResult(source=self.name, rows_upserted=upserted,
