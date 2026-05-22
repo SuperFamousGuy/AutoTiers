@@ -32,14 +32,46 @@ async def test_sleeper_upserts_active_players(test_db, mock_sleeper):
 
 
 @pytest.mark.asyncio
-async def test_sleeper_marks_missing_players_inactive(test_db, mock_sleeper):
+async def test_sleeper_deletes_orphaned_players(test_db, mock_sleeper):
+    """Players not in the current Sleeper response are hard-deleted (with cascade)."""
     test_db.add(Player(id="ghost_player", name="Old Guy", position="WR", team="DEN", active=True))
     await test_db.commit()
 
     fetcher = SleeperFetcher()
     await fetcher.fetch(test_db)
     ghost = await test_db.scalar(select(Player).where(Player.id == "ghost_player"))
-    assert ghost.active is False
+    assert ghost is None
+
+
+@pytest.mark.asyncio
+async def test_sleeper_orphan_delete_cascades_to_dependent_rows(test_db, mock_sleeper):
+    """Deleting an orphaned Player also clears its stats/projections/ADP via cascade FK."""
+    from app.models import PlayerStat, Projection, ADPData
+    from datetime import date
+
+    # Seed a player not in the Sleeper fixture, plus dependent rows.
+    test_db.add(Player(id="ghost_player", name="Old Guy", position="WR", team="DEN", active=True))
+    await test_db.commit()
+
+    test_db.add(PlayerStat(player_id="ghost_player", season=2025, receptions=50))
+    test_db.add(Projection(
+        player_id="ghost_player", source="espn", scoring_format="ppr",
+        projected_points=100.0, last_updated=date.today(),
+    ))
+    test_db.add(ADPData(
+        player_id="ghost_player", format="ppr", adp=200.0,
+        adp_source="fantasypros", last_updated=date.today(),
+    ))
+    await test_db.commit()
+
+    # Refresh — ghost should be deleted with all its dependents.
+    fetcher = SleeperFetcher()
+    await fetcher.fetch(test_db)
+
+    assert await test_db.scalar(select(Player).where(Player.id == "ghost_player")) is None
+    assert await test_db.scalar(select(PlayerStat).where(PlayerStat.player_id == "ghost_player")) is None
+    assert await test_db.scalar(select(Projection).where(Projection.player_id == "ghost_player")) is None
+    assert await test_db.scalar(select(ADPData).where(ADPData.player_id == "ghost_player")) is None
 
 
 @pytest.mark.asyncio
