@@ -12,7 +12,8 @@ from app.data.sources.base import SourceResult
 from app.models import Player
 
 
-_FANTASY_POSITIONS = {"QB", "RB", "WR", "TE", "K", "DST"}
+_FANTASY_POSITIONS = {"QB", "RB", "WR", "TE", "K", "DST", "DEF"}
+_POSITION_NORMALIZE = {"DEF": "DST"}
 
 
 class SleeperFetcher:
@@ -51,7 +52,7 @@ class SleeperFetcher:
                 db.add(existing)
 
             existing.name = raw.get("full_name") or f"{raw.get('first_name', '')} {raw.get('last_name', '')}".strip()
-            existing.position = position
+            existing.position = _POSITION_NORMALIZE.get(position, position)
             existing.team = team
             existing.age = raw.get("age")
             existing.years_exp = raw.get("years_exp")

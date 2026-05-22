@@ -6,5 +6,6 @@
   "4866": {"player_id": "4866", "first_name": "Saquon", "last_name": "Barkley", "full_name": "Saquon Barkley", "position": "RB", "team": "PHI", "age": 28, "years_exp": 7, "active": true, "gsis_id": "00-0034844", "espn_id": 3929630},
   "4035": {"player_id": "4035", "first_name": "Lamar", "last_name": "Jackson", "full_name": "Lamar Jackson", "position": "QB", "team": "BAL", "age": 28, "years_exp": 7, "active": true, "gsis_id": "00-0034857", "espn_id": 3916387},
   "1234_inactive": {"player_id": "1234_inactive", "first_name": "Retired", "last_name": "Player", "full_name": "Retired Player", "position": "WR", "team": null, "age": 38, "years_exp": 15, "active": false, "gsis_id": null, "espn_id": null},
-  "9999_kicker": {"player_id": "9999_kicker", "first_name": "Justin", "last_name": "Tucker", "full_name": "Justin Tucker", "position": "K", "team": "BAL", "age": 35, "years_exp": 13, "active": true, "gsis_id": "00-0028018", "espn_id": 15683}
+  "9999_kicker": {"player_id": "9999_kicker", "first_name": "Justin", "last_name": "Tucker", "full_name": "Justin Tucker", "position": "K", "team": "BAL", "age": 35, "years_exp": 13, "active": true, "gsis_id": "00-0028018", "espn_id": 15683},
+  "def_1": {"player_id": "def_1", "first_name": "Buffalo", "last_name": "Bills", "full_name": "Bills D/ST", "position": "DEF", "team": "BUF", "age": null, "years_exp": null, "active": true, "gsis_id": null, "espn_id": null}
 }

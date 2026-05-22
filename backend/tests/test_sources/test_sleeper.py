@@ -24,7 +24,7 @@ async def test_sleeper_upserts_active_players(test_db, mock_sleeper):
     fetcher = SleeperFetcher()
     result = await fetcher.fetch(test_db)
     assert result.success
-    assert result.rows_upserted == 7
+    assert result.rows_upserted == 8
     players = (await test_db.scalars(select(Player))).all()
     ids = {p.id for p in players}
     assert "4017" in ids
@@ -82,6 +82,16 @@ async def test_sleeper_populates_cross_ids(test_db, mock_sleeper):
     assert allen.gsis_id == "00-0034796"
     assert allen.espn_id == "3918298"
     assert allen.team == "BUF"
+
+
+@pytest.mark.asyncio
+async def test_sleeper_normalizes_def_to_dst(test_db, mock_sleeper):
+    """Sleeper returns team defenses with position 'DEF'; we store them as 'DST'."""
+    fetcher = SleeperFetcher()
+    await fetcher.fetch(test_db)
+    bills = await test_db.scalar(select(Player).where(Player.id == "def_1"))
+    assert bills is not None
+    assert bills.position == "DST", f"Expected DST, got {bills.position}"
 
 
 @pytest.mark.asyncio

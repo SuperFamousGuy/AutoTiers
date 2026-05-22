@@ -15,16 +15,36 @@ export function TiersPanel({ result, isPending, onDownloadCsv }: TiersPanelProps
   const [filter, setFilter] = useState<PositionFilterValue>("ALL");
 
   const groupedByTier = useMemo(() => {
-    if (!result) return [];
+    if (!result) return [] as { label: string; players: GenerateResponse["players"] }[];
     const filtered = filter === "ALL"
       ? result.players
       : result.players.filter((p) => p.position === filter);
-    const m = new Map<number, typeof filtered>();
-    for (const p of filtered) {
-      if (!m.has(p.overall_tier)) m.set(p.overall_tier, []);
-      m.get(p.overall_tier)!.push(p);
+
+    if (filter === "ALL") {
+      // Group by overall_tier
+      const m = new Map<number, typeof filtered>();
+      for (const p of filtered) {
+        if (!m.has(p.overall_tier)) m.set(p.overall_tier, []);
+        m.get(p.overall_tier)!.push(p);
+      }
+      return [...m.entries()]
+        .sort(([a], [b]) => a - b)
+        .map(([tier, players]) => ({ label: `Tier ${tier}`, players }));
+    } else {
+      // Group by positional_tier (e.g., "WR1", "WR2"). Sort by the numeric suffix.
+      const m = new Map<string, typeof filtered>();
+      for (const p of filtered) {
+        if (!m.has(p.positional_tier)) m.set(p.positional_tier, []);
+        m.get(p.positional_tier)!.push(p);
+      }
+      return [...m.entries()]
+        .sort(([a], [b]) => {
+          const na = parseInt(a.replace(/^[A-Za-z]+/, ""), 10) || 0;
+          const nb = parseInt(b.replace(/^[A-Za-z]+/, ""), 10) || 0;
+          return na - nb;
+        })
+        .map(([tier, players]) => ({ label: tier, players }));
     }
-    return [...m.entries()].sort(([a], [b]) => a - b);
   }, [result, filter]);
 
   if (isPending) {
@@ -58,8 +78,8 @@ export function TiersPanel({ result, isPending, onDownloadCsv }: TiersPanelProps
         <h2 className="text-lg font-semibold">Tiers</h2>
         <PositionFilter value={filter} onChange={setFilter} />
         <div className="space-y-4">
-          {groupedByTier.map(([tier, players]) => (
-            <TierGroup key={tier} tier={tier} players={players} />
+          {groupedByTier.map((group) => (
+            <TierGroup key={group.label} label={group.label} players={group.players} />
           ))}
         </div>
       </div>

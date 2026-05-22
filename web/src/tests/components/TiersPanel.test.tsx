@@ -41,6 +41,15 @@ describe("TiersPanel", () => {
     expect(screen.queryByText("Josh Allen")).not.toBeInTheDocument();
   });
 
+  it("groups by positional tier when filtered to a position", async () => {
+    render(<TiersPanel result={response} isPending={false} onDownloadCsv={() => {}} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^wr$/i }));
+    // Now the tier headers should be position-relative (WR1, WR2) not overall (Tier 1, Tier 2).
+    expect(screen.getByText(/WR1/)).toBeInTheDocument();
+    expect(screen.getByText(/WR2/)).toBeInTheDocument();
+  });
+
   it("calls onDownloadCsv when CSV button clicked", async () => {
     const onDownload = vi.fn();
     render(<TiersPanel result={response} isPending={false} onDownloadCsv={onDownload} />);
