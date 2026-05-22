@@ -13,8 +13,8 @@ class GenerateRequest(BaseModel):
     bonus_100yd_receiving: bool = False
     bonus_first_downs: bool = False
     weight_prior_year: float = 0.40
-    weight_espn: float = 0.30
-    weight_consensus: float = 0.30
+    weight_espn: float = 0.0
+    weight_consensus: float = 0.60
     draft_rounds: int = 15
     rules: list[RuleSchema] = Field(default_factory=list)
 

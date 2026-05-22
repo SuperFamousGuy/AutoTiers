@@ -1,4 +1,4 @@
-"""Top-level data refresh orchestrator. Wires the four source fetchers together."""
+"""Top-level data refresh orchestrator. Wires source fetchers together."""
 from __future__ import annotations
 
 import logging
@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.data.sources.base import SourceResult
 from app.data.sources.sleeper import SleeperFetcher
 from app.data.sources.nfl_data import NflDataFetcher
-from app.data.sources.espn import EspnFetcher
 from app.data.sources.fantasypros import FantasyProsFetcher
 from app.data.status import upsert_status, get_all_status
 
@@ -18,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class DataFetcher:
-    """Orchestrates all four sources. Sleeper runs first; downstream sources run in parallel."""
+    """Orchestrates downstream sources. Sleeper runs first; others follow."""
 
     def __init__(self, prior_season: int, current_season: int):
         self.prior_season = prior_season
@@ -31,7 +30,7 @@ class DataFetcher:
 
         if not sleeper_result.success:
             skipped_at = datetime.utcnow()
-            for name in ("nfl_data_py", "espn", "fantasypros"):
+            for name in ("nfl_data_py", "fantasypros"):
                 skipped = SourceResult(
                     source=name, rows_upserted=0, last_attempted=skipped_at,
                     success=False, error="skipped — sleeper refresh failed",
@@ -44,9 +43,12 @@ class DataFetcher:
 
         # 2. Downstream sources. AsyncSession is not safe for concurrent use,
         # so we serialize on a shared session but still isolate failures.
+        # NOTE: EspnFetcher is intentionally not invoked. ESPN's public projection
+        # endpoint requires authentication (S2/SWID cookies); we use FantasyPros
+        # consensus as the projection source instead. EspnFetcher source is kept
+        # in app/data/sources/espn.py for future re-enable if cookie auth is added.
         downstream = [
             ("nfl_data_py", NflDataFetcher(self.prior_season)),
-            ("espn", EspnFetcher(self.current_season)),
             ("fantasypros", FantasyProsFetcher()),
         ]
         for name, src in downstream:

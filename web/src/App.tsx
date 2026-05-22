@@ -16,7 +16,7 @@ const DEFAULT_SETTINGS: SettingsState = {
   bonus_100yd_rushing: false,
   bonus_100yd_receiving: false,
   bonus_first_downs: false,
-  weights: { prior: 40, espn: 30, consensus: 30 },
+  weights: { prior: 40, consensus: 60 },
 };
 
 export default function App() {
@@ -43,7 +43,7 @@ export default function App() {
     bonus_100yd_receiving: settings.bonus_100yd_receiving,
     bonus_first_downs: settings.bonus_first_downs,
     weight_prior_year: settings.weights.prior / 100,
-    weight_espn: settings.weights.espn / 100,
+    weight_espn: 0,
     weight_consensus: settings.weights.consensus / 100,
     draft_rounds: settings.draft_rounds,
     rules,
