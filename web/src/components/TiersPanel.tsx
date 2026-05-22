@@ -29,7 +29,7 @@ export function TiersPanel({ result, isPending, onDownloadCsv }: TiersPanelProps
 
   if (isPending) {
     return (
-      <section className="p-6 overflow-y-auto">
+      <section className="p-6 overflow-y-auto min-h-0">
         <h2 className="text-lg font-semibold mb-3">Tiers</h2>
         <p className="text-sm text-muted-foreground">Generating tier list…</p>
         <div className="mt-4 space-y-2">
@@ -43,7 +43,7 @@ export function TiersPanel({ result, isPending, onDownloadCsv }: TiersPanelProps
 
   if (!result) {
     return (
-      <section className="p-6">
+      <section className="p-6 min-h-0">
         <h2 className="text-lg font-semibold mb-3">Tiers</h2>
         <p className="text-sm text-muted-foreground">
           Click Generate to build your tier list.
@@ -53,7 +53,7 @@ export function TiersPanel({ result, isPending, onDownloadCsv }: TiersPanelProps
   }
 
   return (
-    <section className="flex flex-col h-full">
+    <section className="flex flex-col h-full min-h-0">
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
         <h2 className="text-lg font-semibold">Tiers</h2>
         <PositionFilter value={filter} onChange={setFilter} />
