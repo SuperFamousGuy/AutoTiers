@@ -206,6 +206,53 @@ async def test_generate_caps_players_by_draft_rounds(async_client, test_db):
 
 
 @pytest.mark.asyncio
+async def test_generate_guarantees_position_coverage(async_client, test_db):
+    """Every position should have at least league_size * 2 players (when available)."""
+    from app.models import Player, Projection
+    from datetime import date
+
+    # Seed: 200 WRs (huge pool, all high-scoring), 5 Kickers (small pool, low-scoring),
+    # 30 QBs (medium pool, medium-scoring), 0 of everything else.
+    # With a flat top-N cap, no Ks would make it because WRs would crowd them out.
+    seed_data = (
+        [(f"wr_{i}", "WR", 300.0 - i * 0.5) for i in range(200)]  # 200 WRs, 300→200 pts
+        + [(f"k_{i}", "K", 150.0 - i) for i in range(5)]            # 5 Kickers, 150→146 pts
+        + [(f"qb_{i}", "QB", 280.0 - i) for i in range(30)]         # 30 QBs, 280→250 pts
+    )
+    for pid, pos, _ in seed_data:
+        test_db.add(Player(id=pid, name=pid, position=pos, team="DAL"))
+    await test_db.commit()
+    for pid, _, pts in seed_data:
+        test_db.add(Projection(
+            player_id=pid, source="espn", scoring_format="ppr",
+            projected_points=pts, last_updated=date.today(),
+        ))
+    await test_db.commit()
+
+    payload = {
+        "scoring_format": "ppr", "league_type": "standard", "league_size": 10,
+        "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
+        "bonus_first_downs": False, "weight_prior_year": 0.0, "weight_espn": 1.0,
+        "weight_consensus": 0.0, "draft_rounds": 15, "rules": [],
+    }
+    resp = await async_client.post("/api/generate", json=payload)
+    assert resp.status_code == 200
+    body = resp.json()
+
+    # Floor: 10 * 2 = 20 per position. WRs available=200 → 20 floor. Ks available=5 → 5 floor (all of them). QBs available=30 → 20 floor.
+    # Floor total = 20 WR + 5 K + 20 QB = 45.
+    # Cap = 10 * 15 = 150. Remaining budget = 150 - 45 = 105.
+    # Fill with highest unselected. WRs 21-200 (180 available) all beat the cap, but we only need 105 more.
+    # Total = 45 + 105 = 150 players.
+    assert body["total"] == 150
+
+    positions = [p["position"] for p in body["players"]]
+    assert positions.count("K") == 5, f"Expected all 5 Ks, got {positions.count('K')}"
+    assert positions.count("QB") >= 20, f"Expected >=20 QBs, got {positions.count('QB')}"
+    assert positions.count("WR") >= 20, f"Expected >=20 WRs, got {positions.count('WR')}"
+
+
+@pytest.mark.asyncio
 async def test_generate_validates_draft_rounds_range(async_client):
     """draft_rounds must be 1-30; values outside that range return 422."""
     base_payload = {
