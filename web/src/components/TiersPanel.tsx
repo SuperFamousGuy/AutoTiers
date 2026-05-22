@@ -53,19 +53,21 @@ export function TiersPanel({ result, isPending, onDownloadCsv }: TiersPanelProps
   }
 
   return (
-    <section className="p-6 overflow-y-auto space-y-4">
-      <div className="flex items-center justify-between">
+    <section className="flex flex-col h-full">
+      <div className="flex-1 overflow-y-auto p-6 space-y-4">
         <h2 className="text-lg font-semibold">Tiers</h2>
-        <Button onClick={onDownloadCsv} variant="outline" size="sm">
+        <PositionFilter value={filter} onChange={setFilter} />
+        <div className="space-y-4">
+          {groupedByTier.map(([tier, players]) => (
+            <TierGroup key={tier} tier={tier} players={players} />
+          ))}
+        </div>
+      </div>
+      <div className="border-t bg-card px-6 py-3 flex justify-center">
+        <Button onClick={onDownloadCsv} variant="default">
           <Download className="mr-2 h-4 w-4" />
           Download CSV
         </Button>
-      </div>
-      <PositionFilter value={filter} onChange={setFilter} />
-      <div className="space-y-4">
-        {groupedByTier.map(([tier, players]) => (
-          <TierGroup key={tier} tier={tier} players={players} />
-        ))}
       </div>
     </section>
   );
