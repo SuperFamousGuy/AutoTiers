@@ -1,0 +1,26 @@
+{
+  "sleeper": {
+    "last_updated": "2026-05-20T03:00:00",
+    "last_attempted": "2026-05-20T03:00:00",
+    "last_error": null,
+    "rows_upserted": 993
+  },
+  "nfl_data_py": {
+    "last_updated": "2026-05-20T03:00:12",
+    "last_attempted": "2026-05-20T03:00:12",
+    "last_error": null,
+    "rows_upserted": 412
+  },
+  "espn": {
+    "last_updated": null,
+    "last_attempted": "2026-05-20T03:00:09",
+    "last_error": "HTTP 503",
+    "rows_upserted": 0
+  },
+  "fantasypros": {
+    "last_updated": "2026-05-20T03:00:15",
+    "last_attempted": "2026-05-20T03:00:15",
+    "last_error": null,
+    "rows_upserted": 2734
+  }
+}

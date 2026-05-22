@@ -1,0 +1,51 @@
+import { describe, it, expect, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { TiersPanel } from "@/components/TiersPanel";
+import generateResponse from "../fixtures/generate-response.json";
+import type { GenerateResponse } from "@/api/types";
+
+const response = generateResponse as GenerateResponse;
+
+describe("TiersPanel", () => {
+  it("shows placeholder when no result", () => {
+    render(<TiersPanel result={null} isPending={false} onDownloadCsv={() => {}} />);
+    expect(screen.getByText(/click generate/i)).toBeInTheDocument();
+  });
+
+  it("shows skeleton when pending", () => {
+    render(<TiersPanel result={null} isPending={true} onDownloadCsv={() => {}} />);
+    expect(screen.getByText(/generating/i)).toBeInTheDocument();
+  });
+
+  it("renders all players grouped by tier", () => {
+    render(<TiersPanel result={response} isPending={false} onDownloadCsv={() => {}} />);
+    expect(screen.getByText("Ja'Marr Chase")).toBeInTheDocument();
+    expect(screen.getByText("Bijan Robinson")).toBeInTheDocument();
+    expect(screen.getByText("Josh Allen")).toBeInTheDocument();
+  });
+
+  it("renders tier headers", () => {
+    render(<TiersPanel result={response} isPending={false} onDownloadCsv={() => {}} />);
+    expect(screen.getByText(/tier 1/i)).toBeInTheDocument();
+    expect(screen.getByText(/tier 2/i)).toBeInTheDocument();
+  });
+
+  it("filters by position when a position chip is clicked", async () => {
+    render(<TiersPanel result={response} isPending={false} onDownloadCsv={() => {}} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^wr$/i }));
+    expect(screen.getByText("Ja'Marr Chase")).toBeInTheDocument();
+    expect(screen.getByText("Justin Jefferson")).toBeInTheDocument();
+    expect(screen.queryByText("Bijan Robinson")).not.toBeInTheDocument();
+    expect(screen.queryByText("Josh Allen")).not.toBeInTheDocument();
+  });
+
+  it("calls onDownloadCsv when CSV button clicked", async () => {
+    const onDownload = vi.fn();
+    render(<TiersPanel result={response} isPending={false} onDownloadCsv={onDownload} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /download csv/i }));
+    expect(onDownload).toHaveBeenCalled();
+  });
+});

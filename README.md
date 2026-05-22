@@ -61,6 +61,33 @@ docker compose up --build
 
 Code in `backend/app/`, `backend/alembic/`, `backend/scripts/`, and `backend/tests/` is mounted into the container — edits trigger hot reload.
 
+## Frontend
+
+The React frontend lives in `web/`. With docker-compose, it comes up automatically alongside the backend at http://localhost:5173.
+
+To run the frontend without Docker (against a containerized backend):
+
+```bash
+cd web
+npm install
+npm run dev
+# → opens http://localhost:5173
+```
+
+The frontend reads `VITE_API_URL` from its environment. In Docker it's set to `http://localhost:8000`; for host-side dev override via `web/.env.local`:
+
+```
+VITE_API_URL=http://localhost:8000
+```
+
+### Frontend tests
+
+```bash
+cd web
+npm test            # one-shot
+npm run test:watch  # watch mode
+```
+
 ## Backend — Local Setup (without Docker)
 
 ```bash

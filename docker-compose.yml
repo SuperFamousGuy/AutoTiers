@@ -41,5 +41,23 @@ services:
       - ./backend/scripts:/app/scripts
       - ./backend/tests:/app/tests
 
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: autotiers-web
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-5173}:5173"
+    environment:
+      VITE_API_URL: "http://localhost:${API_PORT:-8000}"
+    volumes:
+      - ./web/src:/app/src
+      - ./web/public:/app/public
+      - ./web/index.html:/app/index.html
+      - ./web/tailwind.config.ts:/app/tailwind.config.ts
+      - ./web/components.json:/app/components.json
+
 volumes:
   autotiers_pgdata:
