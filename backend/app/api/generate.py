@@ -214,12 +214,40 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
     else:
         tiebreak_adp_attr = "adp_standard"
 
-    # Cap to league_size * draft_rounds, applied BEFORE clustering so Jenks
-    # only considers draftable players. This produces tighter, more meaningful
-    # tier breaks than running Jenks on the full ~1000-player pool.
-    cap = req.league_size * req.draft_rounds
-    tiered.sort(key=lambda p: p.adjusted_score, reverse=True)
-    capped = tiered[:cap]
+    # Cap selection. Two-pass:
+    #   1. Per-position floor: every position gets at least league_size * 2 players
+    #      (so every team can draft 2). This prevents K/DST starvation when their
+    #      adjusted scores are dwarfed by RB/WR/QB projections.
+    #   2. Fill remaining budget (cap - len(floor)) with the highest-scoring
+    #      not-yet-selected players regardless of position.
+    # If floor exceeds cap (e.g., short draft_rounds), floor wins — better to
+    # include extras than to miss a position.
+    POSITIONS = ("QB", "RB", "WR", "TE", "K", "DST")
+    overall_cap = req.league_size * req.draft_rounds
+    per_position_min = req.league_size * 2
+
+    by_position: dict[str, list[TieredPlayer]] = {p: [] for p in POSITIONS}
+    for p in tiered:
+        if p.position in by_position:
+            by_position[p.position].append(p)
+    for pos in by_position:
+        by_position[pos].sort(key=lambda x: x.adjusted_score, reverse=True)
+
+    # Floor: top per_position_min for each position
+    guaranteed: list[TieredPlayer] = []
+    for pos in POSITIONS:
+        guaranteed.extend(by_position[pos][:per_position_min])
+
+    # Fill remaining budget with highest-scoring not-already-selected players
+    guaranteed_ids = {p.player_id for p in guaranteed}
+    remaining_pool = sorted(
+        (p for p in tiered if p.player_id not in guaranteed_ids),
+        key=lambda p: p.adjusted_score,
+        reverse=True,
+    )
+    remaining_budget = max(0, overall_cap - len(guaranteed))
+    capped = guaranteed + remaining_pool[:remaining_budget]
+    capped.sort(key=lambda p: p.adjusted_score, reverse=True)
 
     return assign_tiers(capped, league_size=req.league_size, tiebreak_adp_attr=tiebreak_adp_attr)
 
