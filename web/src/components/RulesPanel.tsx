@@ -28,11 +28,11 @@ export function RulesPanel({ rules, onChange }: RulesPanelProps) {
     onChange(rules.filter((r) => r.name !== name));
 
   if (rules.length === 0) {
-    return <aside className="p-6 border-r bg-card"><span className="text-sm text-muted-foreground">Loading rules…</span></aside>;
+    return <aside className="p-6 border-r bg-card min-h-0 overflow-y-auto"><span className="text-sm text-muted-foreground">Loading rules…</span></aside>;
   }
 
   return (
-    <aside className="space-y-3 border-r bg-card p-6 overflow-y-auto">
+    <aside className="space-y-3 border-r bg-card p-6 overflow-y-auto min-h-0">
       <h2 className="text-lg font-semibold">Rules</h2>
       {grouped.map(([cat, rs]) => (
         <RuleCategory key={cat} name={cat} rules={rs} onChangeRule={updateRule} />

@@ -58,7 +58,7 @@ export default function App() {
         generateIsPending={generate.isPending}
         onGenerate={() => generate.mutate(buildRequest())}
       />
-      <main className="flex-1 grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_minmax(0,1.5fr)] overflow-hidden">
+      <main className="flex-1 grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_minmax(0,1.5fr)] lg:grid-rows-1 overflow-hidden">
         <SettingsPanel value={settings} onChange={setSettings} />
         <RulesPanel rules={rules} onChange={setRules} />
         <TiersPanel

@@ -31,7 +31,7 @@ export function SettingsPanel({ value, onChange }: SettingsPanelProps) {
     onChange({ ...value, [key]: v });
 
   return (
-    <aside className="space-y-6 border-r bg-card p-6 overflow-y-auto">
+    <aside className="space-y-6 border-r bg-card p-6 overflow-y-auto min-h-0">
       <h2 className="text-lg font-semibold">Settings</h2>
 
       <div className="space-y-2">
