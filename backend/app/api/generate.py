@@ -214,7 +214,14 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
     else:
         tiebreak_adp_attr = "adp_standard"
 
-    return assign_tiers(tiered, league_size=req.league_size, tiebreak_adp_attr=tiebreak_adp_attr)
+    # Cap to league_size * draft_rounds, applied BEFORE clustering so Jenks
+    # only considers draftable players. This produces tighter, more meaningful
+    # tier breaks than running Jenks on the full ~1000-player pool.
+    cap = req.league_size * req.draft_rounds
+    tiered.sort(key=lambda p: p.adjusted_score, reverse=True)
+    capped = tiered[:cap]
+
+    return assign_tiers(capped, league_size=req.league_size, tiebreak_adp_attr=tiebreak_adp_attr)
 
 
 @router.post("/generate", response_model=GenerateResponse)

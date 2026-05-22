@@ -11,6 +11,7 @@ const DEFAULT_SETTINGS: SettingsState = {
   scoring_format: "ppr",
   league_type: "standard",
   league_size: 12,
+  draft_rounds: 15,
   qb_td_points: 4,
   bonus_100yd_rushing: false,
   bonus_100yd_receiving: false,
@@ -44,6 +45,7 @@ export default function App() {
     weight_prior_year: settings.weights.prior / 100,
     weight_espn: settings.weights.espn / 100,
     weight_consensus: settings.weights.consensus / 100,
+    draft_rounds: settings.draft_rounds,
     rules,
   });
 
