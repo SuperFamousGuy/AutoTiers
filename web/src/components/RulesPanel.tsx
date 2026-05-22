@@ -1,7 +1,6 @@
 import { useMemo } from "react";
 import { RuleCategory } from "./RuleCategory";
 import { CustomRulesEditor } from "./CustomRulesEditor";
-import { useRules } from "@/api/hooks";
 import type { Rule } from "@/api/types";
 
 interface RulesPanelProps {
@@ -10,8 +9,6 @@ interface RulesPanelProps {
 }
 
 export function RulesPanel({ rules, onChange }: RulesPanelProps) {
-  const { data: builtinRules, isLoading } = useRules();
-
   const grouped = useMemo(() => {
     const m = new Map<string, Rule[]>();
     for (const r of rules) {
@@ -30,8 +27,8 @@ export function RulesPanel({ rules, onChange }: RulesPanelProps) {
   const removeCustomRule = (name: string) =>
     onChange(rules.filter((r) => r.name !== name));
 
-  if (isLoading && !builtinRules) {
-    return <aside className="p-6 border-r"><span className="text-sm text-muted-foreground">Loading rules…</span></aside>;
+  if (rules.length === 0) {
+    return <aside className="p-6 border-r bg-card"><span className="text-sm text-muted-foreground">Loading rules…</span></aside>;
   }
 
   return (

@@ -16,7 +16,7 @@ export function DataFreshness() {
   const updates = Object.values(data)
     .map((s) => s.last_updated)
     .filter((v): v is string => v !== null);
-  const oldest = updates.length ? updates.reduce((a, b) => (a < b ? a : b)) : null;
+  const oldest = updates.length ? updates.reduce((a, b) => (Date.parse(a) < Date.parse(b) ? a : b)) : null;
   const level = freshnessLevel(oldest);
 
   const colorClass = {

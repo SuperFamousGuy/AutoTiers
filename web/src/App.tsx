@@ -21,15 +21,17 @@ const DEFAULT_SETTINGS: SettingsState = {
 export default function App() {
   const [settings, setSettings] = useState<SettingsState>(DEFAULT_SETTINGS);
   const [rules, setRules] = useState<Rule[]>([]);
+  const [seeded, setSeeded] = useState(false);
   const { data: fetchedRules } = useRules();
   const generate = useGenerateMutation();
 
   // Seed local rules state once the backend response arrives.
   useEffect(() => {
-    if (fetchedRules && rules.length === 0) {
+    if (fetchedRules && !seeded) {
       setRules(fetchedRules);
+      setSeeded(true);
     }
-  }, [fetchedRules, rules.length]);
+  }, [fetchedRules, seeded]);
 
   const buildRequest = (): GenerateRequest => ({
     scoring_format: settings.scoring_format,
