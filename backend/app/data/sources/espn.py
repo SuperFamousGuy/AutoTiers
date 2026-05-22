@@ -1,4 +1,11 @@
-"""ESPN unofficial fantasy API fetcher — current-season projections."""
+"""ESPN unofficial fantasy API fetcher — current-season projections.
+
+NOTE (deprecated for v1): this fetcher is currently NOT invoked by the
+orchestrator (app/data/fetcher.py). ESPN's public endpoint redirects
+anonymous requests; using it requires S2/SWID cookie auth (env vars).
+Source preserved in place so re-enabling is a one-line orchestrator change
+once cookie auth is wired up.
+"""
 from __future__ import annotations
 
 from datetime import datetime, date

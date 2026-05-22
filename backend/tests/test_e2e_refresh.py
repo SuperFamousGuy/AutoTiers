@@ -24,11 +24,9 @@ def all_mocks(monkeypatch):
     monkeypatch.setattr(nfl_mod, "import_pbp_data", lambda y: pbp_df.copy())
 
     sleeper_fix = json.loads((FIXTURES / "sleeper_players.json").read_text())
-    espn_fix = json.loads((FIXTURES / "espn_projections.json").read_text())
 
     with respx.mock() as router:
         router.get(url__regex=r"https://api\.sleeper\.app/.*").mock(return_value=Response(200, json=sleeper_fix))
-        router.get(url__regex=r"https://fantasy\.espn\.com/.*").mock(return_value=Response(200, json=espn_fix))
         router.get(url__regex=r"https://www\.fantasypros\.com/nfl/projections/wr\.php.*").mock(
             return_value=Response(200, text=(FIXTURES / "fantasypros_projections_wr.html").read_text())
         )
