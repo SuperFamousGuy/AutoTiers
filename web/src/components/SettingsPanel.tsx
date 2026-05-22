@@ -10,6 +10,7 @@ export interface SettingsState {
   scoring_format: ScoringFormat;
   league_type: LeagueType;
   league_size: LeagueSize;
+  draft_rounds: number;
   qb_td_points: QbTdPoints;
   bonus_100yd_rushing: boolean;
   bonus_100yd_receiving: boolean;
@@ -23,6 +24,7 @@ interface SettingsPanelProps {
 }
 
 const LEAGUE_SIZES: LeagueSize[] = [8, 10, 12, 14, 16];
+const DRAFT_ROUNDS_OPTIONS = [10, 12, 14, 15, 16, 18, 20, 25] as const;
 
 export function SettingsPanel({ value, onChange }: SettingsPanelProps) {
   const set = <K extends keyof SettingsState>(key: K, v: SettingsState[K]) =>
@@ -79,6 +81,23 @@ export function SettingsPanel({ value, onChange }: SettingsPanelProps) {
           <SelectContent>
             {LEAGUE_SIZES.map((n) => (
               <SelectItem key={n} value={String(n)}>{n} teams</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Draft rounds</Label>
+        <Select
+          value={String(value.draft_rounds)}
+          onValueChange={(v) => set("draft_rounds", Number(v))}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {DRAFT_ROUNDS_OPTIONS.map((n) => (
+              <SelectItem key={n} value={String(n)}>{n} rounds</SelectItem>
             ))}
           </SelectContent>
         </Select>

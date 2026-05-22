@@ -15,6 +15,7 @@ class GenerateRequest(BaseModel):
     weight_prior_year: float = 0.40
     weight_espn: float = 0.30
     weight_consensus: float = 0.30
+    draft_rounds: int = 15
     rules: list[RuleSchema] = Field(default_factory=list)
 
     @field_validator("league_size")
@@ -22,6 +23,13 @@ class GenerateRequest(BaseModel):
     def valid_league_size(cls, v: int) -> int:
         if v not in {8, 10, 12, 14, 16}:
             raise ValueError("league_size must be one of: 8, 10, 12, 14, 16")
+        return v
+
+    @field_validator("draft_rounds")
+    @classmethod
+    def valid_draft_rounds(cls, v: int) -> int:
+        if not (1 <= v <= 30):
+            raise ValueError("draft_rounds must be between 1 and 30")
         return v
 
     @field_validator("weight_consensus")

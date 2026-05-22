@@ -38,6 +38,7 @@ export interface GenerateRequest {
   weight_prior_year: number;
   weight_espn: number;
   weight_consensus: number;
+  draft_rounds: number;
   rules: Rule[];
 }
 
