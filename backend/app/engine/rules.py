@@ -55,10 +55,20 @@ class PlayerContext:
 
 
 @dataclass
+class RuleApplication:
+    name: str
+    effect_type: EffectType
+    before_score: float
+    after_score: float
+    delta: float  # after - before; for FLAG type, this is 0.0
+
+
+@dataclass
 class RuleResult:
     adjusted_score: float
     flags: list[str] = field(default_factory=list)
     rules_applied: list[str] = field(default_factory=list)
+    applications: list[RuleApplication] = field(default_factory=list)
 
 
 _OPS = {
@@ -82,6 +92,7 @@ def apply_rules(base_score: float, ctx: PlayerContext, rules: list[Rule]) -> Rul
     score = base_score
     flags: list[str] = []
     applied: list[str] = []
+    applications: list[RuleApplication] = []
 
     for rule in rules:
         if not rule.enabled:
@@ -89,6 +100,7 @@ def apply_rules(base_score: float, ctx: PlayerContext, rules: list[Rule]) -> Rul
         if not all(_evaluate(c, ctx) for c in rule.conditions):
             continue
 
+        before = score
         effect = rule.effect
         if effect.type == EffectType.MULTIPLIER:
             distance = float(effect.value) - 1.0
@@ -102,5 +114,17 @@ def apply_rules(base_score: float, ctx: PlayerContext, rules: list[Rule]) -> Rul
             flags.append(str(effect.value))
 
         applied.append(rule.name)
+        applications.append(RuleApplication(
+            name=rule.name,
+            effect_type=effect.type,
+            before_score=round(before, 2),
+            after_score=round(score, 2),
+            delta=round(score - before, 2),
+        ))
 
-    return RuleResult(adjusted_score=round(score, 2), flags=flags, rules_applied=applied)
+    return RuleResult(
+        adjusted_score=round(score, 2),
+        flags=flags,
+        rules_applied=applied,
+        applications=applications,
+    )

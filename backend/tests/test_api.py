@@ -319,6 +319,39 @@ async def test_over_the_hill_position_aware_thresholds(async_client, test_db):
         assert applied == expected, f"{pid} (age {by_id[pid]['age']}): expected rule_applied={expected}, got {applied}"
 
 
+@pytest.mark.asyncio
+async def test_generate_response_includes_score_breakdown(async_client, test_db):
+    """TieredPlayerOut includes espn_projection, fantasypros_projection, rule_applications."""
+    from app.models import Player, Projection
+    from datetime import date
+
+    test_db.add(Player(id="wr_1", name="Test WR", position="WR", team="DAL", age=25))
+    await test_db.commit()
+    test_db.add(Projection(player_id="wr_1", source="fantasypros", scoring_format="ppr",
+                           projected_points=300.0, last_updated=date.today()))
+    await test_db.commit()
+
+    payload = {
+        "scoring_format": "ppr", "league_type": "standard", "league_size": 10,
+        "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
+        "bonus_first_downs": False, "weight_prior_year": 0.0, "weight_espn": 0.0,
+        "weight_consensus": 1.0, "draft_rounds": 15, "rules": [],
+    }
+    resp = await async_client.post("/api/generate", json=payload)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body["players"]) >= 1
+    p = body["players"][0]
+    # New fields exist
+    assert "espn_projection" in p
+    assert "fantasypros_projection" in p
+    assert "rule_applications" in p
+    # fantasypros_projection should be the value we seeded
+    assert p["fantasypros_projection"] == 300.0
+    # No rules → empty applications
+    assert p["rule_applications"] == []
+
+
 async def test_generate_csv_returns_csv_file(async_client, test_db):
     await _seed(test_db)
     payload = {

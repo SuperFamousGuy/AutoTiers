@@ -14,11 +14,17 @@
       "adjusted_score": 385.2,
       "projected_score_raw": 372.0,
       "prior_year_actual": 399.8,
+      "espn_projection": null,
+      "fantasypros_projection": 360.0,
       "adp_standard": 3.0,
       "adp_ppr": 1.5,
       "adp_dynasty": 1.0,
       "flags": ["Contract Year"],
-      "rules_applied": ["Target Share Premium", "TD Regression (positive)"]
+      "rules_applied": ["Target Share Premium", "TD Regression (positive)"],
+      "rule_applications": [
+        {"name": "Target Share Premium", "effect_type": "flat_bonus", "before_score": 372.0, "after_score": 392.0, "delta": 20.0},
+        {"name": "TD Regression (positive)", "effect_type": "multiplier", "before_score": 392.0, "after_score": 352.8, "delta": -39.2}
+      ]
     },
     {
       "overall_rank": 2,
@@ -32,11 +38,16 @@
       "adjusted_score": 378.4,
       "projected_score_raw": 365.0,
       "prior_year_actual": 320.0,
+      "espn_projection": null,
+      "fantasypros_projection": 365.0,
       "adp_standard": 2.0,
       "adp_ppr": 3.0,
       "adp_dynasty": 3.0,
       "flags": [],
-      "rules_applied": ["Red Zone Usage Premium"]
+      "rules_applied": ["Red Zone Usage Premium"],
+      "rule_applications": [
+        {"name": "Red Zone Usage Premium", "effect_type": "flat_bonus", "before_score": 365.0, "after_score": 378.4, "delta": 13.4}
+      ]
     },
     {
       "overall_rank": 3,
@@ -50,11 +61,14 @@
       "adjusted_score": 354.1,
       "projected_score_raw": 354.1,
       "prior_year_actual": 360.0,
+      "espn_projection": null,
+      "fantasypros_projection": 354.1,
       "adp_standard": 4.0,
       "adp_ppr": 2.5,
       "adp_dynasty": 2.0,
       "flags": [],
-      "rules_applied": []
+      "rules_applied": [],
+      "rule_applications": []
     },
     {
       "overall_rank": 4,
@@ -68,11 +82,16 @@
       "adjusted_score": 340.0,
       "projected_score_raw": 350.0,
       "prior_year_actual": 332.0,
+      "espn_projection": null,
+      "fantasypros_projection": 350.0,
       "adp_standard": 4.0,
       "adp_ppr": 6.0,
       "adp_dynasty": 22.0,
       "flags": [],
-      "rules_applied": ["Over the Hill"]
+      "rules_applied": ["Over the Hill"],
+      "rule_applications": [
+        {"name": "Over the Hill", "effect_type": "multiplier", "before_score": 350.0, "after_score": 340.0, "delta": -10.0}
+      ]
     },
     {
       "overall_rank": 5,
@@ -86,11 +105,14 @@
       "adjusted_score": 320.0,
       "projected_score_raw": 320.0,
       "prior_year_actual": 388.0,
+      "espn_projection": null,
+      "fantasypros_projection": 320.0,
       "adp_standard": 17.0,
       "adp_ppr": 18.0,
       "adp_dynasty": 12.0,
       "flags": [],
-      "rules_applied": []
+      "rules_applied": [],
+      "rule_applications": []
     }
   ]
 }

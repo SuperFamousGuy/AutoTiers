@@ -195,3 +195,46 @@ def test_red_zone_premium_skipped_when_none():
     result = apply_rules(100.0, ctx, [rule])
     assert result.adjusted_score == 100.0
     assert "Red Zone Usage Premium" not in result.rules_applied
+
+
+def test_apply_rules_tracks_per_rule_applications():
+    """RuleResult.applications has before/after/delta per rule."""
+    rule = Rule(
+        name="Test Bonus",
+        conditions=[RuleCondition(field="position", operator="==", value="WR")],
+        effect=RuleEffect(type=EffectType.FLAT_BONUS, value=20.0),
+    )
+    ctx = make_ctx(position="WR", projected_score=100.0)
+    result = apply_rules(100.0, ctx, [rule])
+
+    assert len(result.applications) == 1
+    app = result.applications[0]
+    assert app.name == "Test Bonus"
+    assert app.before_score == 100.0
+    assert app.after_score == 120.0
+    assert app.delta == 20.0
+
+
+def test_apply_rules_applications_track_sequential_state():
+    """Each application records the score state AT THAT POINT, not the final state."""
+    rule_a = Rule(
+        name="Bonus A",
+        conditions=[RuleCondition(field="position", operator="==", value="WR")],
+        effect=RuleEffect(type=EffectType.FLAT_BONUS, value=10.0),
+    )
+    rule_b = Rule(
+        name="Multiplier B",
+        conditions=[RuleCondition(field="position", operator="==", value="WR")],
+        effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.5),
+    )
+    ctx = make_ctx(position="WR")
+    result = apply_rules(100.0, ctx, [rule_a, rule_b])
+
+    # rule_a: 100 -> 110 (delta +10)
+    # rule_b: 110 -> 55 (delta -55)
+    assert len(result.applications) == 2
+    assert result.applications[0].before_score == 100.0
+    assert result.applications[0].after_score == 110.0
+    assert result.applications[1].before_score == 110.0
+    assert result.applications[1].after_score == 55.0
+    assert result.adjusted_score == 55.0

@@ -1,6 +1,8 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 import jenkspy
+
+from app.engine.rules import RuleApplication
 
 
 POSITION_MAX_TIERS = {"QB": 3, "RB": 5, "WR": 5, "TE": 3, "K": 2, "DST": 3}
@@ -24,6 +26,9 @@ class TieredPlayer:
     overall_rank: int
     overall_tier: int
     positional_tier: str
+    espn_projection: Optional[float] = None
+    fantasypros_projection: Optional[float] = None
+    rule_applications: list[RuleApplication] = field(default_factory=list)
 
 
 def _jenks_interior_breaks(scores: list[float], max_classes: int) -> list[float]:
