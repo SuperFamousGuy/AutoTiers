@@ -16,6 +16,7 @@ _CATEGORIES = {
     "Injury History": "Regression",
     "TD Regression": "Regression",
     "Red Zone": "Regression",
+    "Projection Unavailable": "Regression",
     "Handcuff": "Flag",
     "Availability Risk": "Flag",
 }

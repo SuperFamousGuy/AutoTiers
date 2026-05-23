@@ -40,4 +40,7 @@ BUILTIN_RULES: list[Rule] = [
     # Flags
     _rule("Handcuff Flag",          [("position", "==", "RB"), ("carry_share", "<", 0.30)],    EffectType.FLAG, "Handcuff"),
     _rule("Availability Risk Flag", [("games_played", "<", 8)],                                EffectType.FLAG, "Availability Risk"),
+
+    # Confidence penalty
+    _rule("Projection Unavailable", [("projection_unavailable", "==", True)],                  EffectType.MULTIPLIER, 0.5),
 ]

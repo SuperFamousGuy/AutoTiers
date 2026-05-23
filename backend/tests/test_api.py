@@ -352,6 +352,51 @@ async def test_generate_response_includes_score_breakdown(async_client, test_db)
     assert p["rule_applications"] == []
 
 
+@pytest.mark.asyncio
+async def test_partial_data_player_does_not_outrank_complete_data_player(async_client, test_db):
+    """Player with only prior_year (no projection) should rank below player with full data."""
+    from app.models import Player, Projection
+    from datetime import date
+
+    # Partial-data player: prior_year only, no projections (like Winston)
+    test_db.add(Player(id="winston", name="Backup QB", position="QB", team="NYG", age=32))
+    # Complete-data player: prior_year + FP projection
+    test_db.add(Player(id="star", name="Star QB", position="QB", team="BUF", age=28))
+    await test_db.commit()
+
+    # No projections for winston
+    # Star has a strong FP projection
+    test_db.add(Projection(
+        player_id="star", source="fantasypros", scoring_format="ppr",
+        projected_points=400.0, last_updated=date.today(),
+    ))
+    await test_db.commit()
+
+    payload = {
+        "scoring_format": "ppr", "league_type": "standard", "league_size": 10,
+        "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
+        "bonus_first_downs": False,
+        "weight_prior_year": 0.20, "weight_espn": 0.0, "weight_consensus": 0.80,
+        "draft_rounds": 15, "rules": [],
+    }
+    resp = await async_client.post("/api/generate", json=payload)
+    assert resp.status_code == 200
+    body = resp.json()
+
+    star = next((p for p in body["players"] if p["player_id"] == "star"), None)
+    winston = next((p for p in body["players"] if p["player_id"] == "winston"), None)
+
+    assert star is not None
+    assert winston is not None
+    # Star has full data with strong FP; winston has no data at all.
+    # Winston should have adjusted_score = 0 (no prior year either) * 0.5 (rule) = 0
+    # Star should be 0 * 0.20 + 400 * 0.80 = 320 (no prior year for star but he has FP)
+    assert star["adjusted_score"] > winston["adjusted_score"]
+    assert star["overall_rank"] < winston["overall_rank"]
+    # Winston should have the Projection Unavailable rule applied
+    assert "Projection Unavailable" in winston["rules_applied"]
+
+
 async def test_generate_csv_returns_csv_file(async_client, test_db):
     await _seed(test_db)
     payload = {
@@ -378,6 +423,10 @@ async def test_generate_csv_returns_csv_file(async_client, test_db):
     assert "overall_rank" in header
     assert "player" in header
     assert "positional_tier" in header
+    # New columns present
+    assert "espn_projection" in header
+    assert "fantasypros_projection" in header
+    assert "rule_deltas" in header
 
     reader = csv_module.reader(io_module.StringIO(response.text))
     rows = list(reader)
