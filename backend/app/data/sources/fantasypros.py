@@ -37,7 +37,7 @@ class FantasyProsFetcher:
                 # Projections: position × scoring_format
                 for position in _POSITIONS:
                     for ff_format, ff_param in [("standard", "STD"), ("half_ppr", "HALF"), ("ppr", "PPR")]:
-                        resp = await client.get(f"/nfl/projections/{position}.php", params={"scoring": ff_param})
+                        resp = await client.get(f"/nfl/projections/{position}.php", params={"scoring": ff_param, "week": "draft"})
                         resp.raise_for_status()
                         upserted += await self._parse_projections(
                             db, resp.text, position.upper(), ff_format, today
@@ -64,6 +64,31 @@ class FantasyProsFetcher:
         if table is None:
             return 0
 
+        # Find the FPTS column index by inspecting the header row.
+        # FantasyPros has tables with columns like: Player, ATT, CMP, YDS, TDS, INTS, ..., FPTS
+        # We want FPTS (season total). Older versions had FPTS as the last column;
+        # newer versions sometimes append an "AVG" column after it. Look up by header text.
+        fpts_idx: int | None = None
+        header_row = table.find("thead")
+        if header_row is not None:
+            header_cells = header_row.find_all("th")
+            for i, th in enumerate(header_cells):
+                text = th.get_text(strip=True).upper()
+                if text == "FPTS":
+                    fpts_idx = i
+                    break
+
+        # Fallback: assume last cell (legacy behavior). Log a warning so we know.
+        if fpts_idx is None:
+            logger.warning(
+                "[fantasypros] FPTS header column not found for %s; falling back to last cell",
+                position,
+            )
+
+        # Sanity-check threshold: season-total projections should be way above
+        # per-game numbers. Log a warning if scraped values look too small.
+        season_total_min_expected = {"QB": 100, "RB": 50, "WR": 50, "TE": 30}
+
         upserted = 0
         for tr in table.select("tbody tr"):
             cells = tr.find_all("td")
@@ -72,11 +97,25 @@ class FantasyProsFetcher:
             name, team = self._parse_player_cell(cells[0])
             if not name:
                 continue
-            # Last cell is FPTS.
+
+            # Read the FPTS column.
             try:
-                points = float(cells[-1].get_text(strip=True).replace(",", ""))
+                if fpts_idx is not None and fpts_idx < len(cells):
+                    points_cell = cells[fpts_idx]
+                else:
+                    points_cell = cells[-1]
+                points = float(points_cell.get_text(strip=True).replace(",", ""))
             except (ValueError, IndexError):
                 continue
+
+            # Sanity check: if a top-row player has way-too-small projection,
+            # we might still be reading per-game data. Just log; don't fail.
+            if upserted == 0 and points < season_total_min_expected.get(position, 0):
+                logger.warning(
+                    "[fantasypros] %s top player %s has FPTS=%.1f which looks like per-game data, "
+                    "not season-total. Check the scraper URL/column logic.",
+                    position, name, points,
+                )
 
             player = await fuzzy_match(db, name, team, position)
             if player is None:

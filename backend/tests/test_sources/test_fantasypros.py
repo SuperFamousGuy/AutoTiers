@@ -65,6 +65,47 @@ async def test_fantasypros_matches_players_and_upserts_projections(test_db, mock
 
 
 @pytest.mark.asyncio
+async def test_fantasypros_reads_fpts_by_header_not_position(test_db):
+    """FPTS column is found by header text, not column index. Add a fake fixture
+    where FPTS is not the last column to verify the fallback works."""
+    # Pre-seed a player so fuzzy match can find them
+    test_db.add(Player(id="6794", name="Ja'Marr Chase", position="WR", team="CIN"))
+    await test_db.commit()
+
+    # FantasyPros HTML where FPTS is in the middle, with AVG (per-game) at the end
+    html_with_avg = """
+    <html><body><table id="data">
+      <thead><tr><th>Player</th><th>REC</th><th>YDS</th><th>FPTS</th><th>AVG</th></tr></thead>
+      <tbody>
+        <tr><td><a>Ja'Marr Chase</a> <small>CIN</small></td><td>108</td><td>1450</td><td>340.5</td><td>20.0</td></tr>
+      </tbody>
+    </table></body></html>
+    """
+
+    from app.data.sources.fantasypros import FantasyProsFetcher
+    fetcher = FantasyProsFetcher()
+    from datetime import date as _date
+    upserted = await fetcher._parse_projections(
+        test_db, html_with_avg, "WR", "ppr", _date.today(),
+    )
+    await test_db.commit()
+
+    # Should pick up FPTS (340.5) by header, not AVG (20.0) by being last cell
+    chase_proj = await test_db.scalar(
+        select(Projection).where(
+            Projection.player_id == "6794",
+            Projection.source == "fantasypros",
+            Projection.scoring_format == "ppr",
+        )
+    )
+    assert chase_proj is not None
+    assert chase_proj.projected_points == 340.5, (
+        f"Expected 340.5 (FPTS season-total), got {chase_proj.projected_points}. "
+        "Probably read the last column (AVG = per-game) instead."
+    )
+
+
+@pytest.mark.asyncio
 async def test_fantasypros_logs_unmatched(test_db, mock_fantasypros, caplog):
     test_db.add(Player(id="6794", name="Ja'Marr Chase", position="WR", team="CIN"))
     # Don't add Jefferson — both Jefferson and "Mystery Player" should be unmatched.
