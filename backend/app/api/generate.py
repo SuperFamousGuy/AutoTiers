@@ -16,7 +16,7 @@ from app.engine.scoring import LeagueSettings, PlayerStats, calculate_fantasy_po
 from app.engine.rules import Rule, RuleCondition, RuleEffect, PlayerContext, apply_rules
 from app.engine.builtin_rules import BUILTIN_RULES, OVER_THE_HILL_AGE
 from app.engine.tiers import TieredPlayer, assign_tiers
-from app.schemas.generate import GenerateRequest, GenerateResponse, TieredPlayerOut
+from app.schemas.generate import GenerateRequest, GenerateResponse, TieredPlayerOut, RuleApplicationOut
 
 router = APIRouter()
 
@@ -201,11 +201,14 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
             adjusted_score=rule_result.adjusted_score,
             projected_score_raw=blended,
             prior_year_actual=prior_actual,
+            espn_projection=espn_pts,
+            fantasypros_projection=fp_pts,
             adp_standard=_get_adp(player.adp_entries, "standard"),
             adp_ppr=_get_adp(player.adp_entries, "ppr"),
             adp_dynasty=_get_adp(player.adp_entries, "dynasty"),
             flags=rule_result.flags,
             rules_applied=rule_result.rules_applied,
+            rule_applications=rule_result.applications,
             overall_rank=0,
             overall_tier=0,
             positional_tier="",
@@ -263,7 +266,13 @@ async def generate_tiers(req: GenerateRequest, db: AsyncSession = Depends(get_db
     ranked = await _run_generate(req, db)
     data_as_of = await _compute_data_as_of(db)
     return GenerateResponse(
-        players=[TieredPlayerOut(**p.__dict__) for p in ranked],
+        players=[
+            TieredPlayerOut(
+                **{k: v for k, v in p.__dict__.items() if k != "rule_applications"},
+                rule_applications=[RuleApplicationOut(**a.__dict__) for a in p.rule_applications],
+            )
+            for p in ranked
+        ],
         total=len(ranked),
         data_as_of=data_as_of,
     )

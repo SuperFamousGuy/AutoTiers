@@ -1,6 +1,7 @@
 from typing import Optional
 from pydantic import BaseModel, Field, field_validator
 from app.engine.scoring import ScoringFormat, LeagueType
+from app.engine.rules import EffectType
 from app.schemas.rules import RuleSchema
 
 
@@ -42,6 +43,14 @@ class GenerateRequest(BaseModel):
         return weight_consensus
 
 
+class RuleApplicationOut(BaseModel):
+    name: str
+    effect_type: EffectType
+    before_score: float
+    after_score: float
+    delta: float
+
+
 class TieredPlayerOut(BaseModel):
     overall_rank: int
     player_id: str
@@ -54,11 +63,16 @@ class TieredPlayerOut(BaseModel):
     adjusted_score: float
     projected_score_raw: float
     prior_year_actual: Optional[float]
+    espn_projection: Optional[float]
+    fantasypros_projection: Optional[float]
     adp_standard: Optional[float]
     adp_ppr: Optional[float]
     adp_dynasty: Optional[float]
     flags: list[str]
     rules_applied: list[str]
+    rule_applications: list[RuleApplicationOut]
+
+    model_config = {"from_attributes": True}
 
 
 class GenerateResponse(BaseModel):

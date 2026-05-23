@@ -42,6 +42,14 @@ export interface GenerateRequest {
   rules: Rule[];
 }
 
+export interface RuleApplication {
+  name: string;
+  effect_type: EffectType;
+  before_score: number;
+  after_score: number;
+  delta: number;
+}
+
 export interface TieredPlayer {
   overall_rank: number;
   player_id: string;
@@ -54,11 +62,14 @@ export interface TieredPlayer {
   adjusted_score: number;
   projected_score_raw: number;
   prior_year_actual: number | null;
+  espn_projection: number | null;
+  fantasypros_projection: number | null;
   adp_standard: number | null;
   adp_ppr: number | null;
   adp_dynasty: number | null;
   flags: string[];
   rules_applied: string[];
+  rule_applications: RuleApplication[];
 }
 
 export interface GenerateResponse {
