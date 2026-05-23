@@ -5,7 +5,7 @@ import respx
 import pandas as pd
 from httpx import Response
 from pathlib import Path
-from datetime import date
+from datetime import date, datetime
 
 from app.data.fetcher import DataFetcher
 
@@ -60,7 +60,8 @@ async def test_refresh_then_generate_returns_real_players(async_client, test_db,
     assert "Justin Jefferson" in names
 
     # data_as_of is now today (all sources just refreshed).
-    assert body["data_as_of"] == date.today().isoformat()
+    # Use UTC date to match datetime.utcnow() used in production fetchers.
+    assert body["data_as_of"] == datetime.utcnow().date().isoformat()
 
     # At least one player should have rules_applied (from PBP-derived rules firing).
     any_rules = any(p["rules_applied"] for p in body["players"])
