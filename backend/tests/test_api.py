@@ -61,6 +61,7 @@ _GENERATE_BODY = {
     "weight_prior_year": 0.40,
     "weight_espn": 0.30,
     "weight_consensus": 0.30,
+    "weight_adp": 0.0,
     "rules": [],
 }
 
@@ -85,8 +86,9 @@ async def test_generate_rank_one_has_highest_score(async_client, test_db):
     await _seed(test_db)
     resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
     by_rank = {p["overall_rank"]: p for p in resp.json()["players"]}
-    rank1_score = by_rank[1]["adjusted_score"]
-    assert all(rank1_score >= by_rank[r]["adjusted_score"] for r in [2, 3])
+    # Ranking is by VBD (points above position replacement), not raw adjusted_score.
+    rank1_score = by_rank[1]["vbd_score"]
+    assert all(rank1_score >= by_rank[r]["vbd_score"] for r in [2, 3])
 
 
 async def test_generate_empty_db_returns_empty(async_client):
@@ -193,7 +195,7 @@ async def test_generate_caps_players_by_draft_rounds(async_client, test_db):
         "scoring_format": "ppr", "league_type": "standard", "league_size": 10,
         "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
         "bonus_first_downs": False, "weight_prior_year": 0.0, "weight_espn": 1.0,
-        "weight_consensus": 0.0, "draft_rounds": 3, "rules": [],
+        "weight_consensus": 0.0, "weight_adp": 0.0, "draft_rounds": 3, "rules": [],
     }
     resp = await async_client.post("/api/generate", json=payload)
     assert resp.status_code == 200
@@ -233,7 +235,7 @@ async def test_generate_guarantees_position_coverage(async_client, test_db):
         "scoring_format": "ppr", "league_type": "standard", "league_size": 10,
         "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
         "bonus_first_downs": False, "weight_prior_year": 0.0, "weight_espn": 1.0,
-        "weight_consensus": 0.0, "draft_rounds": 15, "rules": [],
+        "weight_consensus": 0.0, "weight_adp": 0.0, "draft_rounds": 15, "rules": [],
     }
     resp = await async_client.post("/api/generate", json=payload)
     assert resp.status_code == 200
@@ -259,7 +261,7 @@ async def test_generate_validates_draft_rounds_range(async_client):
         "scoring_format": "ppr", "league_type": "standard", "league_size": 12,
         "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
         "bonus_first_downs": False, "weight_prior_year": 0.40, "weight_espn": 0.30,
-        "weight_consensus": 0.30, "rules": [],
+        "weight_consensus": 0.30, "weight_adp": 0.0, "rules": [],
     }
     # Too low
     resp = await async_client.post("/api/generate", json={**base_payload, "draft_rounds": 0})
@@ -305,7 +307,7 @@ async def test_over_the_hill_position_aware_thresholds(async_client, test_db):
         "scoring_format": "ppr", "league_type": "standard", "league_size": 10,
         "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
         "bonus_first_downs": False, "weight_prior_year": 0.0, "weight_espn": 0.0,
-        "weight_consensus": 1.0, "draft_rounds": 15, "rules": [],
+        "weight_consensus": 1.0, "weight_adp": 0.0, "draft_rounds": 15, "rules": [],
     }
     resp = await async_client.post("/api/generate", json=payload)
     assert resp.status_code == 200
@@ -335,7 +337,7 @@ async def test_generate_response_includes_score_breakdown(async_client, test_db)
         "scoring_format": "ppr", "league_type": "standard", "league_size": 10,
         "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
         "bonus_first_downs": False, "weight_prior_year": 0.0, "weight_espn": 0.0,
-        "weight_consensus": 1.0, "draft_rounds": 15, "rules": [],
+        "weight_consensus": 1.0, "weight_adp": 0.0, "draft_rounds": 15, "rules": [],
     }
     resp = await async_client.post("/api/generate", json=payload)
     assert resp.status_code == 200
@@ -376,7 +378,7 @@ async def test_partial_data_player_does_not_outrank_complete_data_player(async_c
         "scoring_format": "ppr", "league_type": "standard", "league_size": 10,
         "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
         "bonus_first_downs": False,
-        "weight_prior_year": 0.20, "weight_espn": 0.0, "weight_consensus": 0.80,
+        "weight_prior_year": 0.20, "weight_espn": 0.0, "weight_consensus": 0.80, "weight_adp": 0.0,
         "draft_rounds": 15, "rules": [],
     }
     resp = await async_client.post("/api/generate", json=payload)
@@ -410,6 +412,7 @@ async def test_generate_csv_returns_csv_file(async_client, test_db):
         "weight_prior_year": 0.40,
         "weight_espn": 0.30,
         "weight_consensus": 0.30,
+        "weight_adp": 0.0,
         "rules": []
     }
     response = await async_client.post("/api/generate/csv", json=payload)
@@ -436,3 +439,44 @@ async def test_generate_csv_returns_csv_file(async_client, test_db):
     assert data_row[0].isdigit()  # overall_rank is a number
     assert data_row[1] in {"Chase", "Henry", "Allen"}  # player name present
     assert data_row[2] in {"WR", "RB", "QB"}  # position present
+
+
+@pytest.mark.asyncio
+async def test_vbd_top_rb_outranks_top_qb_in_standard(async_client, test_db):
+    """End-to-end VBD: top RB ranks above top QB with higher raw points,
+    because RB drop-off to replacement is steeper than QB drop-off."""
+    from app.models import Player, Projection
+
+    # 13 QBs (FP 400 → 280): replacement = QB12 = 290, top QB VBD = 110
+    # 31 RBs (FP 300 → 75): replacement = RB30 (12*2.5=30) ≈ 82.5, top RB VBD ≈ 217.5
+    for i in range(13):
+        test_db.add(Player(id=f"qb_{i}", name=f"QB{i}", position="QB", team="DAL", age=27))
+    for i in range(31):
+        test_db.add(Player(id=f"rb_{i}", name=f"RB{i}", position="RB", team="DAL", age=27))
+    await test_db.commit()
+    for i in range(13):
+        test_db.add(Projection(
+            player_id=f"qb_{i}", source="fantasypros", scoring_format="ppr",
+            projected_points=400.0 - i * 10, last_updated=date.today(),
+        ))
+    for i in range(31):
+        test_db.add(Projection(
+            player_id=f"rb_{i}", source="fantasypros", scoring_format="ppr",
+            projected_points=300.0 - i * 7.5, last_updated=date.today(),
+        ))
+    await test_db.commit()
+
+    payload = {
+        "scoring_format": "ppr", "league_type": "standard", "league_size": 12,
+        "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
+        "bonus_first_downs": False,
+        "weight_prior_year": 0.0, "weight_espn": 0.0, "weight_consensus": 1.0, "weight_adp": 0.0,
+        "draft_rounds": 15, "rules": [],
+    }
+    resp = await async_client.post("/api/generate", json=payload)
+    assert resp.status_code == 200
+    body = resp.json()
+    top = body["players"][0]
+    assert top["player_id"] == "rb_0", (
+        f"VBD failed: expected top RB at #1, got {top['name']} ({top['position']})"
+    )

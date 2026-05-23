@@ -38,6 +38,7 @@ export interface GenerateRequest {
   weight_prior_year: number;
   weight_espn: number;
   weight_consensus: number;
+  weight_adp: number;
   draft_rounds: number;
   rules: Rule[];
 }
@@ -64,9 +65,12 @@ export interface TieredPlayer {
   prior_year_actual: number | null;
   espn_projection: number | null;
   fantasypros_projection: number | null;
+  adp_implied: number | null;
   adp_standard: number | null;
   adp_ppr: number | null;
   adp_dynasty: number | null;
+  vbd_score: number;
+  position_replacement: number;
   flags: string[];
   rules_applied: string[];
   rule_applications: RuleApplication[];
