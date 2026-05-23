@@ -5,9 +5,7 @@ from app.engine.builtin_rules import BUILTIN_RULES
 router = APIRouter()
 
 _CATEGORIES = {
-    "RB Age": "Age/Longevity",
-    "WR Age": "Age/Longevity",
-    "Dynasty Youth": "Age/Longevity",
+    "Over the Hill": "Age/Longevity",
     "RB Committee": "Usage",
     "Target Share": "Usage",
     "Declining Snap": "Usage",
@@ -16,6 +14,8 @@ _CATEGORIES = {
     "Sophomore Leap": "Situation",
     "Contract Year": "Situation",
     "Injury History": "Regression",
+    "TD Regression": "Regression",
+    "Red Zone": "Regression",
     "Handcuff": "Flag",
     "Availability Risk": "Flag",
 }

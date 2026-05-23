@@ -51,6 +51,7 @@ class PlayerContext:
     expected_tds: Optional[float]
     actual_tds_above_expected: Optional[float] = None
     red_zone_looks: Optional[int] = None
+    is_over_the_hill: Optional[bool] = None
 
 
 @dataclass

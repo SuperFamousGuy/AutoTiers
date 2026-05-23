@@ -6,6 +6,6 @@ describe("MSW setup", () => {
   it("intercepts API calls and returns fixture data", async () => {
     const rules = await apiFetch<Rule[]>("/api/rules");
     expect(rules).toHaveLength(3);
-    expect(rules[0].name).toBe("RB Age Penalty (28-29)");
+    expect(rules[0].name).toBe("Over the Hill");
   });
 });

@@ -105,7 +105,7 @@ async def test_list_rules_returns_builtin_rules(async_client):
     resp = await async_client.get("/api/rules")
     assert resp.status_code == 200
     rules = resp.json()
-    assert len(rules) >= 15
+    assert len(rules) >= 10
     assert all("name" in r and "conditions" in r for r in rules)
 
 
@@ -270,6 +270,53 @@ async def test_generate_validates_draft_rounds_range(async_client):
     # Default (omit) should work
     resp = await async_client.post("/api/generate", json=base_payload)
     assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_over_the_hill_position_aware_thresholds(async_client, test_db):
+    """is_over_the_hill should be position-aware: 28 for RB, 30 for WR, 31 for TE, 36 for QB."""
+    from app.models import Player, Projection
+    from datetime import date
+
+    cases = [
+        # (id, position, age, expect_over_the_hill_applied)
+        ("rb_27", "RB", 27, False),  # under threshold
+        ("rb_28", "RB", 28, True),   # at threshold
+        ("wr_29", "WR", 29, False),
+        ("wr_30", "WR", 30, True),
+        ("te_30", "TE", 30, False),
+        ("te_31", "TE", 31, True),
+        ("qb_35", "QB", 35, False),
+        ("qb_36", "QB", 36, True),
+        ("k_45",  "K",  45, False),  # K excluded — no threshold even at high age
+        ("rb_no_age", "RB", None, False),  # missing age
+    ]
+    for pid, pos, age, _ in cases:
+        test_db.add(Player(id=pid, name=pid, position=pos, team="DAL", age=age))
+    await test_db.commit()
+    for pid, _, _, _ in cases:
+        test_db.add(Projection(
+            player_id=pid, source="fantasypros", scoring_format="ppr",
+            projected_points=100.0, last_updated=date.today(),
+        ))
+    await test_db.commit()
+
+    payload = {
+        "scoring_format": "ppr", "league_type": "standard", "league_size": 10,
+        "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
+        "bonus_first_downs": False, "weight_prior_year": 0.0, "weight_espn": 0.0,
+        "weight_consensus": 1.0, "draft_rounds": 15, "rules": [],
+    }
+    resp = await async_client.post("/api/generate", json=payload)
+    assert resp.status_code == 200
+    body = resp.json()
+    by_id = {p["player_id"]: p for p in body["players"]}
+
+    for pid, _, _, expected in cases:
+        if pid not in by_id:
+            continue  # player may have been capped out — acceptable
+        applied = "Over the Hill" in by_id[pid]["rules_applied"]
+        assert applied == expected, f"{pid} (age {by_id[pid]['age']}): expected rule_applied={expected}, got {applied}"
 
 
 async def test_generate_csv_returns_csv_file(async_client, test_db):

@@ -1,6 +1,12 @@
 from app.engine.rules import Rule, RuleCondition, RuleEffect, EffectType
 
 
+# Position-aware age thresholds for the "Over the Hill" rule.
+# Players at or above these ages are considered past their production peak.
+# K/DST excluded (kickers age weirdly; DST has no age).
+OVER_THE_HILL_AGE = {"RB": 28, "WR": 30, "TE": 31, "QB": 36}
+
+
 def _rule(name: str, conditions: list[tuple], effect_type: EffectType, effect_value) -> Rule:
     return Rule(
         name=name,
@@ -13,12 +19,7 @@ def _rule(name: str, conditions: list[tuple], effect_type: EffectType, effect_va
 
 BUILTIN_RULES: list[Rule] = [
     # Age / Longevity
-    _rule("RB Age 28-29 Penalty", [("position", "==", "RB"), ("age", ">=", 28), ("age", "<", 30)], EffectType.MULTIPLIER, 0.92),
-    _rule("RB Age 30-31 Penalty", [("position", "==", "RB"), ("age", ">=", 30), ("age", "<", 32)], EffectType.MULTIPLIER, 0.84),
-    _rule("RB Age 32+ Penalty",   [("position", "==", "RB"), ("age", ">=", 32)],                   EffectType.MULTIPLIER, 0.76),
-    _rule("WR Age 31-32 Penalty", [("position", "==", "WR"), ("age", ">=", 31), ("age", "<", 33)], EffectType.MULTIPLIER, 0.95),
-    _rule("WR Age 33+ Penalty",   [("position", "==", "WR"), ("age", ">=", 33)],                   EffectType.MULTIPLIER, 0.90),
-    _rule("Dynasty Youth Premium (<25)", [("age", "<", 25)],                                        EffectType.FLAT_BONUS, 15.0),
+    _rule("Over the Hill", [("is_over_the_hill", "==", True)], EffectType.MULTIPLIER, 0.85),
 
     # Usage
     _rule("RB Committee Discount",   [("position", "==", "RB"), ("carry_share", "<", 0.50)],   EffectType.MULTIPLIER, 0.85),
