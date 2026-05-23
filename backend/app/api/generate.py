@@ -153,10 +153,12 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
             settings=settings,
         )
 
+        projection_unavailable = espn_pts is None and fp_pts is None
+
         flags_list: list[str] = []
-        if prior_actual is None and espn_pts is None and fp_pts is None:
+        if prior_actual is None and projection_unavailable:
             flags_list.append("Rookie — Limited Data")
-        elif espn_pts is None and fp_pts is None:
+        elif projection_unavailable:
             flags_list.append("Projection Unavailable")
 
         league_type_val = req.league_type.value if hasattr(req.league_type, "value") else req.league_type
@@ -187,6 +189,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
             ),
             red_zone_looks=stat.red_zone_looks if stat else None,
             is_over_the_hill=is_over_the_hill,
+            projection_unavailable=projection_unavailable,
         )
 
         rule_result = apply_rules(blended, ctx, rules)
@@ -287,18 +290,26 @@ async def generate_csv(req: GenerateRequest, db: AsyncSession = Depends(get_db))
     writer.writerow([
         "overall_rank", "player", "position", "team", "age",
         "overall_tier", "positional_tier",
-        "adjusted_score", "projected_score_raw", "prior_year_actual",
+        "adjusted_score", "projected_score_raw",
+        "prior_year_actual", "espn_projection", "fantasypros_projection",
         "adp_standard", "adp_ppr", "adp_dynasty",
-        "flags", "rules_applied",
+        "flags", "rules_applied", "rule_deltas",
     ])
     for p in tiered_players:
+        # Format per-rule deltas as "name: ±X.X; name: ±X.X"
+        rule_deltas_str = "; ".join(
+            f"{app.name}: {'flagged' if app.effect_type.value == 'flag' else f'{app.delta:+.1f}'}"
+            for app in p.rule_applications
+        )
         writer.writerow([
             p.overall_rank, p.name, p.position, p.team, p.age,
             p.overall_tier, p.positional_tier,
             round(p.adjusted_score, 2), round(p.projected_score_raw, 2),
             round(p.prior_year_actual, 2) if p.prior_year_actual is not None else "",
+            round(p.espn_projection, 2) if p.espn_projection is not None else "",
+            round(p.fantasypros_projection, 2) if p.fantasypros_projection is not None else "",
             p.adp_standard or "", p.adp_ppr or "", p.adp_dynasty or "",
-            ";".join(p.flags), ";".join(p.rules_applied),
+            ";".join(p.flags), ";".join(p.rules_applied), rule_deltas_str,
         ])
 
     output.seek(0)

@@ -85,13 +85,21 @@ def blend_scores(
     consensus_projection: Optional[float],
     settings: LeagueSettings,
 ) -> float:
-    sources = [
-        (prior_year_actual, settings.weight_prior_year),
-        (espn_projection, settings.weight_espn),
-        (consensus_projection, settings.weight_consensus),
-    ]
-    available = [(score, weight) for score, weight in sources if score is not None]
-    if not available:
-        return 0.0
-    total_weight = sum(w for _, w in available)
-    return round(sum(score * (weight / total_weight) for score, weight in available), 2)
+    """Weighted blend of available projection sources.
+
+    Uses RAW weights (no renormalization). Players with missing sources are
+    penalized in proportion to how incomplete their data is — e.g., a player
+    with only prior_year_actual (weight 0.2) and no projections scores at
+    20% of their prior-year points, not 100%.
+
+    This prevents pathological rankings where a backup QB with one strong
+    half-season outranks healthy starters who happen to have a partial data gap.
+    """
+    score = 0.0
+    if prior_year_actual is not None:
+        score += prior_year_actual * settings.weight_prior_year
+    if espn_projection is not None:
+        score += espn_projection * settings.weight_espn
+    if consensus_projection is not None:
+        score += consensus_projection * settings.weight_consensus
+    return round(score, 2)

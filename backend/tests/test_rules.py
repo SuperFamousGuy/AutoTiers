@@ -14,7 +14,7 @@ def _ctx(**overrides) -> PlayerContext:
         projected_score=200.0, new_team=False, new_coach=False,
         actual_tds=8, expected_tds=7.0,
         actual_tds_above_expected=None, red_zone_looks=None,
-        is_over_the_hill=None,
+        is_over_the_hill=None, projection_unavailable=None,
     )
     defaults.update(overrides)
     return PlayerContext(**defaults)
@@ -27,7 +27,7 @@ def make_ctx(**overrides) -> PlayerContext:
         games_played=17, years_exp=4, adp=None,
         projected_score=100.0, new_team=False, new_coach=False,
         actual_tds=None, expected_tds=None, actual_tds_above_expected=None,
-        red_zone_looks=None, is_over_the_hill=None,
+        red_zone_looks=None, is_over_the_hill=None, projection_unavailable=None,
     )
     defaults.update(overrides)
     return PlayerContext(**defaults)
@@ -138,9 +138,25 @@ def test_builtin_rules_is_nonempty_list_of_rules():
         assert rule.conditions
 
 
-def test_builtin_rules_count_is_13():
-    """Rule consolidation: 6 age rules collapsed into 1 'Over the Hill' (was 18)."""
-    assert len(BUILTIN_RULES) == 13
+def test_builtin_rules_count_is_14():
+    """Adding 'Projection Unavailable' rule (was 13)."""
+    assert len(BUILTIN_RULES) == 14
+
+
+def test_projection_unavailable_halves_score():
+    rule = next(r for r in BUILTIN_RULES if r.name == "Projection Unavailable")
+    ctx = make_ctx(projection_unavailable=True)
+    result = apply_rules(100.0, ctx, [rule])
+    assert result.adjusted_score == 50.0
+    assert "Projection Unavailable" in result.rules_applied
+
+
+def test_projection_unavailable_skipped_when_false():
+    rule = next(r for r in BUILTIN_RULES if r.name == "Projection Unavailable")
+    ctx = make_ctx(projection_unavailable=False)
+    result = apply_rules(100.0, ctx, [rule])
+    assert result.adjusted_score == 100.0
+    assert "Projection Unavailable" not in result.rules_applied
 
 
 def test_over_the_hill_fires_when_age_at_threshold():

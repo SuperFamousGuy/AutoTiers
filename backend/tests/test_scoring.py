@@ -94,12 +94,28 @@ def test_blend_all_sources():
     assert result == pytest.approx(expected)
 
 
-def test_blend_redistributes_weight_when_source_missing():
-    s = _settings(weight_prior_year=0.4, weight_espn=0.3, weight_consensus=0.3)
-    result = blend_scores(prior_year_actual=None, espn_projection=300.0, consensus_projection=280.0, settings=s)
-    # espn + consensus weights = 0.6; redistribute to 0.3/0.6 and 0.3/0.6
-    expected = (300.0 * 0.3 + 280.0 * 0.3) / 0.6
-    assert result == pytest.approx(expected)
+def test_blend_does_not_renormalize_missing_sources():
+    """Missing sources contribute 0 (not redistributed) — incomplete data is penalized."""
+    settings = LeagueSettings(
+        scoring_format=ScoringFormat.PPR,
+        league_type=LeagueType.STANDARD,
+        league_size=12,
+        qb_td_points=4.0,
+        bonus_100yd_rushing=False,
+        bonus_100yd_receiving=False,
+        bonus_first_downs=False,
+        weight_prior_year=0.20,
+        weight_espn=0.0,
+        weight_consensus=0.80,
+    )
+    # Only prior_year available; expected score = 100 * 0.20 = 20.0 (not 100.0).
+    result = blend_scores(
+        prior_year_actual=100.0,
+        espn_projection=None,
+        consensus_projection=None,
+        settings=settings,
+    )
+    assert result == 20.0
 
 
 def test_blend_all_missing_returns_zero():
