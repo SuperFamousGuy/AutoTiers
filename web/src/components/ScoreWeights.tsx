@@ -10,7 +10,8 @@ interface ScoreWeightsProps {
 
 const ROWS: { key: WeightKey; label: string }[] = [
   { key: "prior", label: "Prior year actuals" },
-  { key: "consensus", label: "FantasyPros consensus" },
+  { key: "consensus", label: "Projection (FantasyPros)" },
+  { key: "adp", label: "Market ADP" },
 ];
 
 export function ScoreWeights({ weights, onChange }: ScoreWeightsProps) {
@@ -36,7 +37,7 @@ export function ScoreWeights({ weights, onChange }: ScoreWeightsProps) {
         </div>
       ))}
       <div className={cn("text-xs", valid ? "text-green-600" : "text-red-600")}>
-        {valid ? "✓ Sums 100%" : `✗ Sums ${weights.prior + weights.consensus}% (must be 100%)`}
+        {valid ? "✓ Sums 100%" : `✗ Sums ${weights.prior + weights.consensus + weights.adp}% (must be 100%)`}
       </div>
     </div>
   );

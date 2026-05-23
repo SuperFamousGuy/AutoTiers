@@ -22,7 +22,7 @@ export function PlayerRow({ player }: PlayerRowProps) {
         <span className="w-8 text-right font-mono text-muted-foreground">{player.overall_rank}</span>
         <span className="flex-1 truncate font-medium">{player.name}</span>
         <span className="w-12 text-xs text-muted-foreground">{player.team ?? "—"}</span>
-        <span className="w-12 text-right font-mono">{player.adjusted_score.toFixed(1)}</span>
+        <span className="w-12 text-right font-mono">{player.vbd_score.toFixed(1)}</span>
         <ChevronDown
           className={cn("h-4 w-4 text-muted-foreground transition-transform", expanded && "rotate-180")}
         />
@@ -51,6 +51,12 @@ export function PlayerRow({ player }: PlayerRowProps) {
                 <div className="flex justify-between">
                   <span>FantasyPros consensus</span>
                   <span>{player.fantasypros_projection.toFixed(1)}</span>
+                </div>
+              )}
+              {player.adp_implied !== null && (
+                <div className="flex justify-between">
+                  <span>ADP-implied</span>
+                  <span>{player.adp_implied.toFixed(1)}</span>
                 </div>
               )}
               <div className="flex justify-between border-t mt-1 pt-1 font-semibold">
@@ -91,6 +97,27 @@ export function PlayerRow({ player }: PlayerRowProps) {
           {player.rule_applications.length === 0 && (
             <div className="text-muted-foreground italic">No rules applied (adjusted = blended)</div>
           )}
+
+          {/* Value-Based Drafting */}
+          <div>
+            <div className="text-muted-foreground mb-1 font-semibold uppercase tracking-wider text-[10px]">
+              Value-Based Drafting (vs position replacement)
+            </div>
+            <div className="space-y-0.5 font-mono">
+              <div className="flex justify-between">
+                <span>Adjusted score</span>
+                <span>{player.adjusted_score.toFixed(1)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Replacement ({player.position})</span>
+                <span>−{player.position_replacement.toFixed(1)}</span>
+              </div>
+              <div className="flex justify-between border-t mt-1 pt-1 font-semibold">
+                <span>VBD score</span>
+                <span>{player.vbd_score.toFixed(1)}</span>
+              </div>
+            </div>
+          </div>
 
           {/* Tier placement */}
           <div>

@@ -48,7 +48,7 @@ async def test_refresh_then_generate_returns_real_players(async_client, test_db,
         "scoring_format": "ppr", "league_type": "standard", "league_size": 12,
         "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
         "bonus_first_downs": False, "weight_prior_year": 0.4, "weight_espn": 0.3,
-        "weight_consensus": 0.3, "rules": [],
+        "weight_consensus": 0.3, "weight_adp": 0.0, "rules": [],
     }
     resp = await async_client.post("/api/generate", json=payload)
     assert resp.status_code == 200

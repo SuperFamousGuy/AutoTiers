@@ -28,6 +28,7 @@ class LeagueSettings:
     weight_prior_year: float
     weight_espn: float
     weight_consensus: float
+    weight_adp: float = 0.0
 
 
 @dataclass
@@ -84,6 +85,7 @@ def blend_scores(
     espn_projection: Optional[float],
     consensus_projection: Optional[float],
     settings: LeagueSettings,
+    adp_implied: Optional[float] = None,
 ) -> float:
     """Weighted blend of available projection sources.
 
@@ -94,6 +96,10 @@ def blend_scores(
 
     This prevents pathological rankings where a backup QB with one strong
     half-season outranks healthy starters who happen to have a partial data gap.
+
+    ``adp_implied`` is an ADP-derived score (e.g. ``max(0, 400 - adp)``) in the
+    same points-magnitude as the other sources so a weighted blend stays
+    coherent.
     """
     score = 0.0
     if prior_year_actual is not None:
@@ -102,4 +108,6 @@ def blend_scores(
         score += espn_projection * settings.weight_espn
     if consensus_projection is not None:
         score += consensus_projection * settings.weight_consensus
+    if adp_implied is not None:
+        score += adp_implied * settings.weight_adp
     return round(score, 2)
