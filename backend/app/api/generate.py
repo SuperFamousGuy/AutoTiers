@@ -14,7 +14,7 @@ from app.models.projection import Projection
 from app.models.adp import ADPData
 from app.engine.scoring import LeagueSettings, PlayerStats, calculate_fantasy_points, blend_scores
 from app.engine.rules import Rule, RuleCondition, RuleEffect, PlayerContext, apply_rules
-from app.engine.builtin_rules import BUILTIN_RULES
+from app.engine.builtin_rules import BUILTIN_RULES, OVER_THE_HILL_AGE
 from app.engine.tiers import TieredPlayer, assign_tiers
 from app.schemas.generate import GenerateRequest, GenerateResponse, TieredPlayerOut
 
@@ -160,6 +160,11 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
             flags_list.append("Projection Unavailable")
 
         league_type_val = req.league_type.value if hasattr(req.league_type, "value") else req.league_type
+
+        is_over_the_hill: Optional[bool] = None
+        if player.age is not None and player.position in OVER_THE_HILL_AGE:
+            is_over_the_hill = player.age >= OVER_THE_HILL_AGE[player.position]
+
         ctx = PlayerContext(
             player_id=player.id,
             position=player.position,
@@ -181,6 +186,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
                 else None
             ),
             red_zone_looks=stat.red_zone_looks if stat else None,
+            is_over_the_hill=is_over_the_hill,
         )
 
         rule_result = apply_rules(blended, ctx, rules)

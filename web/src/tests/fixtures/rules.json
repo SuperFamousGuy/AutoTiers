@@ -1,8 +1,8 @@
 [
   {
-    "name": "RB Age Penalty (28-29)",
-    "conditions": [{"field": "age", "operator": ">=", "value": 28}],
-    "effect": {"type": "multiplier", "value": 0.92},
+    "name": "Over the Hill",
+    "conditions": [{"field": "is_over_the_hill", "operator": "==", "value": true}],
+    "effect": {"type": "multiplier", "value": 0.85},
     "enabled": true,
     "weight": 1.0,
     "is_builtin": true,

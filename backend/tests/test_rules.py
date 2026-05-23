@@ -14,6 +14,7 @@ def _ctx(**overrides) -> PlayerContext:
         projected_score=200.0, new_team=False, new_coach=False,
         actual_tds=8, expected_tds=7.0,
         actual_tds_above_expected=None, red_zone_looks=None,
+        is_over_the_hill=None,
     )
     defaults.update(overrides)
     return PlayerContext(**defaults)
@@ -26,7 +27,7 @@ def make_ctx(**overrides) -> PlayerContext:
         games_played=17, years_exp=4, adp=None,
         projected_score=100.0, new_team=False, new_coach=False,
         actual_tds=None, expected_tds=None, actual_tds_above_expected=None,
-        red_zone_looks=None,
+        red_zone_looks=None, is_over_the_hill=None,
     )
     defaults.update(overrides)
     return PlayerContext(**defaults)
@@ -130,16 +131,40 @@ def test_multi_condition_rule_requires_all_conditions():
 
 def test_builtin_rules_is_nonempty_list_of_rules():
     assert isinstance(BUILTIN_RULES, list)
-    assert len(BUILTIN_RULES) >= 15
+    assert len(BUILTIN_RULES) >= 10
     for rule in BUILTIN_RULES:
         assert isinstance(rule, Rule)
         assert rule.name
         assert rule.conditions
 
 
-def test_builtin_rules_count_is_18():
-    """Spec calls for 18 built-in rules at launch."""
-    assert len(BUILTIN_RULES) == 18
+def test_builtin_rules_count_is_13():
+    """Rule consolidation: 6 age rules collapsed into 1 'Over the Hill' (was 18)."""
+    assert len(BUILTIN_RULES) == 13
+
+
+def test_over_the_hill_fires_when_age_at_threshold():
+    rule = next(r for r in BUILTIN_RULES if r.name == "Over the Hill")
+    ctx = make_ctx(is_over_the_hill=True)
+    result = apply_rules(100.0, ctx, [rule])
+    assert result.adjusted_score < 100.0  # penalty applied
+    assert "Over the Hill" in result.rules_applied
+
+
+def test_over_the_hill_does_not_fire_when_false():
+    rule = next(r for r in BUILTIN_RULES if r.name == "Over the Hill")
+    ctx = make_ctx(is_over_the_hill=False)
+    result = apply_rules(100.0, ctx, [rule])
+    assert result.adjusted_score == 100.0
+    assert "Over the Hill" not in result.rules_applied
+
+
+def test_over_the_hill_skipped_when_none():
+    """K/DST/missing age have is_over_the_hill=None — rule shouldn't fire."""
+    rule = next(r for r in BUILTIN_RULES if r.name == "Over the Hill")
+    ctx = make_ctx(is_over_the_hill=None)
+    result = apply_rules(100.0, ctx, [rule])
+    assert result.adjusted_score == 100.0
 
 
 def test_td_regression_positive_fires_above_threshold():
