@@ -39,4 +39,15 @@ describe("RuleItem", () => {
 
     expect(onChange).toHaveBeenCalledWith({ ...baseRule, weight: 2.0 });
   });
+
+  it("renders an info icon when description is present", () => {
+    const ruleWithDesc: Rule = { ...baseRule, description: "Penalizes old players. -10%." };
+    render(<RuleItem rule={ruleWithDesc} onChange={() => {}} />);
+    expect(screen.getByLabelText(/about test rule/i)).toBeInTheDocument();
+  });
+
+  it("does NOT render an info icon when description is absent", () => {
+    render(<RuleItem rule={baseRule} onChange={() => {}} />);
+    expect(screen.queryByLabelText(/about test rule/i)).not.toBeInTheDocument();
+  });
 });

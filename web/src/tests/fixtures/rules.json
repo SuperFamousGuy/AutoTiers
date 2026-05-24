@@ -6,7 +6,8 @@
     "enabled": true,
     "weight": 1.0,
     "is_builtin": true,
-    "category": "Age/Longevity"
+    "category": "Age/Longevity",
+    "description": "Penalizes players past their position's typical decline age: RB >=28, WR >=30, TE >=31, QB >=36. K and DST excluded. -15% at default weight."
   },
   {
     "name": "Target Share Premium",
@@ -15,15 +16,17 @@
     "enabled": true,
     "weight": 1.0,
     "is_builtin": true,
-    "category": "Usage"
+    "category": "Usage",
+    "description": "Boosts WR/TE with elite target share (>=25% of team targets). +20 points at default weight."
   },
   {
-    "name": "Handcuff RB Flag",
+    "name": "Handcuff RB",
     "conditions": [{"field": "carry_share", "operator": "<", "value": 0.3}],
     "effect": {"type": "flag", "value": "Handcuff"},
     "enabled": true,
     "weight": 1.0,
     "is_builtin": true,
-    "category": "Flag"
+    "category": "Flag",
+    "description": "Flags low-volume backup RBs (carry share under 30%). No score change; informational only."
   }
 ]

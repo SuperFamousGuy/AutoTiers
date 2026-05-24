@@ -1,5 +1,7 @@
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Info } from "lucide-react";
 import type { Rule } from "@/api/types";
 
 interface RuleItemProps {
@@ -23,6 +25,24 @@ export function RuleItem({ rule, onChange }: RuleItemProps) {
           onCheckedChange={(v) => onChange({ ...rule, enabled: v })}
         />
         <span className="text-sm truncate">{rule.name}</span>
+        {rule.description && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
+                  aria-label={`About ${rule.name}`}
+                >
+                  <Info className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs text-xs">
+                {rule.description}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
       </div>
       <ToggleGroup
         type="single"

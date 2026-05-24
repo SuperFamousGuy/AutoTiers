@@ -111,6 +111,16 @@ async def test_list_rules_returns_builtin_rules(async_client):
     assert all("name" in r and "conditions" in r for r in rules)
 
 
+async def test_list_rules_includes_descriptions(async_client):
+    resp = await async_client.get("/api/rules")
+    assert resp.status_code == 200
+    rules = resp.json()
+    assert len(rules) > 0
+    for r in rules:
+        if r["is_builtin"]:
+            assert r["description"], f"Built-in rule '{r['name']}' has no description in API response"
+
+
 async def test_data_status_returns_dict(async_client, test_db):
     resp = await async_client.get("/api/data/status")
     assert resp.status_code == 200
