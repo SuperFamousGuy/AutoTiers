@@ -7,7 +7,6 @@ class ScoringFormat(str, Enum):
     STANDARD = "standard"
     HALF_PPR = "half_ppr"
     PPR = "ppr"
-    TE_PREMIUM = "te_premium"
 
 
 class LeagueType(str, Enum):
@@ -61,13 +60,11 @@ def calculate_fantasy_points(stats: PlayerStats, settings: LeagueSettings, posit
     if settings.bonus_100yd_rushing and stats.rush_yards >= 100:
         pts += 3.0
 
-    # Receiving — reception points depend on format and position
+    # Receiving — reception points depend on format
     if settings.scoring_format == ScoringFormat.PPR:
         rec_pts = 1.0
     elif settings.scoring_format == ScoringFormat.HALF_PPR:
         rec_pts = 0.5
-    elif settings.scoring_format == ScoringFormat.TE_PREMIUM:
-        rec_pts = 1.5 if position == "TE" else 1.0
     else:
         rec_pts = 0.0
 

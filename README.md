@@ -189,7 +189,7 @@ Produces one `projected_score` per player from a configurable weighted blend:
 | ESPN projection | 30% | Yes |
 | FantasyPros consensus | 30% | Yes |
 
-Supports Standard, Half-PPR, Full PPR, and TE Premium (+1.5 pts/reception for TEs).
+Supports Standard, Half-PPR, and Full PPR.
 
 ### Rules Engine
 

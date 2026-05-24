@@ -1,4 +1,4 @@
-export type ScoringFormat = "standard" | "half_ppr" | "ppr" | "te_premium";
+export type ScoringFormat = "standard" | "half_ppr" | "ppr";
 export type LeagueType = "standard" | "dynasty" | "keeper";
 export type LeagueSize = 8 | 10 | 12 | 14 | 16;
 export type QbTdPoints = 4 | 6;

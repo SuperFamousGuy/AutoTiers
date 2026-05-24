@@ -9,10 +9,10 @@ OVER_THE_HILL_AGE = {"RB": 28, "WR": 30, "TE": 31, "QB": 36}
 
 BUILTIN_RULES: list[Rule] = [
     Rule(
-        name="RB Committee Discount",
+        name="RB Committee Penalty",
         conditions=[RuleCondition(field="carry_share", operator="<", value=0.50)],
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.85),
-        description="Discounts RBs in committee backfields (carry share under 50%). -15% to projected score at default weight.",
+        description="Penalizes RBs in committee backfields (carry share under 50%). -15% to projected score at default weight.",
     ),
     Rule(
         name="Target Share Premium",

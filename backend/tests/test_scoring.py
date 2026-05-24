@@ -53,14 +53,6 @@ def test_half_ppr_receptions_score_half_point():
     assert pts == pytest.approx(4.0)
 
 
-def test_te_premium_gives_te_extra_half_point_per_reception():
-    stats = _stats(receptions=6, rec_yards=60.0)
-    te_pts = calculate_fantasy_points(stats, _settings(scoring_format=ScoringFormat.TE_PREMIUM), position="TE")
-    wr_pts = calculate_fantasy_points(stats, _settings(scoring_format=ScoringFormat.TE_PREMIUM), position="WR")
-    # TE gets 1.5/rec, WR gets 1.0/rec; difference = 6 * 0.5 = 3
-    assert te_pts == pytest.approx(wr_pts + 3.0)
-
-
 def test_rushing_yards_and_td():
     stats = _stats(rush_att=20, rush_yards=105.0, rush_tds=1)
     pts = calculate_fantasy_points(stats, _settings(scoring_format=ScoringFormat.STANDARD, bonus_100yd_rushing=True), position="RB")

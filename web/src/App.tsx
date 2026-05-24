@@ -8,7 +8,7 @@ import { weightsAreValid } from "@/lib/weights";
 import type { Rule, GenerateRequest } from "@/api/types";
 
 const DEFAULT_SETTINGS: SettingsState = {
-  scoring_format: "ppr",
+  scoring_format: "standard",
   league_size: 12,
   draft_rounds: 15,
   qb_td_points: 4,

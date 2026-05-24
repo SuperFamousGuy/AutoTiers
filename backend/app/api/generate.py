@@ -85,8 +85,6 @@ def _get_projection(projections: list[Projection], source: str, fmt: str) -> Opt
 def _get_adp(adp_entries: list[ADPData], scoring_fmt: str, league_type: str = "redraft") -> Optional[float]:
     if league_type == "dynasty":
         adp_fmt = "dynasty"
-    elif scoring_fmt == "te_premium":
-        adp_fmt = "ppr"
     else:
         adp_fmt = scoring_fmt
     for a in adp_entries:
@@ -238,7 +236,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
     scoring_fmt_str = req.scoring_format.value if hasattr(req.scoring_format, "value") else req.scoring_format
     if league_type_str == "dynasty":
         tiebreak_adp_attr = "adp_dynasty"
-    elif scoring_fmt_str in ("ppr", "te_premium"):
+    elif scoring_fmt_str == "ppr":
         tiebreak_adp_attr = "adp_ppr"
     else:
         tiebreak_adp_attr = "adp_standard"
