@@ -3,12 +3,11 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScoreWeights } from "./ScoreWeights";
-import type { ScoringFormat, LeagueType, LeagueSize, QbTdPoints } from "@/api/types";
+import type { ScoringFormat, LeagueSize, QbTdPoints } from "@/api/types";
 import type { Weights } from "@/lib/weights";
 
 export interface SettingsState {
   scoring_format: ScoringFormat;
-  league_type: LeagueType;
   league_size: LeagueSize;
   draft_rounds: number;
   qb_td_points: QbTdPoints;
@@ -33,21 +32,6 @@ export function SettingsPanel({ value, onChange }: SettingsPanelProps) {
   return (
     <aside className="space-y-6 border-r bg-card p-6 overflow-y-auto min-h-0">
       <h2 className="text-lg font-semibold">Settings</h2>
-
-      <div className="space-y-2">
-        <Label>League type</Label>
-        <RadioGroup
-          value={value.league_type}
-          onValueChange={(v) => set("league_type", v as LeagueType)}
-        >
-          {(["standard", "dynasty", "keeper"] as const).map((opt) => (
-            <div key={opt} className="flex items-center gap-2">
-              <RadioGroupItem value={opt} id={`lt-${opt}`} />
-              <Label htmlFor={`lt-${opt}`} className="capitalize cursor-pointer">{opt}</Label>
-            </div>
-          ))}
-        </RadioGroup>
-      </div>
 
       <div className="space-y-2">
         <Label>Scoring format</Label>
