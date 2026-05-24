@@ -68,9 +68,47 @@ def _assign_tier_from_breaks(score: float, breaks: list[float], descending_score
     return tier
 
 
+def _quantile_breaks(scores: list[float], n_classes: int) -> list[float]:
+    """Rank-based break points for fallback tiering.
+
+    Given scores and a target number of tiers, returns n_classes-1 break points
+    such that splitting by score < break_i produces approximately equal-sized
+    tier groups. Used when Jenks can't find meaningful variance-based breaks
+    (e.g., kickers/defenses with tightly clustered scores).
+    """
+    if n_classes < 2 or len(scores) < 2:
+        return []
+    sorted_desc = sorted(scores, reverse=True)
+    n = len(sorted_desc)
+    breaks: list[float] = []
+    for i in range(1, n_classes):
+        idx = (i * n) // n_classes
+        if idx <= 0 or idx >= n:
+            continue
+        # Midpoint between adjacent scores at the boundary.
+        # Use midpoint so ties don't collapse into a single tier.
+        upper = sorted_desc[idx - 1]
+        lower = sorted_desc[idx]
+        if upper == lower:
+            # Pure tie at the boundary — can't split cleanly here, skip
+            continue
+        breaks.append((upper + lower) / 2)
+    return breaks
+
+
 def _cluster_position(players: list[TieredPlayer], position: str, max_tiers: int) -> None:
+    if not players:
+        return
     scores = [p.vbd_score for p in players]
     breaks = _jenks_interior_breaks(scores, max_tiers)
+
+    # Fallback: if Jenks couldn't find breaks but we have enough players for at
+    # least 2 tiers, force quantile-based tiers. Common for K/DST where VBD
+    # scores cluster tightly.
+    desired_tiers = min(max_tiers, len(players))
+    if not breaks and desired_tiers >= 2:
+        breaks = _quantile_breaks(scores, desired_tiers)
+
     for p in players:
         tier_num = _assign_tier_from_breaks(p.vbd_score, breaks)
         p.positional_tier = f"{position}{tier_num}"
