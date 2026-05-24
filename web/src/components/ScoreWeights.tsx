@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
-import { redistribute, weightsAreValid, type Weights, type WeightKey } from "@/lib/weights";
+import { setWeight, weightsAreValid, type Weights, type WeightKey } from "@/lib/weights";
 import { cn } from "@/lib/utils";
 
 interface ScoreWeightsProps {
@@ -25,7 +25,7 @@ interface WeightRowProps {
 function WeightRow({ weightKey: _weightKey, label, value, onCommit }: WeightRowProps) {
   const [inputValue, setInputValue] = useState<string>(String(value));
 
-  // Keep input in sync with external changes (e.g., redistribution).
+  // Keep input in sync with external changes.
   useEffect(() => {
     setInputValue(String(value));
   }, [value]);
@@ -89,11 +89,11 @@ export function ScoreWeights({ weights, onChange }: ScoreWeightsProps) {
           weightKey={key}
           label={label}
           value={weights[key]}
-          onCommit={(v) => onChange(redistribute(key, v, weights))}
+          onCommit={(v) => onChange(setWeight(key, v, weights))}
         />
       ))}
-      <div className={cn("text-xs", valid ? "text-green-600" : "text-red-600")}>
-        {valid ? "✓ Sums 100%" : `✗ Sums ${weights.prior + weights.consensus + weights.adp}% (must be 100%)`}
+      <div className={cn("text-xs font-medium", valid ? "text-green-600" : "text-red-600")}>
+        {valid ? "✓ Sums 100%" : `✗ Sums ${weights.prior + weights.consensus + weights.adp}% — adjust to total 100% before generating`}
       </div>
     </div>
   );
