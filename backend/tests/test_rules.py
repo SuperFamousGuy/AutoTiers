@@ -143,6 +143,12 @@ def test_builtin_rules_count_is_14():
     assert len(BUILTIN_RULES) == 14
 
 
+def test_all_builtin_rules_have_descriptions():
+    for rule in BUILTIN_RULES:
+        assert rule.description, f"Rule '{rule.name}' is missing a description"
+        assert len(rule.description) > 20, f"Rule '{rule.name}' description is suspiciously short"
+
+
 def test_projection_unavailable_halves_score():
     rule = next(r for r in BUILTIN_RULES if r.name == "Projection Unavailable")
     ctx = make_ctx(projection_unavailable=True)

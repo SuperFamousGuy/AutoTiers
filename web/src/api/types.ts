@@ -25,6 +25,7 @@ export interface Rule {
   weight: number;
   is_builtin: boolean;
   category: string;
+  description?: string;
 }
 
 export interface GenerateRequest {

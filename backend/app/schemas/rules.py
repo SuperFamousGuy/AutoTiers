@@ -34,3 +34,4 @@ class RuleSchema(BaseModel):
     weight: float = 1.0
     is_builtin: bool = False
     category: str = "Custom"
+    description: str = ""

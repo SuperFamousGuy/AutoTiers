@@ -43,6 +43,7 @@ async def list_rules() -> list[RuleSchema]:
             weight=rule.weight,
             is_builtin=True,
             category=_categorize(rule.name),
+            description=rule.description,
         )
         for rule in BUILTIN_RULES
     ]

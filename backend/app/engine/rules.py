@@ -31,6 +31,7 @@ class Rule:
     effect: RuleEffect
     enabled: bool = True
     weight: float = 1.0
+    description: str = ""
 
 
 @dataclass

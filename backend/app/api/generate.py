@@ -65,6 +65,7 @@ def _schema_to_rule(schema) -> Rule:
         effect=RuleEffect(type=schema.effect.type, value=schema.effect.value),
         enabled=schema.enabled,
         weight=schema.weight,
+        description=schema.description,
     )
 
 
