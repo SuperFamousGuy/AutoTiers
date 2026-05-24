@@ -190,18 +190,18 @@ def test_over_the_hill_skipped_when_none():
 
 
 def test_td_regression_positive_fires_above_threshold():
-    rule = next(r for r in BUILTIN_RULES if r.name == "TD Regression (positive)")
+    rule = next(r for r in BUILTIN_RULES if r.name == "TD Regression")
     ctx = make_ctx(actual_tds_above_expected=4.0)
     result = apply_rules(100.0, ctx, [rule])
     assert result.adjusted_score < 100.0  # multiplier < 1.0
 
 
 def test_td_regression_positive_does_not_fire_below_threshold():
-    rule = next(r for r in BUILTIN_RULES if r.name == "TD Regression (positive)")
+    rule = next(r for r in BUILTIN_RULES if r.name == "TD Regression")
     ctx = make_ctx(actual_tds_above_expected=2.0)  # below threshold of 3.0
     result = apply_rules(100.0, ctx, [rule])
     assert result.adjusted_score == 100.0
-    assert "TD Regression (positive)" not in result.rules_applied
+    assert "TD Regression" not in result.rules_applied
 
 
 def test_red_zone_premium_fires_above_25():

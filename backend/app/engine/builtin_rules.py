@@ -69,7 +69,7 @@ BUILTIN_RULES: list[Rule] = [
         description="Flags players with serious availability concerns (under 8 games last season). No score change; informational only.",
     ),
     Rule(
-        name="TD Regression (positive)",
+        name="TD Regression",
         conditions=[RuleCondition(field="actual_tds_above_expected", operator=">=", value=3.0)],
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.90),
         description="Penalizes players who scored 3+ more TDs than their red-zone opportunity implied last year - likely to regress. -10% at default weight.",
