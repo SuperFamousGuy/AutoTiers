@@ -23,10 +23,10 @@
       "vbd_score": 230.0,
       "position_replacement": 155.2,
       "flags": ["Contract Year"],
-      "rules_applied": ["Target Share Premium", "TD Regression (positive)"],
+      "rules_applied": ["Target Share Premium", "TD Regression"],
       "rule_applications": [
         {"name": "Target Share Premium", "effect_type": "flat_bonus", "before_score": 372.0, "after_score": 392.0, "delta": 20.0},
-        {"name": "TD Regression (positive)", "effect_type": "multiplier", "before_score": 392.0, "after_score": 352.8, "delta": -39.2}
+        {"name": "TD Regression", "effect_type": "multiplier", "before_score": 392.0, "after_score": 352.8, "delta": -39.2}
       ]
     },
     {
