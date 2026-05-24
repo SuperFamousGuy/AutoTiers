@@ -8,8 +8,9 @@ describe("ScoreWeights", () => {
   it("renders all three weight values as percentages", () => {
     const weights: Weights = { prior: 30, consensus: 40, adp: 30 };
     render(<ScoreWeights weights={weights} onChange={() => {}} />);
-    expect(screen.getByText("40%")).toBeInTheDocument();
-    expect(screen.getAllByText("30%")).toHaveLength(2);
+    // The values now appear in number inputs. Verify by display value.
+    expect(screen.getByDisplayValue("40")).toBeInTheDocument();
+    expect(screen.getAllByDisplayValue("30")).toHaveLength(2);
   });
 
   it("shows the sum and a 'sums 100%' indicator", () => {
@@ -31,5 +32,37 @@ describe("ScoreWeights", () => {
     expect(onChange).toHaveBeenCalled();
     const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1][0];
     expect(lastCall.prior + lastCall.consensus + lastCall.adp).toBe(100);
+  });
+
+  it("calls onChange when a number input is typed", async () => {
+    const onChange = vi.fn();
+    const weights: Weights = { prior: 30, consensus: 40, adp: 30 };
+    render(<ScoreWeights weights={weights} onChange={onChange} />);
+
+    const user = userEvent.setup();
+    const priorInput = screen.getByLabelText(/prior year actuals percentage/i);
+    await user.clear(priorInput);
+    await user.type(priorInput, "60");
+
+    expect(onChange).toHaveBeenCalled();
+    // The last call should have prior=60 with the others redistributed.
+    const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1][0];
+    expect(lastCall.prior).toBe(60);
+    expect(lastCall.prior + lastCall.consensus + lastCall.adp).toBe(100);
+  });
+
+  it("clamps values above 100", async () => {
+    const onChange = vi.fn();
+    const weights: Weights = { prior: 30, consensus: 40, adp: 30 };
+    render(<ScoreWeights weights={weights} onChange={onChange} />);
+
+    const user = userEvent.setup();
+    const priorInput = screen.getByLabelText(/prior year actuals percentage/i);
+    await user.clear(priorInput);
+    await user.type(priorInput, "150");
+
+    // Last call's prior should be clamped to 100
+    const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1][0];
+    expect(lastCall.prior).toBeLessThanOrEqual(100);
   });
 });

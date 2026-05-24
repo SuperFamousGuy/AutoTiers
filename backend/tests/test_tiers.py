@@ -156,3 +156,35 @@ def test_vbd_ranking_top_rb_beats_top_qb():
     top = ranked[0]
     # Top RB VBD should beat top QB VBD even though top QB has higher raw adjusted_score.
     assert top.player_id == "rb_0", f"Expected top RB at #1, got {top.player_id}"
+
+
+def _kicker(pid: str, score: float, adp: float) -> TieredPlayer:
+    return TieredPlayer(
+        player_id=pid, name=f"K {pid}", position="K", team="X", age=27,
+        adjusted_score=score, projected_score_raw=score, prior_year_actual=None,
+        adp_standard=adp, adp_ppr=adp, adp_dynasty=adp,
+        flags=[], rules_applied=[],
+        overall_rank=0, overall_tier=0, positional_tier="",
+    )
+
+
+def test_quantile_fallback_when_jenks_finds_no_breaks():
+    """Tight clusters with little variance still produce multiple tiers via quantile fallback."""
+    # 14 kickers with very tightly clustered scores (within 10 points).
+    # Jenks may or may not find breaks here; even if it doesn't, quantile fallback should.
+    players = [_kicker(f"k_{i}", 130.0 - i * 0.7, float(i + 200)) for i in range(14)]
+    ranked = assign_tiers(players, league_size=12, tiebreak_adp_attr="adp_ppr")
+    positional_tiers = {p.positional_tier for p in ranked}
+    # Expect at least 2 distinct K tiers (K1, K2) — POSITION_MAX_TIERS["K"] = 2
+    assert len(positional_tiers) >= 2, (
+        f"Expected K to have multiple tiers; got only {positional_tiers}"
+    )
+
+
+def test_quantile_fallback_handles_pure_ties():
+    """If all scores are identical, fallback gracefully degrades to single tier."""
+    players = [_kicker(f"k_{i}", 100.0, float(i + 200)) for i in range(14)]
+    # Shouldn't crash; all players end up in tier 1 (no breaks possible).
+    ranked = assign_tiers(players, league_size=12, tiebreak_adp_attr="adp_ppr")
+    positional_tiers = {p.positional_tier for p in ranked}
+    assert positional_tiers == {"K1"}
