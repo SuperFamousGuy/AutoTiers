@@ -9,7 +9,6 @@ import type { Rule, GenerateRequest } from "@/api/types";
 
 const DEFAULT_SETTINGS: SettingsState = {
   scoring_format: "ppr",
-  league_type: "standard",
   league_size: 12,
   draft_rounds: 15,
   qb_td_points: 4,
@@ -36,7 +35,7 @@ export default function App() {
 
   const buildRequest = (): GenerateRequest => ({
     scoring_format: settings.scoring_format,
-    league_type: settings.league_type,
+    league_type: "standard",  // UI removed; default until dynasty/keeper modes are properly supported
     league_size: settings.league_size,
     qb_td_points: settings.qb_td_points,
     bonus_100yd_rushing: settings.bonus_100yd_rushing,

@@ -22,7 +22,6 @@ describe("App (integration)", () => {
     });
 
     // Settings panel renders
-    expect(screen.getByText(/league type/i)).toBeInTheDocument();
     expect(screen.getByText(/score weights/i)).toBeInTheDocument();
 
     // Generate button is enabled (default weights sum to 100)
