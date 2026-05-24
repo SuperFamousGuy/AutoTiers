@@ -9,15 +9,20 @@ interface RulesPanelProps {
 }
 
 export function RulesPanel({ rules, onChange }: RulesPanelProps) {
+  const visibleRules = useMemo(
+    () => rules.filter((r) => r.effect.type !== "flag"),
+    [rules],
+  );
+
   const grouped = useMemo(() => {
     const m = new Map<string, Rule[]>();
-    for (const r of rules) {
+    for (const r of visibleRules) {
       const cat = r.category || (r.is_builtin ? "Other" : "Custom");
       if (!m.has(cat)) m.set(cat, []);
       m.get(cat)!.push(r);
     }
     return [...m.entries()];
-  }, [rules]);
+  }, [visibleRules]);
 
   const updateRule = (updated: Rule) =>
     onChange(rules.map((r) => (r.name === updated.name ? updated : r)));
@@ -38,10 +43,10 @@ export function RulesPanel({ rules, onChange }: RulesPanelProps) {
         <RuleCategory key={cat} name={cat} rules={rs} onChangeRule={updateRule} />
       ))}
       <CustomRulesEditor
-        existingNames={new Set(rules.map((r) => r.name))}
+        existingNames={new Set(visibleRules.map((r) => r.name))}
         onAdd={addCustomRule}
         onRemove={removeCustomRule}
-        customRules={rules.filter((r) => !r.is_builtin)}
+        customRules={visibleRules.filter((r) => !r.is_builtin)}
       />
     </aside>
   );

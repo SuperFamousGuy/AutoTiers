@@ -43,7 +43,6 @@ export function SettingsPanel({ value, onChange }: SettingsPanelProps) {
             ["standard", "Standard"],
             ["half_ppr", "Half PPR"],
             ["ppr", "Full PPR"],
-            ["te_premium", "TE Premium"],
           ] as const).map(([val, label]) => (
             <div key={val} className="flex items-center gap-2">
               <RadioGroupItem value={val} id={`sf-${val}`} />
