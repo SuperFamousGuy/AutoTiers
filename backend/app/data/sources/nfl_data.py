@@ -15,8 +15,11 @@ from app.models import Player, PlayerStat
 class NflDataFetcher:
     name: ClassVar[str] = "nfl_data_py"
 
-    def __init__(self, season: int):
-        self.season = season
+    def __init__(self, prior_seasons: int = 3, latest_season: int | None = None):
+        self.latest_season = latest_season or (datetime.utcnow().year - 1)
+        self.seasons_to_load = [self.latest_season - i for i in range(prior_seasons)]
+        # Back-compat alias for callers that still read `.season`:
+        self.season = self.latest_season
 
     async def fetch(self, db: AsyncSession) -> SourceResult:
         attempted = datetime.utcnow()

@@ -24,13 +24,18 @@ def mock_nfl_data(monkeypatch):
     monkeypatch.setattr(mod, "import_pbp_data", lambda years: pd.DataFrame())
 
 
+def test_nfl_fetcher_accepts_prior_seasons():
+    fetcher = NflDataFetcher(prior_seasons=3, latest_season=2025)
+    assert fetcher.seasons_to_load == [2025, 2024, 2023]
+
+
 @pytest.mark.asyncio
 async def test_nfl_data_upserts_seasonal_stats(test_db, mock_nfl_data):
     test_db.add(Player(id="4017", name="Josh Allen", position="QB", team="BUF", gsis_id="00-0034796"))
     test_db.add(Player(id="6794", name="Ja'Marr Chase", position="WR", team="CIN", gsis_id="00-0036900"))
     await test_db.commit()
 
-    fetcher = NflDataFetcher(season=2025)
+    fetcher = NflDataFetcher(prior_seasons=1, latest_season=2025)
     result = await fetcher.fetch(test_db)
     assert result.success
     assert result.rows_upserted == 2
@@ -55,7 +60,7 @@ async def test_nfl_data_idempotent_on_rerun(test_db, mock_nfl_data):
     test_db.add(Player(id="4017", name="Josh Allen", position="QB", team="BUF", gsis_id="00-0034796"))
     await test_db.commit()
 
-    fetcher = NflDataFetcher(season=2025)
+    fetcher = NflDataFetcher(prior_seasons=1, latest_season=2025)
     await fetcher.fetch(test_db)
     await fetcher.fetch(test_db)  # second call
 
@@ -69,7 +74,7 @@ async def test_nfl_data_idempotent_on_rerun(test_db, mock_nfl_data):
 @pytest.mark.asyncio
 async def test_nfl_data_skips_unknown_gsis(test_db, mock_nfl_data):
     """If a CSV row's gsis_id doesn't match any Player.gsis_id, skip silently."""
-    fetcher = NflDataFetcher(season=2025)
+    fetcher = NflDataFetcher(prior_seasons=1, latest_season=2025)
     result = await fetcher.fetch(test_db)
     assert result.success
     assert result.rows_upserted == 0
@@ -95,7 +100,7 @@ async def test_nfl_data_computes_pbp_derived_fields(test_db, mock_nfl_data_with_
     test_db.add(Player(id="6786", name="Justin Jefferson", position="WR", team="MIN", gsis_id="00-0036322"))
     await test_db.commit()
 
-    fetcher = NflDataFetcher(season=2025)
+    fetcher = NflDataFetcher(prior_seasons=1, latest_season=2025)
     await fetcher.fetch(test_db)
 
     bijan = await test_db.scalar(select(PlayerStat).where(PlayerStat.player_id == "8112"))
