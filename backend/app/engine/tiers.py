@@ -41,6 +41,7 @@ class TieredPlayer:
     positional_tier: str
     espn_projection: Optional[float] = None
     fantasypros_projection: Optional[float] = None
+    avg_projection: Optional[float] = None
     adp_implied: Optional[float] = None
     vbd_score: float = 0.0
     position_replacement: float = 0.0

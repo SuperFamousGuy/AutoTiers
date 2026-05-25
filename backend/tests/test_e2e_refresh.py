@@ -33,6 +33,8 @@ def all_mocks(monkeypatch):
         router.get(url__regex=r"https://www\.fantasypros\.com/.*").mock(
             return_value=Response(200, text="<table id='data'><tbody></tbody></table>")
         )
+        # CBS: scaffold-only, no real fixture data — mock as failing.
+        router.get(url__regex=r"https://www\.cbssports\.com/.*").mock(return_value=Response(500))
         yield router
 
 
@@ -41,7 +43,11 @@ async def test_refresh_then_generate_returns_real_players(async_client, test_db,
     # Refresh
     fetcher = DataFetcher(prior_season=2025, current_season=2026)
     results = await fetcher.refresh_all(test_db)
-    assert all(r["last_error"] is None for r in results.values()), results
+    # CBS is scaffold-only (mocked to fail). Other sources must succeed.
+    for src, r in results.items():
+        if src == "cbs":
+            continue
+        assert r["last_error"] is None, f"{src} failed: {r['last_error']}"
 
     # Generate
     payload = {

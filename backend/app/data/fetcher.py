@@ -10,6 +10,7 @@ from app.data.sources.base import SourceResult
 from app.data.sources.sleeper import SleeperFetcher
 from app.data.sources.nfl_data import NflDataFetcher
 from app.data.sources.fantasypros import FantasyProsFetcher
+from app.data.sources.cbs import CBSFetcher
 from app.data.status import upsert_status, get_all_status
 
 
@@ -30,7 +31,7 @@ class DataFetcher:
 
         if not sleeper_result.success:
             skipped_at = datetime.utcnow()
-            for name in ("nfl_data_py", "fantasypros"):
+            for name in ("nfl_data_py", "fantasypros", "cbs"):
                 skipped = SourceResult(
                     source=name, rows_upserted=0, last_attempted=skipped_at,
                     success=False, error="skipped — sleeper refresh failed",
@@ -50,6 +51,7 @@ class DataFetcher:
         downstream = [
             ("nfl_data_py", NflDataFetcher(self.prior_season)),
             ("fantasypros", FantasyProsFetcher()),
+            ("cbs", CBSFetcher()),
         ]
         for name, src in downstream:
             try:
