@@ -18,7 +18,7 @@ from app.models import Player, Projection, ADPData
 
 logger = logging.getLogger(__name__)
 
-_POSITIONS = ("qb", "rb", "wr", "te")
+_POSITIONS = ("qb", "rb", "wr", "te", "k", "dst")
 _ADP_FORMATS = {"standard": "overall", "half_ppr": "half-point-ppr", "ppr": "ppr"}
 
 
