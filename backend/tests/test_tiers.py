@@ -59,15 +59,26 @@ def test_positional_tier_label_uses_correct_position_prefix():
 
 
 def test_players_with_similar_scores_share_positional_tier():
+    # Need enough players for Jenks to stabilize breaks (>3 unique values helps).
+    # 5 WRs in tier 1, 2 in tier 2: scores give clear gap for Jenks to find.
     players = [
         _player("a", "WR", 350.0),
         _player("b", "WR", 348.0),
+        _player("d", "WR", 346.0),
+        _player("e", "WR", 344.0),
+        _player("f", "WR", 342.0),
         _player("c", "WR", 150.0),
+        _player("g", "WR", 148.0),
     ]
     result = assign_tiers(players)
     by_id = {p.player_id: p for p in result}
-    # a and b are close, c is far away — a and b should share a tier
-    assert by_id["a"].positional_tier == by_id["b"].positional_tier
+    # a-f are tightly clustered near top (vbd ~200-190), c-g near bottom (vbd ~0).
+    # Jenks should find a break separating top cluster from bottom cluster.
+    # Within each cluster, similar scores should share a tier.
+    assert by_id["a"].positional_tier == by_id["b"].positional_tier, (
+        "Top-cluster players should share a tier"
+    )
+    # At least one high-score player should be in a different tier than low-score player.
     assert by_id["a"].positional_tier != by_id["c"].positional_tier
 
 
@@ -188,3 +199,36 @@ def test_quantile_fallback_handles_pure_ties():
     ranked = assign_tiers(players, league_size=12, tiebreak_adp_attr="adp_ppr")
     positional_tiers = {p.positional_tier for p in ranked}
     assert positional_tiers == {"K1"}
+
+
+def test_cluster_position_with_two_value_clusters():
+    """When players cluster into two distinct score groups (like K with rookies
+    vs veterans), tier assignment should produce 2 tiers, not 1."""
+    # 5 players at score 5.62 and 19 at 0.0 — mimics the K case
+    players = []
+    for i in range(5):
+        players.append(TieredPlayer(
+            player_id=f"k_top_{i}", name=f"KT{i}", position="K", team="X", age=27,
+            adjusted_score=5.62, projected_score_raw=5.62,
+            prior_year_actual=None,
+            adp_standard=float(i + 200), adp_ppr=float(i + 200), adp_dynasty=float(i + 200),
+            flags=[], rules_applied=[],
+            overall_rank=0, overall_tier=0, positional_tier="",
+        ))
+    for i in range(19):
+        players.append(TieredPlayer(
+            player_id=f"k_bot_{i}", name=f"KB{i}", position="K", team="X", age=27,
+            adjusted_score=0.0, projected_score_raw=0.0,
+            prior_year_actual=None,
+            adp_standard=float(i + 300), adp_ppr=float(i + 300), adp_dynasty=float(i + 300),
+            flags=[], rules_applied=[],
+            overall_rank=0, overall_tier=0, positional_tier="",
+        ))
+    ranked = assign_tiers(players, league_size=12, tiebreak_adp_attr="adp_ppr")
+    tiers = {p.positional_tier for p in ranked}
+    assert len(tiers) >= 2, f"Expected 2+ K tiers, got {tiers}"
+    # Top group should be K1, bottom group K2
+    top_player = next(p for p in ranked if p.player_id == "k_top_0")
+    bot_player = next(p for p in ranked if p.player_id == "k_bot_0")
+    assert top_player.positional_tier == "K1"
+    assert bot_player.positional_tier == "K2"
