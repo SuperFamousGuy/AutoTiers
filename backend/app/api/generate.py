@@ -1,7 +1,7 @@
 import csv
 import dataclasses
 import io
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 from fastapi import APIRouter, Depends
 from fastapi.responses import Response
@@ -198,6 +198,16 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
         if player.position == "RB" and stat is not None:
             prior_touches = (stat.rush_att or 0) + (stat.receptions or 0)
 
+        injured_two_years_ago: Optional[bool] = None
+        if player.position in ("RB", "WR"):
+            two_seasons_ago = datetime.utcnow().year - 2
+            two_yrs_ago_stat = next(
+                (s for s in player.stats if s.season == two_seasons_ago),
+                None,
+            )
+            if two_yrs_ago_stat is not None:
+                injured_two_years_ago = (two_yrs_ago_stat.games_played or 0) < 12
+
         ctx = PlayerContext(
             player_id=player.id,
             position=player.position,
@@ -222,6 +232,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
             is_over_the_hill=is_over_the_hill,
             projection_unavailable=projection_unavailable,
             prior_touches=prior_touches,
+            injured_two_years_ago=injured_two_years_ago,
         )
 
         rule_result = apply_rules(blended, ctx, rules)
