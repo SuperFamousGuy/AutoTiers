@@ -194,6 +194,10 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
         if player.age is not None and player.position in OVER_THE_HILL_AGE:
             is_over_the_hill = player.age >= OVER_THE_HILL_AGE[player.position]
 
+        prior_touches: Optional[int] = None
+        if player.position == "RB" and stat is not None:
+            prior_touches = (stat.rush_att or 0) + (stat.receptions or 0)
+
         ctx = PlayerContext(
             player_id=player.id,
             position=player.position,
@@ -217,6 +221,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
             red_zone_looks=stat.red_zone_looks if stat else None,
             is_over_the_hill=is_over_the_hill,
             projection_unavailable=projection_unavailable,
+            prior_touches=prior_touches,
         )
 
         rule_result = apply_rules(blended, ctx, rules)
