@@ -18,7 +18,7 @@ def mock_fantasypros():
         router.get(url__regex=r"/nfl/projections/wr\.php.*").mock(
             return_value=Response(200, text=(FIXTURES / "fantasypros_projections_wr.html").read_text())
         )
-        router.get(url__regex=r"/nfl/projections/(qb|rb|te)\.php.*").mock(
+        router.get(url__regex=r"/nfl/projections/(qb|rb|te|k|dst)\.php.*").mock(
             return_value=Response(200, text="<html><body><table id='data'><tbody></tbody></table></body></html>")
         )
         router.get(url__regex=r"/nfl/adp/ppr\.php").mock(
