@@ -108,6 +108,11 @@ def test_370_touches_categorized_as_regression():
     assert _categorize("370 Touches") == "Regression"
 
 
+def test_year_after_categorized_as_regression():
+    from app.api.rules import _categorize
+    assert _categorize("Year After the Year After") == "Regression"
+
+
 async def test_generate_computes_prior_touches_for_rbs(async_client, test_db):
     # Insert an RB with prior_touches >= 370 (rush_att + receptions)
     rb = Player(id="test-workhorse", name="Test Workhorse",

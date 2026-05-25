@@ -18,6 +18,7 @@ _CATEGORIES = {
     "Red Zone": "Regression",
     "Projection Unavailable": "Regression",
     "370 Touches": "Regression",
+    "Year After": "Regression",
     "Handcuff": "Flag",
     "Availability Risk": "Flag",
 }

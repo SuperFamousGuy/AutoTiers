@@ -138,9 +138,9 @@ def test_builtin_rules_is_nonempty_list_of_rules():
         assert rule.conditions
 
 
-def test_builtin_rules_count_is_15():
-    """Adding '370 Touches' rule (was 14)."""
-    assert len(BUILTIN_RULES) == 15
+def test_builtin_rules_count_is_16():
+    """Adding 'Year After the Year After' rule (was 15)."""
+    assert len(BUILTIN_RULES) == 16
 
 
 def test_all_builtin_rules_have_descriptions():
@@ -260,6 +260,21 @@ def test_player_context_accepts_prior_touches():
 def test_player_context_accepts_injured_two_years_ago():
     ctx = _ctx(position="WR", injured_two_years_ago=True)
     assert ctx.injured_two_years_ago is True
+
+
+def test_year_after_rule_fires_on_wr_injured_two_seasons_ago():
+    rule = next(r for r in BUILTIN_RULES if r.name == "Year After the Year After")
+    ctx = _ctx(position="WR", injured_two_years_ago=True)
+    result = apply_rules(200.0, ctx, [rule])
+    assert "Year After the Year After" in result.rules_applied
+    assert result.adjusted_score == 220.0  # 200 * 1.10
+
+
+def test_year_after_rule_does_not_fire_when_false():
+    rule = next(r for r in BUILTIN_RULES if r.name == "Year After the Year After")
+    ctx = _ctx(position="WR", injured_two_years_ago=False)
+    result = apply_rules(200.0, ctx, [rule])
+    assert "Year After the Year After" not in result.rules_applied
 
 
 def test_apply_rules_applications_track_sequential_state():
