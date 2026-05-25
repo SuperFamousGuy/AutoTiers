@@ -257,6 +257,11 @@ def test_player_context_accepts_prior_touches():
     assert ctx.prior_touches == 385
 
 
+def test_player_context_accepts_injured_two_years_ago():
+    ctx = _ctx(position="WR", injured_two_years_ago=True)
+    assert ctx.injured_two_years_ago is True
+
+
 def test_apply_rules_applications_track_sequential_state():
     """Each application records the score state AT THAT POINT, not the final state."""
     rule_a = Rule(
