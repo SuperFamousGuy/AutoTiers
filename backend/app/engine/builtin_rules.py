@@ -92,4 +92,13 @@ BUILTIN_RULES: list[Rule] = [
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.50),
         description="Heavy penalty for players with no current-season projection from any source - data confidence is low. -50% at default weight.",
     ),
+    Rule(
+        name="370 Touches",
+        conditions=[
+            RuleCondition(field="position", operator="==", value="RB"),
+            RuleCondition(field="prior_touches", operator=">=", value=370),
+        ],
+        effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.90),
+        description="Penalizes RBs who absorbed 370+ touches (carries + receptions) last season — historically a leading indicator of decline. -10% at default weight.",
+    ),
 ]

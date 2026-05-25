@@ -138,9 +138,9 @@ def test_builtin_rules_is_nonempty_list_of_rules():
         assert rule.conditions
 
 
-def test_builtin_rules_count_is_14():
-    """Adding 'Projection Unavailable' rule (was 13)."""
-    assert len(BUILTIN_RULES) == 14
+def test_builtin_rules_count_is_15():
+    """Adding '370 Touches' rule (was 14)."""
+    assert len(BUILTIN_RULES) == 15
 
 
 def test_all_builtin_rules_have_descriptions():
@@ -235,6 +235,39 @@ def test_apply_rules_tracks_per_rule_applications():
     assert app.before_score == 100.0
     assert app.after_score == 120.0
     assert app.delta == 20.0
+
+
+def test_370_touches_rule_fires_on_rb_with_high_touches():
+    from app.engine.builtin_rules import BUILTIN_RULES
+    from app.engine.rules import PlayerContext, apply_rules
+
+    rule = next(r for r in BUILTIN_RULES if r.name == "370 Touches")
+    ctx = PlayerContext(
+        player_id="p1", position="RB", age=27, snap_pct=None,
+        carry_share=None, target_share=None, games_played=None,
+        years_exp=4, adp=None, projected_score=200.0,
+        new_team=False, new_coach=False, actual_tds=None, expected_tds=None,
+        prior_touches=375,
+    )
+    result = apply_rules(200.0, ctx, [rule])
+    assert "370 Touches" in result.rules_applied
+    assert result.adjusted_score == 180.0  # 200 * 0.90
+
+
+def test_370_touches_rule_does_not_fire_under_threshold():
+    from app.engine.builtin_rules import BUILTIN_RULES
+    from app.engine.rules import PlayerContext, apply_rules
+
+    rule = next(r for r in BUILTIN_RULES if r.name == "370 Touches")
+    ctx = PlayerContext(
+        player_id="p1", position="RB", age=27, snap_pct=None,
+        carry_share=None, target_share=None, games_played=None,
+        years_exp=4, adp=None, projected_score=200.0,
+        new_team=False, new_coach=False, actual_tds=None, expected_tds=None,
+        prior_touches=369,
+    )
+    result = apply_rules(200.0, ctx, [rule])
+    assert "370 Touches" not in result.rules_applied
 
 
 def test_player_context_accepts_prior_touches():
