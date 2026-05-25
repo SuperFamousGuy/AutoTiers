@@ -237,6 +237,18 @@ def test_apply_rules_tracks_per_rule_applications():
     assert app.delta == 20.0
 
 
+def test_player_context_accepts_prior_touches():
+    from app.engine.rules import PlayerContext
+    ctx = PlayerContext(
+        player_id="p1", position="RB", age=27, snap_pct=None,
+        carry_share=None, target_share=None, games_played=None,
+        years_exp=4, adp=None, projected_score=200.0,
+        new_team=False, new_coach=False, actual_tds=None, expected_tds=None,
+        prior_touches=385,
+    )
+    assert ctx.prior_touches == 385
+
+
 def test_apply_rules_applications_track_sequential_state():
     """Each application records the score state AT THAT POINT, not the final state."""
     rule_a = Rule(
