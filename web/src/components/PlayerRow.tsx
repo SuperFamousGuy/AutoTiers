@@ -59,6 +59,12 @@ export function PlayerRow({ player }: PlayerRowProps) {
                   <span>{player.adp_implied.toFixed(1)}</span>
                 </div>
               )}
+              {player.avg_projection !== null && (
+                <div className="flex justify-between">
+                  <span>Avg projection (all sources)</span>
+                  <span>{player.avg_projection.toFixed(1)}</span>
+                </div>
+              )}
               <div className="flex justify-between border-t mt-1 pt-1 font-semibold">
                 <span>Blended raw</span>
                 <span>{player.projected_score_raw.toFixed(1)}</span>

@@ -71,6 +71,7 @@ class TieredPlayerOut(BaseModel):
     prior_year_actual: Optional[float]
     espn_projection: Optional[float]
     fantasypros_projection: Optional[float]
+    avg_projection: Optional[float]
     adp_implied: Optional[float]
     adp_standard: Optional[float]
     adp_ppr: Optional[float]

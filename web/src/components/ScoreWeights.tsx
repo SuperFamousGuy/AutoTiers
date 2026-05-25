@@ -11,7 +11,7 @@ interface ScoreWeightsProps {
 
 const ROWS: { key: WeightKey; label: string }[] = [
   { key: "prior", label: "Prior year actuals" },
-  { key: "consensus", label: "Projection (FantasyPros)" },
+  { key: "consensus", label: "Projection" },
   { key: "adp", label: "Market ADP" },
 ];
 

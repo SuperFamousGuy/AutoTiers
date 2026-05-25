@@ -66,6 +66,7 @@ export interface TieredPlayer {
   prior_year_actual: number | null;
   espn_projection: number | null;
   fantasypros_projection: number | null;
+  avg_projection: number | null;
   adp_implied: number | null;
   adp_standard: number | null;
   adp_ppr: number | null;
