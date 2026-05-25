@@ -103,6 +103,11 @@ async def test_generate_invalid_weights_returns_422(async_client):
     assert resp.status_code == 422
 
 
+def test_370_touches_categorized_as_regression():
+    from app.api.rules import _categorize
+    assert _categorize("370 Touches") == "Regression"
+
+
 async def test_list_rules_returns_builtin_rules(async_client):
     resp = await async_client.get("/api/rules")
     assert resp.status_code == 200
