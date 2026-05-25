@@ -43,3 +43,21 @@ async def test_team_season_persists(test_db):
     assert len(rows) == 1
     assert rows[0].team == "SF"
     assert rows[0].points_scored == 423
+
+
+@pytest.mark.asyncio
+async def test_player_contract_persists(test_db):
+    from app.models import Player, PlayerContract
+    player = Player(id="test-p", name="Test", position="QB", team="KC")
+    test_db.add(player)
+    await test_db.commit()
+
+    pc = PlayerContract(player_id="test-p", season=2025,
+                        cap_hit=45_000_000.0, base_salary=30_000_000.0,
+                        signing_bonus=15_000_000.0, last_updated=date(2026, 1, 1))
+    test_db.add(pc)
+    await test_db.commit()
+
+    rows = (await test_db.scalars(select(PlayerContract))).all()
+    assert len(rows) == 1
+    assert rows[0].cap_hit == 45_000_000.0
