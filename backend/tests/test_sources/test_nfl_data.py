@@ -93,6 +93,27 @@ def mock_nfl_data_with_pbp(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_nfl_fetcher_upserts_stats_for_multiple_seasons(test_db, mock_nfl_data):
+    """Multi-season fetch produces a PlayerStat row per (player, season)."""
+    test_db.add(Player(id="4017", name="Josh Allen", position="QB", team="BUF", gsis_id="00-0034796"))
+    test_db.add(Player(id="6794", name="Ja'Marr Chase", position="WR", team="CIN", gsis_id="00-0036900"))
+    await test_db.commit()
+
+    fetcher = NflDataFetcher(prior_seasons=3, latest_season=2025)
+    result = await fetcher.fetch(test_db)
+    assert result.success
+    # 2 players × 3 seasons = 6 upserted rows
+    assert result.rows_upserted == 6
+
+    for season in (2023, 2024, 2025):
+        allen = await test_db.scalar(
+            select(PlayerStat).where(PlayerStat.player_id == "4017", PlayerStat.season == season)
+        )
+        assert allen is not None, f"missing Allen stats for season {season}"
+        assert allen.pass_yards == 4180.0
+
+
+@pytest.mark.asyncio
 async def test_nfl_data_computes_pbp_derived_fields(test_db, mock_nfl_data_with_pbp):
     test_db.add(Player(id="8112", name="Bijan Robinson", position="RB", team="ATL", gsis_id="00-0039169"))
     test_db.add(Player(id="6794", name="Ja'Marr Chase", position="WR", team="CIN", gsis_id="00-0036900"))
