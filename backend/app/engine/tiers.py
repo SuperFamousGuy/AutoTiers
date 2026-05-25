@@ -64,7 +64,7 @@ def _jenks_interior_breaks(scores: list[float], max_classes: int) -> list[float]
 def _assign_tier_from_breaks(score: float, breaks: list[float], descending_scores: bool = True) -> int:
     tier = 1
     for bp in sorted(breaks, reverse=descending_scores):
-        if score < bp:
+        if score <= bp:
             tier += 1
     return tier
 
