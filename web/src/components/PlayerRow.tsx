@@ -66,36 +66,53 @@ export function PlayerRow({ player }: PlayerRowProps) {
             </div>
           </div>
 
-          {/* Rule adjustments */}
-          {player.rule_applications.length > 0 && (
-            <div>
-              <div className="text-muted-foreground mb-1 font-semibold uppercase tracking-wider text-[10px]">
-                Rule adjustments
-              </div>
-              <div className="space-y-0.5 font-mono">
-                {player.rule_applications.map((app, i) => (
-                  <div key={i} className="flex justify-between">
-                    <span className="truncate pr-2">{app.name}</span>
-                    <span className={cn(
-                      app.effect_type === "flag" && "text-muted-foreground",
-                      app.delta > 0 && "text-green-700",
-                      app.delta < 0 && "text-red-700",
-                    )}>
-                      {app.effect_type === "flag" ? "flagged" : `${app.delta > 0 ? "+" : ""}${app.delta.toFixed(1)}`}
-                      {app.effect_type !== "flag" && <span className="text-muted-foreground ml-2">→ {app.after_score.toFixed(1)}</span>}
-                    </span>
+          {/* Rule adjustments — score-modifying rules only */}
+          {(() => {
+            const scoringApps = player.rule_applications.filter((a) => a.effect_type !== "flag");
+            if (scoringApps.length === 0) {
+              return (
+                <div className="text-muted-foreground italic">No score adjustments (adjusted = blended)</div>
+              );
+            }
+            return (
+              <div>
+                <div className="text-muted-foreground mb-1 font-semibold uppercase tracking-wider text-[10px]">
+                  Rule adjustments
+                </div>
+                <div className="space-y-0.5 font-mono">
+                  {scoringApps.map((app, i) => (
+                    <div key={i} className="flex justify-between">
+                      <span className="truncate pr-2">{app.name}</span>
+                      <span className={cn(
+                        app.delta > 0 && "text-green-700",
+                        app.delta < 0 && "text-red-700",
+                      )}>
+                        {`${app.delta > 0 ? "+" : ""}${app.delta.toFixed(1)}`}
+                        <span className="text-muted-foreground ml-2">→ {app.after_score.toFixed(1)}</span>
+                      </span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between border-t mt-1 pt-1 font-semibold">
+                    <span>Adjusted score</span>
+                    <span>{player.adjusted_score.toFixed(1)}</span>
                   </div>
-                ))}
-                <div className="flex justify-between border-t mt-1 pt-1 font-semibold">
-                  <span>Adjusted score</span>
-                  <span>{player.adjusted_score.toFixed(1)}</span>
                 </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
-          {player.rule_applications.length === 0 && (
-            <div className="text-muted-foreground italic">No rules applied (adjusted = blended)</div>
+          {/* Flags — non-scoring signals (handcuffs, injury designations, rookies, etc.) */}
+          {player.flags.length > 0 && (
+            <div>
+              <div className="text-muted-foreground mb-1 font-semibold uppercase tracking-wider text-[10px]">
+                Flags
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {player.flags.map((f) => (
+                  <span key={f} className="rounded bg-yellow-100 text-yellow-800 px-1.5 py-0.5">{f}</span>
+                ))}
+              </div>
+            </div>
           )}
 
           {/* Value-Based Drafting */}
@@ -136,7 +153,7 @@ export function PlayerRow({ player }: PlayerRowProps) {
             </div>
           </div>
 
-          {/* Metadata: position, age, ADPs, flags */}
+          {/* Metadata: position, age, ADPs */}
           <div>
             <div className="text-muted-foreground mb-1 font-semibold uppercase tracking-wider text-[10px]">
               Reference
@@ -164,19 +181,6 @@ export function PlayerRow({ player }: PlayerRowProps) {
               </div>
             </div>
           </div>
-
-          {player.flags.length > 0 && (
-            <div>
-              <div className="text-muted-foreground mb-1 font-semibold uppercase tracking-wider text-[10px]">
-                Flags
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {player.flags.map((f) => (
-                  <span key={f} className="rounded bg-yellow-100 text-yellow-800 px-1.5 py-0.5">{f}</span>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>
