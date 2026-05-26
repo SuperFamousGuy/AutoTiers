@@ -39,5 +39,23 @@ dev = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 
+[tool.coverage.run]
+source = ["app"]
+branch = true
+omit = [
+    # Migrations are generated/declarative; not unit-testable.
+    "app/database.py",  # boilerplate engine/session factory
+    "alembic/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+show_missing = true
+
 [tool.hatch.build.targets.wheel]
 packages = ["app"]

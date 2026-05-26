@@ -18,5 +18,21 @@ export default defineConfig({
     globals: true,
     environment: "jsdom",
     setupFiles: ["./src/tests/setup.ts"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "lcov", "cobertura", "html"],
+      reportsDirectory: "./coverage",
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: [
+        "src/**/*.d.ts",
+        "src/**/*.test.{ts,tsx}",
+        "src/**/__tests__/**",
+        "src/tests/**",
+        "src/main.tsx",
+        "src/vite-env.d.ts",
+        "src/components/ui/**",  // shadcn primitives; covered transitively by usage
+        "src/api/types.ts",  // pure type declarations; no runtime code
+      ],
+    },
   },
 });
