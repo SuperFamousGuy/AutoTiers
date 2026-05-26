@@ -45,19 +45,7 @@ def _build_league_settings(req: GenerateRequest) -> LeagueSettings:
         weight_prior_year=req.weight_prior_year,
         weight_espn=req.weight_espn,
         weight_consensus=req.weight_consensus,
-        weight_adp=req.weight_adp,
     )
-
-
-def _adp_implied_score(adp: Optional[float], baseline: float = 400.0) -> Optional[float]:
-    """Convert ADP to a points-equivalent score.
-
-    ADP 1 → 399, ADP 200 → 200, ADP 400+ → 0. Returns None if ADP is missing
-    so the blender treats it as a missing source.
-    """
-    if adp is None:
-        return None
-    return max(0.0, baseline - float(adp))
 
 
 def _schema_to_rule(schema) -> Rule:
@@ -231,14 +219,12 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
 
         league_type_val = req.league_type.value if hasattr(req.league_type, "value") else req.league_type
         player_adp = _get_adp(player.adp_entries, scoring_fmt, league_type_val)
-        adp_implied = _adp_implied_score(player_adp)
 
         blended = blend_scores(
             prior_year_actual=prior_actual,
             espn_projection=None,
             consensus_projection=avg_proj,
             settings=settings,
-            adp_implied=adp_implied,
         )
 
         projection_unavailable = avg_proj is None
@@ -319,7 +305,6 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
             avg_projection=avg_proj,
             espn_projection=espn_pts,
             fantasypros_projection=fp_pts,
-            adp_implied=adp_implied,
             adp_standard=_get_adp(player.adp_entries, "standard"),
             adp_ppr=_get_adp(player.adp_entries, "ppr"),
             adp_dynasty=_get_adp(player.adp_entries, "dynasty"),
@@ -406,7 +391,7 @@ async def generate_csv(req: GenerateRequest, db: AsyncSession = Depends(get_db))
         "overall_tier", "positional_tier",
         "adjusted_score", "vbd_score", "position_replacement",
         "projected_score_raw",
-        "prior_year_actual", "espn_projection", "fantasypros_projection", "avg_projection", "adp_implied",
+        "prior_year_actual", "espn_projection", "fantasypros_projection", "avg_projection",
         "adp_standard", "adp_ppr", "adp_dynasty",
         "flags", "rules_applied", "rule_deltas",
     ])
@@ -425,7 +410,6 @@ async def generate_csv(req: GenerateRequest, db: AsyncSession = Depends(get_db))
             round(p.espn_projection, 2) if p.espn_projection is not None else "",
             round(p.fantasypros_projection, 2) if p.fantasypros_projection is not None else "",
             round(p.avg_projection, 2) if p.avg_projection is not None else "",
-            round(p.adp_implied, 2) if p.adp_implied is not None else "",
             p.adp_standard or "", p.adp_ppr or "", p.adp_dynasty or "",
             ";".join(p.flags), ";".join(p.rules_applied), rule_deltas_str,
         ])
