@@ -49,7 +49,7 @@ class DataFetcher:
         # consensus as the projection source instead. EspnFetcher source is kept
         # in app/data/sources/espn.py for future re-enable if cookie auth is added.
         downstream = [
-            ("nfl_data_py", NflDataFetcher(self.prior_season)),
+            ("nfl_data_py", NflDataFetcher(prior_seasons=3, latest_season=self.prior_season)),
             ("fantasypros", FantasyProsFetcher()),
             ("cbs", CBSFetcher()),
         ]

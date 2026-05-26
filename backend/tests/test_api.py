@@ -108,6 +108,11 @@ def test_370_touches_categorized_as_regression():
     assert _categorize("370 Touches") == "Regression"
 
 
+def test_year_after_categorized_as_regression():
+    from app.api.rules import _categorize
+    assert _categorize("Year After the Year After") == "Regression"
+
+
 async def test_generate_computes_prior_touches_for_rbs(async_client, test_db):
     # Insert an RB with prior_touches >= 370 (rush_att + receptions)
     rb = Player(id="test-workhorse", name="Test Workhorse",
@@ -132,6 +137,23 @@ async def test_generate_computes_prior_touches_for_rbs(async_client, test_db):
     players = resp.json()["players"]
     workhorse = next(p for p in players if p["player_id"] == "test-workhorse")
     assert "370 Touches" in workhorse["rules_applied"]
+
+
+async def test_generate_computes_injured_two_years_ago_for_rb(async_client, test_db):
+    current_year = datetime.utcnow().year
+    two_yrs_ago = current_year - 2
+
+    rb = Player(id="test-bounceback", name="Test Bounceback",
+                position="RB", team="SF", age=26, years_exp=4)
+    test_db.add(rb)
+    test_db.add(PlayerStat(player_id=rb.id, season=two_yrs_ago, games_played=8))
+    await test_db.commit()
+
+    resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
+    assert resp.status_code == 200
+    players = resp.json()["players"]
+    bounceback = next(p for p in players if p["player_id"] == "test-bounceback")
+    assert "Year After the Year After" in bounceback["rules_applied"]
 
 
 async def test_list_rules_returns_builtin_rules(async_client):

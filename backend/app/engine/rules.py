@@ -55,6 +55,7 @@ class PlayerContext:
     is_over_the_hill: Optional[bool] = None
     projection_unavailable: Optional[bool] = None
     prior_touches: Optional[int] = None
+    injured_two_years_ago: Optional[bool] = None
 
 
 @dataclass

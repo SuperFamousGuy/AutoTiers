@@ -101,4 +101,12 @@ BUILTIN_RULES: list[Rule] = [
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.90),
         description="Penalizes RBs who absorbed 370+ touches (carries + receptions) last season — historically a leading indicator of decline. -10% at default weight.",
     ),
+    Rule(
+        name="Year After the Year After",
+        conditions=[
+            RuleCondition(field="injured_two_years_ago", operator="==", value=True),
+        ],
+        effect=RuleEffect(type=EffectType.MULTIPLIER, value=1.10),
+        description="Boosts RBs and WRs returning to full health two years after an injury-shortened season (under 12 games played). Position gating happens upstream in the generate endpoint — the rules engine has no `in` operator, so the field is set to None for non-RB/WR players. Soft-tissue injuries take a full year to fully recover; year two is when players are truly back. +10% at default weight.",
+    ),
 ]
