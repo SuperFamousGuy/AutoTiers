@@ -53,12 +53,6 @@ export function PlayerRow({ player }: PlayerRowProps) {
                   <span>{player.fantasypros_projection.toFixed(1)}</span>
                 </div>
               )}
-              {player.adp_implied !== null && (
-                <div className="flex justify-between">
-                  <span>ADP-implied</span>
-                  <span>{player.adp_implied.toFixed(1)}</span>
-                </div>
-              )}
               {player.avg_projection !== null && (
                 <div className="flex justify-between">
                   <span>Avg projection (all sources)</span>
