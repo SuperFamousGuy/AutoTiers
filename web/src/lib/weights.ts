@@ -1,7 +1,6 @@
 export interface Weights {
   prior: number;
   consensus: number;
-  adp: number;
 }
 
 export type WeightKey = keyof Weights;
@@ -21,5 +20,5 @@ export function setWeight(
 }
 
 export function weightsAreValid(w: Weights): boolean {
-  return w.prior + w.consensus + w.adp === 100;
+  return w.prior + w.consensus === 100;
 }

@@ -113,33 +113,3 @@ def test_blend_does_not_renormalize_missing_sources():
 def test_blend_all_missing_returns_zero():
     result = blend_scores(None, None, None, settings=_settings())
     assert result == 0.0
-
-
-def test_blend_includes_adp_implied():
-    settings = LeagueSettings(
-        scoring_format=ScoringFormat.PPR, league_type=LeagueType.STANDARD,
-        league_size=12, qb_td_points=4.0,
-        bonus_100yd_rushing=False, bonus_100yd_receiving=False, bonus_first_downs=False,
-        weight_prior_year=0.30, weight_espn=0.0, weight_consensus=0.40, weight_adp=0.30,
-    )
-    result = blend_scores(
-        prior_year_actual=300.0, espn_projection=None, consensus_projection=350.0,
-        settings=settings, adp_implied=200.0,
-    )
-    # 300*0.3 + 350*0.4 + 200*0.3 = 90 + 140 + 60 = 290
-    assert result == pytest.approx(290.0)
-
-
-def test_blend_adp_missing_contributes_zero():
-    settings = LeagueSettings(
-        scoring_format=ScoringFormat.PPR, league_type=LeagueType.STANDARD,
-        league_size=12, qb_td_points=4.0,
-        bonus_100yd_rushing=False, bonus_100yd_receiving=False, bonus_first_downs=False,
-        weight_prior_year=0.30, weight_espn=0.0, weight_consensus=0.40, weight_adp=0.30,
-    )
-    result = blend_scores(
-        prior_year_actual=300.0, espn_projection=None, consensus_projection=350.0,
-        settings=settings, adp_implied=None,
-    )
-    # 300*0.3 + 350*0.4 + 0 = 230
-    assert result == pytest.approx(230.0)
