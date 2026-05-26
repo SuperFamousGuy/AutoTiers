@@ -14,6 +14,7 @@ _CATEGORIES = {
     "Sophomore Leap": "Situation",
     "Contract Year": "Situation",
     "Bad Offense": "Situation",
+    "Follow the Money": "Situation",
     "Injury History": "Regression",
     "TD Regression": "Regression",
     "Red Zone": "Regression",

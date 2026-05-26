@@ -118,6 +118,11 @@ def test_bad_offense_categorized_as_situation():
     assert _categorize("Bad Offense") == "Situation"
 
 
+def test_follow_the_money_categorized_as_situation():
+    from app.api.rules import _categorize
+    assert _categorize("Follow the Money") == "Situation"
+
+
 async def test_generate_computes_prior_touches_for_rbs(async_client, test_db):
     # Insert an RB with prior_touches >= 370 (rush_att + receptions)
     rb = Player(id="test-workhorse", name="Test Workhorse",

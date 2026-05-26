@@ -115,4 +115,10 @@ BUILTIN_RULES: list[Rule] = [
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.93),
         description="Penalizes offensive skill players (QB/RB/WR/TE) on teams ranked in the bottom 8 by 3-year average points scored. Position gating happens upstream in the generate endpoint — the field is set to None for K/DST so the rule doesn't fire on them. Chronic structural issues suppress ceiling. -7% at default weight.",
     ),
+    Rule(
+        name="Follow the Money",
+        conditions=[RuleCondition(field="above_market_contract", operator="==", value=True)],
+        effect=RuleEffect(type=EffectType.MULTIPLIER, value=1.05),
+        description="Boosts QB/RB/WR/TE players paid above-market contracts (cap hit > 1.5x position median). Position gating happens upstream in the generate endpoint. Coaches prioritize touches/snaps for big-money players to justify the investment. +5% at default weight.",
+    ),
 ]
