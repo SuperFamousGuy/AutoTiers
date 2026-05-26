@@ -13,5 +13,6 @@ class TeamSeason(Base):
     team: Mapped[str] = mapped_column(String(5), nullable=False)
     season: Mapped[int] = mapped_column(Integer, nullable=False)
     points_scored: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Computed at refresh time for future analytics/UI use; not yet consumed by the rules engine.
     points_rank: Mapped[Optional[int]] = mapped_column(Integer)
     last_updated: Mapped[Optional[date]] = mapped_column(Date)
