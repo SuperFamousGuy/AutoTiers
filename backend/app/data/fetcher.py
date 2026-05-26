@@ -11,6 +11,7 @@ from app.data.sources.sleeper import SleeperFetcher
 from app.data.sources.nfl_data import NflDataFetcher
 from app.data.sources.fantasypros import FantasyProsFetcher
 from app.data.sources.cbs import CBSFetcher
+from app.data.sources.spotrac import SpotracFetcher
 from app.data.status import upsert_status, get_all_status
 
 
@@ -31,7 +32,7 @@ class DataFetcher:
 
         if not sleeper_result.success:
             skipped_at = datetime.utcnow()
-            for name in ("nfl_data_py", "fantasypros", "cbs"):
+            for name in ("nfl_data_py", "fantasypros", "cbs", "spotrac"):
                 skipped = SourceResult(
                     source=name, rows_upserted=0, last_attempted=skipped_at,
                     success=False, error="skipped — sleeper refresh failed",
@@ -52,6 +53,7 @@ class DataFetcher:
             ("nfl_data_py", NflDataFetcher(prior_seasons=3, latest_season=self.prior_season)),
             ("fantasypros", FantasyProsFetcher()),
             ("cbs", CBSFetcher()),
+            ("spotrac", SpotracFetcher()),
         ]
         for name, src in downstream:
             try:
