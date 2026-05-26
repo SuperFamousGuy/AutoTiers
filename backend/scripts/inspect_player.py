@@ -227,9 +227,9 @@ async def inspect(name_query: str) -> None:
 
         # ---------- Apply rules end-to-end ----------
         result = apply_rules(100.0, ctx, BUILTIN_RULES)
-        if result.rule_applications:
-            print(f"\napply_rules() fired {len(result.rule_applications)} rules on a baseline of 100.0:")
-            for app in result.rule_applications:
+        if result.applications:
+            print(f"\napply_rules() fired {len(result.applications)} rules on a baseline of 100.0:")
+            for app in result.applications:
                 arrow = "→" if app.effect_type.value != "flag" else " "
                 print(
                     f"  {app.name:<32} delta={app.delta:+.2f}  {arrow} {app.after_score:.2f}"
