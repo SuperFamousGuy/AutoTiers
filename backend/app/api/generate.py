@@ -12,6 +12,7 @@ from app.database import get_db
 from app.models.player import Player, PlayerStat
 from app.models.projection import Projection
 from app.models.adp import ADPData
+from app.models import TeamSeason
 from app.engine.scoring import LeagueSettings, PlayerStats, calculate_fantasy_points, blend_scores
 from app.engine.rules import Rule, RuleCondition, RuleEffect, PlayerContext, apply_rules
 from app.engine.builtin_rules import BUILTIN_RULES, OVER_THE_HILL_AGE
@@ -135,6 +136,25 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
         merged[cr.name] = cr  # custom always wins (already deduplicated by name)
     rules = list(merged.values())
 
+    # Bottom-8 offensive teams by 3-year avg points scored — computed ONCE per request.
+    # Teams with fewer than 2 seasons of data are excluded so a single bad year
+    # doesn't drag a team into the bottom 8 unfairly.
+    current_year = datetime.utcnow().year
+    cutoff = current_year - 3
+    ts_rows = (await db.scalars(
+        select(TeamSeason).where(TeamSeason.season >= cutoff)
+    )).all()
+    points_by_team: dict[str, list[int]] = {}
+    for r in ts_rows:
+        points_by_team.setdefault(r.team, []).append(r.points_scored)
+    team_avg = {
+        team: sum(pts) / len(pts)
+        for team, pts in points_by_team.items()
+        if len(pts) >= 2
+    }
+    sorted_teams = sorted(team_avg.items(), key=lambda kv: kv[1])
+    bad_offense_teams = {team for team, _ in sorted_teams[:8]}
+
     result = await db.execute(
         select(Player)
         .options(
@@ -198,6 +218,10 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
         if player.position == "RB" and stat is not None:
             prior_touches = (stat.rush_att or 0) + (stat.receptions or 0)
 
+        bad_offense_team: Optional[bool] = None
+        if player.position in ("QB", "RB", "WR", "TE"):
+            bad_offense_team = player.team in bad_offense_teams
+
         injured_two_years_ago: Optional[bool] = None
         if player.position in ("RB", "WR"):
             two_seasons_ago = datetime.utcnow().year - 2
@@ -233,6 +257,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
             projection_unavailable=projection_unavailable,
             prior_touches=prior_touches,
             injured_two_years_ago=injured_two_years_ago,
+            bad_offense_team=bad_offense_team,
         )
 
         rule_result = apply_rules(blended, ctx, rules)

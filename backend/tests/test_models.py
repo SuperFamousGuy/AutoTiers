@@ -1,5 +1,5 @@
 import pytest
-from datetime import datetime
+from datetime import datetime, date
 from sqlalchemy import select
 from app.models import Player, DataSourceStatus
 
@@ -30,3 +30,34 @@ async def test_data_source_status_round_trip(test_db):
     fetched = await test_db.scalar(select(DataSourceStatus).where(DataSourceStatus.source == "sleeper"))
     assert fetched.rows_upserted == 1542
     assert fetched.last_error is None
+
+
+@pytest.mark.asyncio
+async def test_team_season_persists(test_db):
+    from app.models import TeamSeason
+    ts = TeamSeason(team="SF", season=2025, points_scored=423,
+                    points_rank=6, last_updated=date(2026, 1, 1))
+    test_db.add(ts)
+    await test_db.commit()
+    rows = (await test_db.scalars(select(TeamSeason))).all()
+    assert len(rows) == 1
+    assert rows[0].team == "SF"
+    assert rows[0].points_scored == 423
+
+
+@pytest.mark.asyncio
+async def test_player_contract_persists(test_db):
+    from app.models import Player, PlayerContract
+    player = Player(id="test-p", name="Test", position="QB", team="KC")
+    test_db.add(player)
+    await test_db.commit()
+
+    pc = PlayerContract(player_id="test-p", season=2025,
+                        cap_hit=45_000_000.0, base_salary=30_000_000.0,
+                        signing_bonus=15_000_000.0, last_updated=date(2026, 1, 1))
+    test_db.add(pc)
+    await test_db.commit()
+
+    rows = (await test_db.scalars(select(PlayerContract))).all()
+    assert len(rows) == 1
+    assert rows[0].cap_hit == 45_000_000.0

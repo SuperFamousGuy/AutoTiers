@@ -22,6 +22,8 @@ def mock_nfl_data(monkeypatch):
     monkeypatch.setattr(mod, "import_snap_counts", lambda years: snap_df.copy())
     # PBP not required for these tests — return empty DataFrame.
     monkeypatch.setattr(mod, "import_pbp_data", lambda years: pd.DataFrame())
+    # Schedule not required for these tests — return empty DataFrame.
+    monkeypatch.setattr(mod, "import_schedules", lambda years: pd.DataFrame())
 
 
 def test_nfl_fetcher_accepts_prior_seasons():
@@ -90,6 +92,7 @@ def mock_nfl_data_with_pbp(monkeypatch):
     monkeypatch.setattr(mod, "import_seasonal_data", lambda years: seasonal_df.copy())
     monkeypatch.setattr(mod, "import_snap_counts", lambda years: snap_df.copy())
     monkeypatch.setattr(mod, "import_pbp_data", lambda years: pbp_df.copy())
+    monkeypatch.setattr(mod, "import_schedules", lambda years: pd.DataFrame())
 
 
 @pytest.mark.asyncio
@@ -111,6 +114,36 @@ async def test_nfl_fetcher_upserts_stats_for_multiple_seasons(test_db, mock_nfl_
         )
         assert allen is not None, f"missing Allen stats for season {season}"
         assert allen.pass_yards == 4180.0
+
+
+@pytest.fixture
+def mock_nfl_data_with_schedule(monkeypatch):
+    """Like mock_nfl_data but also stubs import_schedules to return a 2-game season."""
+    seasonal_df = pd.read_csv(FIXTURES / "nfl_data_seasonal.csv")
+    snap_df = pd.read_csv(FIXTURES / "nfl_data_snap_counts.csv")
+    schedule_df = pd.DataFrame([
+        {"season": 2025, "home_team": "SF", "away_team": "KC", "home_score": 10, "away_score": 28},
+        {"season": 2025, "home_team": "KC", "away_team": "SF", "home_score": 35, "away_score": 21},
+    ])
+
+    import app.data.sources.nfl_data as mod
+    monkeypatch.setattr(mod, "import_seasonal_data", lambda years: seasonal_df.copy())
+    monkeypatch.setattr(mod, "import_snap_counts", lambda years: snap_df.copy())
+    monkeypatch.setattr(mod, "import_pbp_data", lambda years: pd.DataFrame())
+    monkeypatch.setattr(mod, "import_schedules", lambda years: schedule_df.copy())
+
+
+@pytest.mark.asyncio
+async def test_nfl_fetcher_populates_team_seasons(test_db, mock_nfl_data_with_schedule):
+    from app.models import TeamSeason
+    fetcher = NflDataFetcher(prior_seasons=1, latest_season=2025)
+    result = await fetcher.fetch(test_db)
+    assert result.success
+
+    rows = (await test_db.scalars(select(TeamSeason))).all()
+    by_team = {r.team: r.points_scored for r in rows}
+    assert by_team["SF"] == 31   # 10 (home) + 21 (away)
+    assert by_team["KC"] == 63   # 28 (away) + 35 (home)
 
 
 @pytest.mark.asyncio
