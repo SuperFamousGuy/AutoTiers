@@ -101,20 +101,6 @@ export function PlayerRow({ player }: PlayerRowProps) {
             );
           })()}
 
-          {/* Flags — non-scoring signals (handcuffs, injury designations, rookies, etc.) */}
-          {player.flags.length > 0 && (
-            <div>
-              <div className="text-muted-foreground mb-1 font-semibold uppercase tracking-wider text-[10px]">
-                Flags
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {player.flags.map((f) => (
-                  <span key={f} className="rounded bg-yellow-100 text-yellow-800 px-1.5 py-0.5">{f}</span>
-                ))}
-              </div>
-            </div>
-          )}
-
           {/* Value-Based Drafting */}
           <div>
             <div className="text-muted-foreground mb-1 font-semibold uppercase tracking-wider text-[10px]">
@@ -135,6 +121,20 @@ export function PlayerRow({ player }: PlayerRowProps) {
               </div>
             </div>
           </div>
+
+          {/* Flags — non-scoring signals (handcuffs, injury designations, rookies, etc.) */}
+          {player.flags.length > 0 && (
+            <div>
+              <div className="text-muted-foreground mb-1 font-semibold uppercase tracking-wider text-[10px]">
+                Flags
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {player.flags.map((f) => (
+                  <span key={f} className="rounded bg-yellow-100 text-yellow-800 px-1.5 py-0.5">{f}</span>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Tier placement */}
           <div>
