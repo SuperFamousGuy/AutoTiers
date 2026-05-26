@@ -13,6 +13,7 @@ _CATEGORIES = {
     "New Head Coach": "Situation",
     "Sophomore Leap": "Situation",
     "Contract Year": "Situation",
+    "Bad Offense": "Situation",
     "Injury History": "Regression",
     "TD Regression": "Regression",
     "Red Zone": "Regression",

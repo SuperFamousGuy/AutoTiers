@@ -138,9 +138,9 @@ def test_builtin_rules_is_nonempty_list_of_rules():
         assert rule.conditions
 
 
-def test_builtin_rules_count_is_16():
-    """Adding 'Year After the Year After' rule (was 15)."""
-    assert len(BUILTIN_RULES) == 16
+def test_builtin_rules_count_is_17():
+    """Adding 'Bad Offense' rule (was 16)."""
+    assert len(BUILTIN_RULES) == 17
 
 
 def test_all_builtin_rules_have_descriptions():
@@ -280,6 +280,21 @@ def test_year_after_rule_does_not_fire_when_false():
     ctx = _ctx(position="WR", injured_two_years_ago=False)
     result = apply_rules(200.0, ctx, [rule])
     assert "Year After the Year After" not in result.rules_applied
+
+
+def test_bad_offense_rule_fires():
+    rule = next(r for r in BUILTIN_RULES if r.name == "Bad Offense")
+    ctx = _ctx(position="WR", bad_offense_team=True)
+    result = apply_rules(200.0, ctx, [rule])
+    assert "Bad Offense" in result.rules_applied
+    assert result.adjusted_score == 186.0  # 200 * 0.93
+
+
+def test_bad_offense_rule_does_not_fire_when_none():
+    rule = next(r for r in BUILTIN_RULES if r.name == "Bad Offense")
+    ctx = _ctx(position="K", bad_offense_team=None)
+    result = apply_rules(200.0, ctx, [rule])
+    assert "Bad Offense" not in result.rules_applied
 
 
 def test_apply_rules_applications_track_sequential_state():
