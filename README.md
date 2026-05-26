@@ -49,7 +49,7 @@ Try a request against the seeded data:
 ```bash
 curl -X POST http://localhost:8000/api/generate \
   -H "Content-Type: application/json" \
-  -d '{"scoring_format":"ppr","league_type":"standard","league_size":12,"qb_td_points":4.0,"bonus_100yd_rushing":false,"bonus_100yd_receiving":false,"bonus_first_downs":false,"weight_prior_year":0.40,"weight_espn":0.30,"weight_consensus":0.30,"rules":[]}'
+  -d '{"scoring_format":"ppr","league_type":"standard","league_size":12,"qb_td_points":4.0,"bonus_100yd_rushing":false,"bonus_100yd_receiving":false,"bonus_first_downs":false,"weight_prior_year":0.30,"weight_espn":0.0,"weight_consensus":0.70,"rules":[]}'
 ```
 
 Override defaults by copying `.env.example` to `.env` (port mappings, postgres credentials, whether to seed). To skip seeding on first start, set `SEED_DEV_DATA=false`. To reset the database completely:
@@ -168,9 +168,9 @@ curl -X POST http://localhost:8000/api/generate \
     "bonus_100yd_rushing": false,
     "bonus_100yd_receiving": false,
     "bonus_first_downs": false,
-    "weight_prior_year": 0.40,
-    "weight_espn": 0.30,
-    "weight_consensus": 0.30,
+    "weight_prior_year": 0.30,
+    "weight_espn": 0.0,
+    "weight_consensus": 0.70,
     "rules": []
   }'
 ```
@@ -185,9 +185,10 @@ Produces one `projected_score` per player from a configurable weighted blend:
 
 | Source | Default Weight | Configurable? |
 |---|---|---|
-| Prior year actuals | 40% | Yes — linked sliders, must sum to 100% |
-| ESPN projection | 30% | Yes |
-| FantasyPros consensus | 30% | Yes |
+| Prior year actuals | 30% | Yes — linked sliders, must sum to 100% |
+| Consensus projection (FantasyPros + ESPN + others averaged) | 70% | Yes |
+
+The UI exposes exactly two sliders ("Prior year actuals" and "Consensus projection"). ESPN data is rolled into the consensus average and is no longer a separate user-facing input. The API also accepts `weight_espn` for advanced clients (default `0.0`); the UI no longer exposes it.
 
 Supports Standard, Half-PPR, and Full PPR.
 
