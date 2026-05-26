@@ -1,6 +1,7 @@
 import csv
 import dataclasses
 import io
+import statistics
 from datetime import date, datetime
 from typing import Optional
 from fastapi import APIRouter, Depends
@@ -106,6 +107,58 @@ def _get_adp(adp_entries: list[ADPData], scoring_fmt: str, league_type: str = "r
     return None
 
 
+async def _compute_bad_offense_teams(db: AsyncSession, current_year: int) -> set[str]:
+    """Bottom-8 teams by 3-year average points scored.
+
+    Requires at least 2 of 3 seasons of data per team; teams with fewer
+    are excluded from ranking entirely.
+    """
+    cutoff = current_year - 3
+    ts_rows = (await db.scalars(
+        select(TeamSeason).where(TeamSeason.season >= cutoff)
+    )).all()
+    points_by_team: dict[str, list[int]] = {}
+    for r in ts_rows:
+        points_by_team.setdefault(r.team, []).append(r.points_scored)
+    team_avg = {
+        team: sum(pts) / len(pts)
+        for team, pts in points_by_team.items()
+        if len(pts) >= 2
+    }
+    sorted_teams = sorted(team_avg.items(), key=lambda kv: kv[1])
+    return {team for team, _ in sorted_teams[:8]}
+
+
+async def _compute_above_market_pids(
+    db: AsyncSession, current_year: int, players: list[Player]
+) -> set[str]:
+    """Players whose cap hit exceeds 1.5× the median for their position.
+
+    Only computes thresholds for positions with at least 5 contracts on file.
+    """
+    contract_rows = (await db.scalars(
+        select(PlayerContract).where(PlayerContract.season == current_year)
+    )).all()
+    pid_to_caphit = {pc.player_id: pc.cap_hit for pc in contract_rows}
+    pid_to_pos = {p.id: p.position for p in players}
+
+    contracts_by_pos: dict[str, list[float]] = {}
+    for pid, cap in pid_to_caphit.items():
+        pos = pid_to_pos.get(pid)
+        if pos in ("QB", "RB", "WR", "TE"):
+            contracts_by_pos.setdefault(pos, []).append(cap)
+
+    pos_threshold: dict[str, float] = {
+        pos: statistics.median(caps) * 1.5
+        for pos, caps in contracts_by_pos.items()
+        if len(caps) >= 5
+    }
+    return {
+        pid for pid, cap in pid_to_caphit.items()
+        if (pos := pid_to_pos.get(pid)) in pos_threshold and cap > pos_threshold[pos]
+    }
+
+
 async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPlayer]:
     settings = _build_league_settings(req)
     scoring_fmt = req.scoring_format.value
@@ -136,24 +189,8 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
         merged[cr.name] = cr  # custom always wins (already deduplicated by name)
     rules = list(merged.values())
 
-    # Bottom-8 offensive teams by 3-year avg points scored — computed ONCE per request.
-    # Teams with fewer than 2 seasons of data are excluded so a single bad year
-    # doesn't drag a team into the bottom 8 unfairly.
     current_year = datetime.utcnow().year
-    cutoff = current_year - 3
-    ts_rows = (await db.scalars(
-        select(TeamSeason).where(TeamSeason.season >= cutoff)
-    )).all()
-    points_by_team: dict[str, list[int]] = {}
-    for r in ts_rows:
-        points_by_team.setdefault(r.team, []).append(r.points_scored)
-    team_avg = {
-        team: sum(pts) / len(pts)
-        for team, pts in points_by_team.items()
-        if len(pts) >= 2
-    }
-    sorted_teams = sorted(team_avg.items(), key=lambda kv: kv[1])
-    bad_offense_teams = {team for team, _ in sorted_teams[:8]}
+    bad_offense_teams = await _compute_bad_offense_teams(db, current_year)
 
     result = await db.execute(
         select(Player)
@@ -165,37 +202,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
     )
     players = result.scalars().all()
 
-    # Above-market contract set — computed ONCE per request.
-    # Threshold per position: median cap_hit * 1.5. Only QB/RB/WR/TE
-    # are eligible; K/DST excluded (no meaningful contract data). Positions
-    # with fewer than 5 contracts are skipped to avoid tiny-sample noise.
-    contract_rows = (await db.scalars(
-        select(PlayerContract).where(PlayerContract.season == current_year)
-    )).all()
-    pid_to_caphit = {pc.player_id: pc.cap_hit for pc in contract_rows}
-    pid_to_pos = {p.id: p.position for p in players}
-
-    contracts_by_pos: dict[str, list[float]] = {}
-    for pid, cap in pid_to_caphit.items():
-        pos = pid_to_pos.get(pid)
-        if pos in ("QB", "RB", "WR", "TE"):
-            contracts_by_pos.setdefault(pos, []).append(cap)
-
-    def _median(xs: list[float]) -> float:
-        s = sorted(xs)
-        n = len(s)
-        return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
-
-    pos_threshold: dict[str, float] = {
-        pos: _median(caps) * 1.5
-        for pos, caps in contracts_by_pos.items()
-        if len(caps) >= 5
-    }
-    above_market_pids = {
-        pid for pid, cap in pid_to_caphit.items()
-        if pid_to_pos.get(pid) in pos_threshold
-        and cap > pos_threshold[pid_to_pos[pid]]
-    }
+    above_market_pids = await _compute_above_market_pids(db, current_year, players)
 
     tiered: list[TieredPlayer] = []
     for player in players:
