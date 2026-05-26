@@ -196,6 +196,49 @@ async def test_generate_flags_bad_offense_team(async_client, test_db):
     assert "Bad Offense" not in good["rules_applied"]
 
 
+@pytest.mark.asyncio
+async def test_generate_excludes_teams_with_insufficient_data_from_bad_offense(async_client, test_db):
+    """A team with <2 seasons of points data must be excluded from the bottom-8 ranking.
+
+    Even if its one season of data would otherwise place it dead-last in scoring,
+    it should NOT trigger Bad Offense for its players. Regression test for the
+    `len(pts) >= 2` guard in _run_generate.
+    """
+    from app.models import Player, TeamSeason, Projection
+    current_year = datetime.utcnow().year
+
+    # 31 teams with all 3 seasons of data; their lowest-scoring 8 will form the
+    # bottom-8 baseline.
+    teams = [f"T{i:02d}" for i in range(31)]
+    for season in (current_year - 1, current_year - 2, current_year - 3):
+        for i, team in enumerate(teams):
+            test_db.add(TeamSeason(team=team, season=season,
+                                   points_scored=500 - i * 10))
+
+    # 1 team with only ONE season of data, set to be dead last on points.
+    # Without the guard, this team would be bottom-1. With the guard, excluded.
+    insufficient_team = "T99"
+    test_db.add(TeamSeason(team=insufficient_team, season=current_year - 1,
+                           points_scored=0))
+
+    test_db.add(Player(id="insufficient-wr", name="Insufficient WR",
+                       position="WR", team=insufficient_team))
+    await test_db.commit()
+    test_db.add(Projection(player_id="insufficient-wr", source="fantasypros",
+                           scoring_format="ppr", projected_points=250.0,
+                           last_updated=date.today()))
+    await test_db.commit()
+
+    resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
+    assert resp.status_code == 200
+    players = resp.json()["players"]
+    player = next(p for p in players if p["player_id"] == "insufficient-wr")
+    assert "Bad Offense" not in player["rules_applied"], (
+        "Team with <2 seasons of data must be excluded from the bottom-8 "
+        "ranking, so its players must not receive the Bad Offense rule."
+    )
+
+
 async def test_list_rules_returns_builtin_rules(async_client):
     resp = await async_client.get("/api/rules")
     assert resp.status_code == 200
