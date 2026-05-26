@@ -56,6 +56,7 @@ class PlayerContext:
     projection_unavailable: Optional[bool] = None
     prior_touches: Optional[int] = None
     injured_two_years_ago: Optional[bool] = None
+    bad_offense_team: Optional[bool] = None
 
 
 @dataclass

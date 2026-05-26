@@ -262,6 +262,11 @@ def test_player_context_accepts_injured_two_years_ago():
     assert ctx.injured_two_years_ago is True
 
 
+def test_player_context_accepts_bad_offense_team():
+    ctx = _ctx(position="WR", bad_offense_team=True)
+    assert ctx.bad_offense_team is True
+
+
 def test_year_after_rule_fires_on_wr_injured_two_seasons_ago():
     rule = next(r for r in BUILTIN_RULES if r.name == "Year After the Year After")
     ctx = _ctx(position="WR", injured_two_years_ago=True)
