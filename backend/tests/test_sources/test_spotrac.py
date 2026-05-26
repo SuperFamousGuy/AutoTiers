@@ -13,8 +13,10 @@ def mock_spotrac():
         router.get(url__regex=r"/nfl/positional/QB/cap_hit/?").mock(
             return_value=Response(200, text=(
                 "<html><body><table>"
-                "<tr><th>Player</th><th>Cap Hit</th></tr>"
+                "<thead><tr><th>Player</th><th>Cap Hit</th></tr></thead>"
+                "<tbody>"
                 "<tr><td>Patrick Mahomes</td><td>$45,000,000</td></tr>"
+                "</tbody>"
                 "</table></body></html>"
             ))
         )

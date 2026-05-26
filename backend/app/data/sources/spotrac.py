@@ -19,7 +19,7 @@ from app.models import PlayerContract
 logger = logging.getLogger(__name__)
 
 _POSITIONS = ("QB", "RB", "WR", "TE")
-_CAP_HIT_CLEAN = re.compile(r"[\$,\s]")
+_CAP_HIT_CLEAN = re.compile(r"[\$,]")
 
 
 def _parse_cap_hit(text: str) -> Optional[float]:
@@ -80,8 +80,8 @@ class SpotracFetcher:
     async def _parse_and_upsert(
         self, db: AsyncSession, html: str, position: str, today: date,
     ) -> int:
-        soup = BeautifulSoup(html, "html.parser")
-        rows = soup.find_all("tr")
+        soup = BeautifulSoup(html, "lxml")
+        rows = soup.select("table tbody tr")
         upserted = 0
 
         for row in rows:
