@@ -202,6 +202,44 @@ async def test_generate_flags_bad_offense_team(async_client, test_db):
 
 
 @pytest.mark.asyncio
+async def test_generate_flags_above_market_contract(async_client, test_db):
+    from app.models import Player, Projection, PlayerContract
+    current_year = datetime.utcnow().year
+
+    # Five WRs needed so the per-position threshold computes (len(caps) >= 5).
+    # Cap hits: [5M, 10M, 20M, 30M, 35M] -> median = 20M, 1.5x = 30M
+    # rich-wr at 35M is above-market; mid/low are not.
+    wr_data = [
+        ("rich-wr", "Rich WR", "SF", 35_000_000),
+        ("hi-mid-wr", "Hi Mid WR", "GB", 30_000_000),
+        ("mid-wr", "Mid WR", "KC", 20_000_000),
+        ("lo-mid-wr", "Lo Mid WR", "LAR", 10_000_000),
+        ("low-wr", "Low WR", "DAL", 5_000_000),
+    ]
+    for pid, name, team, cap in wr_data:
+        test_db.add(Player(id=pid, name=name, position="WR", team=team))
+    await test_db.commit()
+    for pid, _, _, cap in wr_data:
+        test_db.add(PlayerContract(
+            player_id=pid, season=current_year, cap_hit=cap,
+            last_updated=date.today(),
+        ))
+        test_db.add(Projection(
+            player_id=pid, source="fantasypros", scoring_format="ppr",
+            projected_points=250.0, last_updated=date.today(),
+        ))
+    await test_db.commit()
+
+    resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
+    assert resp.status_code == 200
+    players = resp.json()["players"]
+    rich = next(p for p in players if p["player_id"] == "rich-wr")
+    mid = next(p for p in players if p["player_id"] == "mid-wr")
+    assert "Follow the Money" in rich["rules_applied"]
+    assert "Follow the Money" not in mid["rules_applied"]
+
+
+@pytest.mark.asyncio
 async def test_generate_excludes_teams_with_insufficient_data_from_bad_offense(async_client, test_db):
     """A team with <2 seasons of points data must be excluded from the bottom-8 ranking.
 

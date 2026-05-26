@@ -12,7 +12,7 @@ from app.database import get_db
 from app.models.player import Player, PlayerStat
 from app.models.projection import Projection
 from app.models.adp import ADPData
-from app.models import TeamSeason
+from app.models import TeamSeason, PlayerContract
 from app.engine.scoring import LeagueSettings, PlayerStats, calculate_fantasy_points, blend_scores
 from app.engine.rules import Rule, RuleCondition, RuleEffect, PlayerContext, apply_rules
 from app.engine.builtin_rules import BUILTIN_RULES, OVER_THE_HILL_AGE
@@ -165,6 +165,38 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
     )
     players = result.scalars().all()
 
+    # Above-market contract set — computed ONCE per request.
+    # Threshold per position: median cap_hit * 1.5. Only QB/RB/WR/TE
+    # are eligible; K/DST excluded (no meaningful contract data). Positions
+    # with fewer than 5 contracts are skipped to avoid tiny-sample noise.
+    contract_rows = (await db.scalars(
+        select(PlayerContract).where(PlayerContract.season == current_year)
+    )).all()
+    pid_to_caphit = {pc.player_id: pc.cap_hit for pc in contract_rows}
+    pid_to_pos = {p.id: p.position for p in players}
+
+    contracts_by_pos: dict[str, list[float]] = {}
+    for pid, cap in pid_to_caphit.items():
+        pos = pid_to_pos.get(pid)
+        if pos in ("QB", "RB", "WR", "TE"):
+            contracts_by_pos.setdefault(pos, []).append(cap)
+
+    def _median(xs: list[float]) -> float:
+        s = sorted(xs)
+        n = len(s)
+        return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
+
+    pos_threshold: dict[str, float] = {
+        pos: _median(caps) * 1.5
+        for pos, caps in contracts_by_pos.items()
+        if len(caps) >= 5
+    }
+    above_market_pids = {
+        pid for pid, cap in pid_to_caphit.items()
+        if pid_to_pos.get(pid) in pos_threshold
+        and cap > pos_threshold[pid_to_pos[pid]]
+    }
+
     tiered: list[TieredPlayer] = []
     for player in players:
         stat = _get_stat(player.stats)
@@ -222,6 +254,10 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
         if player.position in ("QB", "RB", "WR", "TE"):
             bad_offense_team = player.team in bad_offense_teams
 
+        above_market_contract: Optional[bool] = None
+        if player.position in ("QB", "RB", "WR", "TE"):
+            above_market_contract = player.id in above_market_pids
+
         injured_two_years_ago: Optional[bool] = None
         if player.position in ("RB", "WR"):
             two_seasons_ago = datetime.utcnow().year - 2
@@ -258,6 +294,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
             prior_touches=prior_touches,
             injured_two_years_ago=injured_two_years_ago,
             bad_offense_team=bad_offense_team,
+            above_market_contract=above_market_contract,
         )
 
         rule_result = apply_rules(blended, ctx, rules)
