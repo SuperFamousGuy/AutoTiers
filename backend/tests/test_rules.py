@@ -138,9 +138,9 @@ def test_builtin_rules_is_nonempty_list_of_rules():
         assert rule.conditions
 
 
-def test_builtin_rules_count_is_17():
-    """Adding 'Bad Offense' rule (was 16)."""
-    assert len(BUILTIN_RULES) == 17
+def test_builtin_rules_count_is_18():
+    """Adding 'Follow the Money' rule (was 17)."""
+    assert len(BUILTIN_RULES) == 18
 
 
 def test_all_builtin_rules_have_descriptions():
@@ -267,6 +267,11 @@ def test_player_context_accepts_bad_offense_team():
     assert ctx.bad_offense_team is True
 
 
+def test_player_context_accepts_above_market_contract():
+    ctx = _ctx(position="WR", above_market_contract=True)
+    assert ctx.above_market_contract is True
+
+
 def test_year_after_rule_fires_on_wr_injured_two_seasons_ago():
     rule = next(r for r in BUILTIN_RULES if r.name == "Year After the Year After")
     ctx = _ctx(position="WR", injured_two_years_ago=True)
@@ -295,6 +300,21 @@ def test_bad_offense_rule_does_not_fire_when_none():
     ctx = _ctx(position="K", bad_offense_team=None)
     result = apply_rules(200.0, ctx, [rule])
     assert "Bad Offense" not in result.rules_applied
+
+
+def test_follow_the_money_rule_fires():
+    rule = next(r for r in BUILTIN_RULES if r.name == "Follow the Money")
+    ctx = _ctx(position="WR", above_market_contract=True)
+    result = apply_rules(200.0, ctx, [rule])
+    assert "Follow the Money" in result.rules_applied
+    assert result.adjusted_score == 210.0  # 200 * 1.05
+
+
+def test_follow_the_money_rule_does_not_fire():
+    rule = next(r for r in BUILTIN_RULES if r.name == "Follow the Money")
+    ctx = _ctx(position="WR", above_market_contract=False)
+    result = apply_rules(200.0, ctx, [rule])
+    assert "Follow the Money" not in result.rules_applied
 
 
 def test_apply_rules_applications_track_sequential_state():

@@ -57,6 +57,7 @@ class PlayerContext:
     prior_touches: Optional[int] = None
     injured_two_years_ago: Optional[bool] = None
     bad_offense_team: Optional[bool] = None
+    above_market_contract: Optional[bool] = None
 
 
 @dataclass
