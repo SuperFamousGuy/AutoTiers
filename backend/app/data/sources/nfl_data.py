@@ -4,12 +4,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import ClassVar
 
-from nfl_data_py import import_seasonal_data, import_snap_counts, import_pbp_data
+from nfl_data_py import import_seasonal_data, import_snap_counts, import_pbp_data, import_schedules
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.data.sources.base import SourceResult
-from app.models import Player, PlayerStat
+from app.models import Player, PlayerStat, TeamSeason
 
 
 class NflDataFetcher:
@@ -113,6 +113,46 @@ class NflDataFetcher:
                     stat.expected_tds = round(xtds[gsis], 3)
 
                 total_upserted += 1
+
+            # Per-season schedule → TeamSeason (points scored + rank).
+            # Failures here are silent — schedule data is supplemental and shouldn't fail the whole fetcher.
+            try:
+                schedule_df = import_schedules([season])
+            except Exception:
+                schedule_df = None
+
+            if schedule_df is not None and not schedule_df.empty:
+                points_by_team: dict[str, int] = {}
+                for _, game in schedule_df.iterrows():
+                    home, away = game.get("home_team"), game.get("away_team")
+                    home_pts = int(game.get("home_score") or 0)
+                    away_pts = int(game.get("away_score") or 0)
+                    if isinstance(home, str):
+                        points_by_team[home] = points_by_team.get(home, 0) + home_pts
+                    if isinstance(away, str):
+                        points_by_team[away] = points_by_team.get(away, 0) + away_pts
+
+                ranked = sorted(points_by_team.items(), key=lambda kv: kv[1], reverse=True)
+                rank_by_team = {team: i + 1 for i, (team, _) in enumerate(ranked)}
+
+                existing_ts = (await db.scalars(
+                    select(TeamSeason).where(TeamSeason.season == season)
+                )).all()
+                ts_by_team = {ts.team: ts for ts in existing_ts}
+
+                from datetime import date as _date
+                for team, pts in points_by_team.items():
+                    ts = ts_by_team.get(team)
+                    if ts is None:
+                        ts = TeamSeason(team=team, season=season,
+                                        points_scored=pts,
+                                        points_rank=rank_by_team[team],
+                                        last_updated=_date.today())
+                        db.add(ts)
+                    else:
+                        ts.points_scored = pts
+                        ts.points_rank = rank_by_team[team]
+                        ts.last_updated = _date.today()
 
         if total_upserted == 0 and last_err is not None:
             return SourceResult(source=self.name, rows_upserted=0,
