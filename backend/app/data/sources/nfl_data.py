@@ -1,7 +1,7 @@
 """nfl_data_py fetcher — seasonal stats, snap counts, and PBP-derived fields."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, date
 from typing import ClassVar
 
 from nfl_data_py import import_seasonal_data, import_snap_counts, import_pbp_data, import_schedules
@@ -140,19 +140,18 @@ class NflDataFetcher:
                 )).all()
                 ts_by_team = {ts.team: ts for ts in existing_ts}
 
-                from datetime import date as _date
                 for team, pts in points_by_team.items():
                     ts = ts_by_team.get(team)
                     if ts is None:
                         ts = TeamSeason(team=team, season=season,
                                         points_scored=pts,
                                         points_rank=rank_by_team[team],
-                                        last_updated=_date.today())
+                                        last_updated=date.today())
                         db.add(ts)
                     else:
                         ts.points_scored = pts
                         ts.points_rank = rank_by_team[team]
-                        ts.last_updated = _date.today()
+                        ts.last_updated = date.today()
 
         if total_upserted == 0 and last_err is not None:
             return SourceResult(source=self.name, rows_upserted=0,
