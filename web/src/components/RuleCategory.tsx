@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { cn } from "@/lib/utils";
 import { RuleItem } from "./RuleItem";
 import type { Rule } from "@/api/types";
 
@@ -10,13 +12,17 @@ interface RuleCategoryProps {
 }
 
 export function RuleCategory({ name, rules, onChangeRule }: RuleCategoryProps) {
+  const [open, setOpen] = useState(true);
+
   return (
-    <Collapsible defaultOpen className="border rounded-md">
-      <CollapsibleTrigger className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium hover:bg-muted">
+    <Collapsible open={open} onOpenChange={setOpen} className="border rounded-md overflow-hidden">
+      <CollapsibleTrigger className="flex w-full items-center justify-between bg-muted/60 px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:bg-muted border-b">
         <span>{name}</span>
-        <ChevronDown className="h-4 w-4" />
+        <ChevronDown
+          className={cn("h-4 w-4 transition-transform", open && "rotate-180")}
+        />
       </CollapsibleTrigger>
-      <CollapsibleContent className="px-3 pb-2 space-y-1">
+      <CollapsibleContent className="px-3 py-2 space-y-1 divide-y divide-border/50">
         {rules.map((r) => (
           <RuleItem key={r.name} rule={r} onChange={onChangeRule} />
         ))}

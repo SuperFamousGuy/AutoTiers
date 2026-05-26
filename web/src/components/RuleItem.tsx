@@ -104,7 +104,7 @@ export function RuleItem({ rule, onChange }: RuleItemProps) {
               type="button"
               onClick={() => applySuggestion(0.5)}
               disabled={!rule.enabled}
-              className="text-muted-foreground hover:text-foreground underline-offset-2 hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed font-mono"
+              className="rounded border bg-background px-2 py-0.5 text-foreground shadow-sm hover:bg-muted hover:border-foreground/30 active:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-background disabled:hover:border-input font-mono transition-colors"
             >
               Low: {impact.sign}{formatMagnitude(impact.magnitudeFor(0.5))}{impact.unit}
             </button>
@@ -130,7 +130,7 @@ export function RuleItem({ rule, onChange }: RuleItemProps) {
               type="button"
               onClick={() => applySuggestion(2.0)}
               disabled={!rule.enabled}
-              className="text-muted-foreground hover:text-foreground underline-offset-2 hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed font-mono"
+              className="rounded border bg-background px-2 py-0.5 text-foreground shadow-sm hover:bg-muted hover:border-foreground/30 active:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-background disabled:hover:border-input font-mono transition-colors"
             >
               High: {impact.sign}{formatMagnitude(impact.magnitudeFor(2.0))}{impact.unit}
             </button>
