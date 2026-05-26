@@ -17,8 +17,8 @@ BUILTIN_RULES: list[Rule] = [
     Rule(
         name="Target Share Premium",
         conditions=[RuleCondition(field="target_share", operator=">=", value=0.25)],
-        effect=RuleEffect(type=EffectType.FLAT_BONUS, value=20.0),
-        description="Boosts WR/TE with elite target share (>=25% of team targets). +20 points at default weight.",
+        effect=RuleEffect(type=EffectType.MULTIPLIER, value=1.07),
+        description="Boosts WR/TE with elite target share (>=25% of team targets). +7% at default weight.",
     ),
     Rule(
         name="Declining Snap%",
@@ -41,8 +41,8 @@ BUILTIN_RULES: list[Rule] = [
     Rule(
         name="Sophomore Leap",
         conditions=[RuleCondition(field="years_exp", operator="==", value=1)],
-        effect=RuleEffect(type=EffectType.FLAT_BONUS, value=15.0),
-        description="Boosts second-year skill players for the expected sophomore leap. +15 points at default weight.",
+        effect=RuleEffect(type=EffectType.MULTIPLIER, value=1.08),
+        description="Boosts second-year skill players for the expected sophomore leap. +8% at default weight.",
     ),
     Rule(
         name="Contract Year Flag",
