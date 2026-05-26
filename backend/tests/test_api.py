@@ -58,9 +58,9 @@ _GENERATE_BODY = {
     "bonus_100yd_rushing": False,
     "bonus_100yd_receiving": False,
     "bonus_first_downs": False,
-    "weight_prior_year": 0.40,
-    "weight_espn": 0.30,
-    "weight_consensus": 0.30,
+    "weight_prior_year": 0.30,
+    "weight_espn": 0.0,
+    "weight_consensus": 0.70,
     "rules": [],
 }
 
