@@ -267,6 +267,11 @@ def test_player_context_accepts_bad_offense_team():
     assert ctx.bad_offense_team is True
 
 
+def test_player_context_accepts_above_market_contract():
+    ctx = _ctx(position="WR", above_market_contract=True)
+    assert ctx.above_market_contract is True
+
+
 def test_year_after_rule_fires_on_wr_injured_two_seasons_ago():
     rule = next(r for r in BUILTIN_RULES if r.name == "Year After the Year After")
     ctx = _ctx(position="WR", injured_two_years_ago=True)
