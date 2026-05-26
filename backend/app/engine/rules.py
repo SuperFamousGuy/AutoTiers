@@ -54,6 +54,7 @@ class PlayerContext:
     red_zone_looks: Optional[int] = None
     is_over_the_hill: Optional[bool] = None
     projection_unavailable: Optional[bool] = None
+    prior_touches: Optional[int] = None
 
 
 @dataclass

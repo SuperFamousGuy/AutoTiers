@@ -17,6 +17,7 @@ _CATEGORIES = {
     "TD Regression": "Regression",
     "Red Zone": "Regression",
     "Projection Unavailable": "Regression",
+    "370 Touches": "Regression",
     "Handcuff": "Flag",
     "Availability Risk": "Flag",
 }

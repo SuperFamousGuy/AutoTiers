@@ -103,6 +103,37 @@ async def test_generate_invalid_weights_returns_422(async_client):
     assert resp.status_code == 422
 
 
+def test_370_touches_categorized_as_regression():
+    from app.api.rules import _categorize
+    assert _categorize("370 Touches") == "Regression"
+
+
+async def test_generate_computes_prior_touches_for_rbs(async_client, test_db):
+    # Insert an RB with prior_touches >= 370 (rush_att + receptions)
+    rb = Player(id="test-workhorse", name="Test Workhorse",
+                position="RB", team="SF", age=26, years_exp=4)
+    test_db.add(rb)
+    test_db.add(PlayerStat(
+        player_id=rb.id, season=2025,
+        rush_att=300, receptions=80,
+        rec_yards=600.0, rec_tds=4, rush_yards=1300.0, rush_tds=12,
+        pass_att=0, pass_yards=0.0, pass_tds=0, interceptions=0, targets=95,
+        games_played=17, carry_share=0.70, target_share=None,
+        snap_pct=0.80, red_zone_looks=20, actual_tds=16, expected_tds=14.0,
+    ))
+    test_db.add(Projection(player_id=rb.id, source="espn",
+                           scoring_format="ppr", projected_points=300.0, last_updated=date.today()))
+    test_db.add(Projection(player_id=rb.id, source="fantasypros",
+                           scoring_format="ppr", projected_points=290.0, last_updated=date.today()))
+    await test_db.commit()
+
+    resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
+    assert resp.status_code == 200
+    players = resp.json()["players"]
+    workhorse = next(p for p in players if p["player_id"] == "test-workhorse")
+    assert "370 Touches" in workhorse["rules_applied"]
+
+
 async def test_list_rules_returns_builtin_rules(async_client):
     resp = await async_client.get("/api/rules")
     assert resp.status_code == 200
