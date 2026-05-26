@@ -1,0 +1,79 @@
+name: coverage gate
+
+on:
+  pull_request:
+
+concurrency:
+  group: coverage-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Fails the PR if the lines you changed are < 80% covered by tests.
+# Doesn't require the whole codebase to be 80% covered — only the changed
+# lines must hit the threshold. Use the standard `tests` workflow for the
+# full test pass.
+
+jobs:
+  diff-cover:
+    name: PR diff coverage >= 80%
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # diff-cover needs the merge-base; full history is the safest fetch.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install backend deps
+        working-directory: backend
+        run: pip install -e ".[dev]"
+
+      - name: Install diff-cover
+        run: pip install "diff-cover>=9"
+
+      - name: Install frontend deps
+        working-directory: web
+        run: npm ci
+
+      - name: Backend coverage (cobertura)
+        working-directory: backend
+        run: pytest -q --cov=app --cov-report=xml
+
+      - name: Frontend coverage (cobertura)
+        working-directory: web
+        run: npm run test:coverage
+
+      - name: Backend diff coverage check
+        run: |
+          diff-cover backend/coverage.xml \
+            --compare-branch=origin/${{ github.base_ref }} \
+            --fail-under=80 \
+            --html-report backend-diff-cover.html
+
+      - name: Frontend diff coverage check
+        run: |
+          diff-cover web/coverage/cobertura-coverage.xml \
+            --compare-branch=origin/${{ github.base_ref }} \
+            --fail-under=80 \
+            --html-report frontend-diff-cover.html
+
+      - name: Upload diff coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diff-coverage-reports
+          path: |
+            backend-diff-cover.html
+            frontend-diff-cover.html
+          if-no-files-found: warn
