@@ -161,6 +161,41 @@ async def test_generate_computes_injured_two_years_ago_for_rb(async_client, test
     assert "Year After the Year After" in bounceback["rules_applied"]
 
 
+@pytest.mark.asyncio
+async def test_generate_flags_bad_offense_team(async_client, test_db):
+    from app.models import Player, TeamSeason, Projection
+    current_year = datetime.utcnow().year
+
+    # 32 fake teams with descending points (lowest = worst).
+    teams = [f"T{i:02d}" for i in range(32)]
+    for season in (current_year - 1, current_year - 2, current_year - 3):
+        for i, team in enumerate(teams):
+            test_db.add(TeamSeason(team=team, season=season,
+                                   points_scored=500 - i * 10))
+    bad_team = teams[-1]
+    good_team = teams[0]
+
+    test_db.add(Player(id="bad-wr", name="Bad WR", position="WR", team=bad_team))
+    test_db.add(Player(id="good-wr", name="Good WR", position="WR", team=good_team))
+    await test_db.commit()
+    # Add projections so both players survive cap/ranking.
+    test_db.add(Projection(player_id="bad-wr", source="fantasypros",
+                           scoring_format="ppr", projected_points=250.0,
+                           last_updated=date.today()))
+    test_db.add(Projection(player_id="good-wr", source="fantasypros",
+                           scoring_format="ppr", projected_points=250.0,
+                           last_updated=date.today()))
+    await test_db.commit()
+
+    resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
+    assert resp.status_code == 200
+    players = resp.json()["players"]
+    bad = next(p for p in players if p["player_id"] == "bad-wr")
+    good = next(p for p in players if p["player_id"] == "good-wr")
+    assert "Bad Offense" in bad["rules_applied"]
+    assert "Bad Offense" not in good["rules_applied"]
+
+
 async def test_list_rules_returns_builtin_rules(async_client):
     resp = await async_client.get("/api/rules")
     assert resp.status_code == 200
