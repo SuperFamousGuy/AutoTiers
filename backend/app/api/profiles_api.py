@@ -54,3 +54,28 @@ async def create_profile(
     await db.commit()
     await db.refresh(profile)
     return ProfileOut.model_validate(profile)
+
+
+@router.patch("/{profile_id}", response_model=ProfileOut)
+async def update_profile(
+    profile_id: uuid.UUID,
+    body: ProfileUpdate,
+    user: User = require_user,
+    db: AsyncSession = Depends(get_db),
+) -> ProfileOut:
+    profile = await db.get(Profile, profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    if profile.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Not your profile")
+
+    if body.name is not None:
+        profile.name = body.name
+    if body.settings_json is not None:
+        profile.settings_json = body.settings_json
+    if body.rules_json is not None:
+        profile.rules_json = body.rules_json
+
+    await db.commit()
+    await db.refresh(profile)
+    return ProfileOut.model_validate(profile)
