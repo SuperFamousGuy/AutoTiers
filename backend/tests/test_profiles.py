@@ -117,3 +117,18 @@ async def test_delete_profile_403_when_other_user(async_client):
     await _signup(async_client, "bob@x.com")
     r = await async_client.delete(f"/api/profiles/{pid}")
     assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_activate_sets_last_active_profile_id(async_client):
+    await _signup(async_client)
+    create = await async_client.post("/api/profiles", json={
+        "name": "First", "settings_json": {}, "rules_json": [],
+    })
+    pid = create.json()["id"]
+
+    r = await async_client.post(f"/api/profiles/{pid}/activate")
+    assert r.status_code == 204
+
+    listing = await async_client.get("/api/profiles")
+    assert listing.json()["active_profile_id"] == pid
