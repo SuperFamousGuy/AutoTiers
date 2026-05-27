@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["*"]
     run_scheduler: bool = False
     admin_api_key: str = ""
+    jwt_secret: str = "dev-only-replace-in-prod"
+    yahoo_client_id: str = ""
+    yahoo_client_secret: str = ""
+    yahoo_redirect_uri: str = "http://localhost:8000/api/auth/yahoo/callback"
+    frontend_url: str = "http://localhost:5173"
 
 
 settings = Settings()
