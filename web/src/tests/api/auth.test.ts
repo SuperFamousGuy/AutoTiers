@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { signup, login, logout, getMe, yahooAuthorizeUrl } from "@/api/auth";
+import { signup, login, getMe, yahooAuthorizeUrl } from "@/api/auth";
 
 describe("auth API", () => {
   afterEach(() => vi.restoreAllMocks());
