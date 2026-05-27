@@ -50,7 +50,7 @@ export function AuthDialog({ open, onOpenChange, initialState }: AuthDialogProps
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogTitle>Account</DialogTitle>
-        <Tabs defaultValue="login">
+        <Tabs defaultValue="login" onValueChange={() => setError(null)}>
           <TabsList>
             <TabsTrigger value="login">Log in</TabsTrigger>
             <TabsTrigger value="signup">Sign up</TabsTrigger>

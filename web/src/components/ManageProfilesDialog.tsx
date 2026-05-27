@@ -16,11 +16,34 @@ export function ManageProfilesDialog({ open, onOpenChange, profiles, onRename, o
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleRename(id: string) {
+    setError(null);
+    try {
+      await onRename(id, draftName);
+      setEditingId(null);
+    } catch {
+      setError("Rename failed. Please try again.");
+    }
+  }
+
+  async function handleDelete(id: string) {
+    setError(null);
+    try {
+      await onDelete(id);
+      setConfirmDeleteId(null);
+    } catch {
+      setError("Delete failed. Please try again.");
+      setConfirmDeleteId(null);
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogTitle>Manage profiles</DialogTitle>
+        {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
         {profiles.length === 0 ? (
           <p className="text-sm text-muted-foreground">No profiles yet.</p>
         ) : (
@@ -35,17 +58,17 @@ export function ManageProfilesDialog({ open, onOpenChange, profiles, onRename, o
                       className="flex-1 rounded border px-2 py-1 text-sm"
                       autoFocus
                     />
-                    <Button size="sm" onClick={async () => { await onRename(p.id, draftName); setEditingId(null); }}>Save</Button>
+                    <Button size="sm" onClick={() => handleRename(p.id)}>Save</Button>
                     <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>Cancel</Button>
                   </>
                 ) : (
                   <>
                     <span className="flex-1 truncate">{p.name}</span>
-                    <Button size="sm" variant="ghost" onClick={() => { setEditingId(p.id); setDraftName(p.name); }}>Rename</Button>
+                    <Button size="sm" variant="ghost" onClick={() => { setEditingId(p.id); setDraftName(p.name); setError(null); }}>Rename</Button>
                     {confirmDeleteId === p.id ? (
-                      <Button size="sm" variant="destructive" onClick={async () => { await onDelete(p.id); setConfirmDeleteId(null); }}>Confirm delete</Button>
+                      <Button size="sm" variant="destructive" onClick={() => handleDelete(p.id)}>Confirm delete</Button>
                     ) : (
-                      <Button size="sm" variant="ghost" onClick={() => setConfirmDeleteId(p.id)} aria-label={`delete ${p.name}`}>
+                      <Button size="sm" variant="ghost" onClick={() => { setConfirmDeleteId(p.id); setError(null); }} aria-label={`delete ${p.name}`}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     )}
