@@ -48,6 +48,13 @@ jobs:
 
       - name: Backend coverage (cobertura)
         working-directory: backend
+        # COVERAGE_CORE=ctrace forces the legacy sys.settrace tracer.
+        # Coverage.py 7.14.1's new sys.monitoring tracer on Python 3.12
+        # under-counts line hits through FastAPI's decorator-wrapped async
+        # routes, dropping coverage from ~100% (3.14 / pytrace) to ~60%
+        # (3.12 / sysmon) on identical test runs.
+        env:
+          COVERAGE_CORE: ctrace
         run: pytest -q --cov=app --cov-report=xml
 
       - name: Frontend coverage (cobertura)
