@@ -1,0 +1,89 @@
+"""Email/password auth endpoints. Yahoo OAuth lives in this same router but is added in phase 3."""
+from fastapi import APIRouter, Depends, HTTPException, Response
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database import get_db
+from app.models import User, Profile
+from app.auth.hashing import hash_password, verify_password
+from app.auth.jwt import set_auth_cookie, clear_auth_cookie
+from app.auth.dependencies import require_user
+from app.auth.rate_limit import login_rate_limiter
+from app.schemas.auth import SignupRequest, LoginRequest, UserOut, MeResponse, ProfileOut
+
+router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@router.post("/signup", status_code=201, response_model=MeResponse)
+async def signup(
+    body: SignupRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> MeResponse:
+    existing = await db.scalar(select(User).where(User.email == body.email))
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="Email already in use")
+
+    user = User(email=body.email, password_hash=hash_password(body.password))
+    db.add(user)
+    await db.flush()
+
+    profile: Profile | None = None
+    if body.initial_settings is not None and body.initial_rules is not None:
+        profile = Profile(
+            user_id=user.id,
+            name="My setup",
+            settings_json=body.initial_settings,
+            rules_json=body.initial_rules,
+        )
+        db.add(profile)
+        await db.flush()
+        user.last_active_profile_id = profile.id
+
+    await db.commit()
+    await db.refresh(user)
+
+    set_auth_cookie(response, user.id)
+
+    profiles = [ProfileOut.model_validate(profile)] if profile else []
+    return MeResponse(user=UserOut.model_validate(user), profiles=profiles)
+
+
+@router.post("/login", response_model=MeResponse)
+async def login(
+    body: LoginRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> MeResponse:
+    if not login_rate_limiter.check_and_record(body.email):
+        raise HTTPException(status_code=429, detail="Too many attempts; try again later")
+
+    user = await db.scalar(select(User).where(User.email == body.email))
+    if user is None or user.password_hash is None:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    if not verify_password(user.password_hash, body.password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    set_auth_cookie(response, user.id)
+    profiles = (await db.scalars(select(Profile).where(Profile.user_id == user.id))).all()
+    return MeResponse(
+        user=UserOut.model_validate(user),
+        profiles=[ProfileOut.model_validate(p) for p in profiles],
+    )
+
+
+@router.post("/logout", status_code=204)
+async def logout(response: Response) -> None:
+    clear_auth_cookie(response)
+
+
+@router.get("/me", response_model=MeResponse)
+async def me(
+    user: User = require_user,
+    db: AsyncSession = Depends(get_db),
+) -> MeResponse:
+    profiles = (await db.scalars(select(Profile).where(Profile.user_id == user.id))).all()
+    return MeResponse(
+        user=UserOut.model_validate(user),
+        profiles=[ProfileOut.model_validate(p) for p in profiles],
+    )
