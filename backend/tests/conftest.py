@@ -2,8 +2,16 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from httpx import AsyncClient, ASGITransport
+from app.config import settings
 from app.database import Base, get_db
 from app.main import app
+
+# Tests run over plain HTTP (http://test). The auth cookie defaults to
+# secure=True when settings.debug=False, which would cause httpx to drop
+# the cookie on non-HTTPS — making any test that hits an authenticated
+# endpoint after signup/login spuriously fail with 401. Force debug=True
+# so set_auth_cookie issues insecure cookies for the test environment.
+settings.debug = True
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 

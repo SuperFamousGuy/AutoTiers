@@ -128,3 +128,28 @@ async def test_logout_clears_cookie(async_client):
     r = await async_client.post("/api/auth/logout")
     assert r.status_code == 204
     assert "autotiers_session" not in async_client.cookies
+
+
+@pytest.mark.asyncio
+async def test_me_returns_401_when_anonymous(async_client):
+    async_client.cookies.clear()
+    r = await async_client.get("/api/auth/me")
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_me_returns_user_and_profiles_when_authenticated(async_client):
+    signup = await async_client.post("/api/auth/signup", json={
+        "email": "alice@example.com",
+        "password": "correct horse battery",
+        "initial_settings": {"scoring_format": "ppr", "league_size": 12},
+        "initial_rules": [],
+    })
+    assert signup.status_code == 201
+
+    r = await async_client.get("/api/auth/me")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["user"]["email"] == "alice@example.com"
+    assert len(body["profiles"]) == 1
+    assert body["profiles"][0]["name"] == "My setup"
