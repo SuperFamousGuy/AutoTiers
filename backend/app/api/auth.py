@@ -106,7 +106,7 @@ async def yahoo_authorize() -> RedirectResponse:
         value=state,
         max_age=600,  # 10 min
         httponly=True,
-        secure=False,  # set True in prod via env
+        secure=not settings.debug,
         samesite="lax",
         path="/",
     )
