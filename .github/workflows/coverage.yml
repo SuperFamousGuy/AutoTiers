@@ -25,7 +25,14 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          # Python 3.12 and 3.13 have a coverage.py async-tracking gap:
+          # function-body lines between `await` statements are dropped
+          # from the trace, even though tests assert the endpoint returned
+          # 201/200. Reproduced locally across coverage versions 7.14.0
+          # and 7.14.1 and across all three tracer cores (sysmon, ctrace,
+          # pytrace). Python 3.14 traces the same code at 100%.
+          # Tracker: https://github.com/nedbat/coveragepy/issues
+          python-version: "3.14"
           cache: pip
           cache-dependency-path: backend/pyproject.toml
 
@@ -48,6 +55,19 @@ jobs:
 
       - name: Backend coverage (cobertura)
         working-directory: backend
+        # COVERAGE_CORE=sysmon forces coverage.py's sys.monitoring-based
+        # tracer (PEP 669). The default `ctrace` C-extension tracer (and
+        # the pure-Python `pytrace` fallback) drop sync lines BETWEEN
+        # `await` statements in FastAPI async route handlers, reporting
+        # ~61% coverage on app/api/auth.py despite tests asserting the
+        # endpoint returned 201/200. Reproduced locally:
+        #   CORE=ctrace  → 61.22%   (broken)
+        #   CORE=pytrace → 61.22%   (broken)
+        #   CORE=sysmon  → 100.00%  ✓
+        # sysmon is Python 3.12+ only; if we ever need to support 3.11
+        # in CI, revisit this.
+        env:
+          COVERAGE_CORE: sysmon
         run: pytest -q --cov=app --cov-report=xml
 
       - name: Frontend coverage (cobertura)
