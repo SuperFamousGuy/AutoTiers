@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { signup, login, getMe, yahooAuthorizeUrl } from "@/api/auth";
+import { signup, login, logout, getMe, yahooAuthorizeUrl } from "@/api/auth";
+import { ApiError } from "@/api/client";
 
 describe("auth API", () => {
   afterEach(() => vi.restoreAllMocks());
@@ -28,5 +29,28 @@ describe("auth API", () => {
 
   it("yahooAuthorizeUrl returns the API URL plus /api/auth/yahoo/authorize", () => {
     expect(yahooAuthorizeUrl()).toContain("/api/auth/yahoo/authorize");
+  });
+
+  it("logout POSTs to /api/auth/logout on the happy path", async () => {
+    const spy = vi.spyOn(global, "fetch").mockResolvedValueOnce(
+      new Response(null, { status: 204 }),
+    );
+    await logout();
+    expect(String(spy.mock.calls[0][0])).toContain("/api/auth/logout");
+    expect(spy.mock.calls[0][1]?.method).toBe("POST");
+  });
+
+  it("logout throws ApiError on non-2xx response", async () => {
+    vi.spyOn(global, "fetch").mockResolvedValueOnce(
+      new Response("server error", { status: 500 }),
+    );
+    await expect(logout()).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it("getMe propagates non-401 errors", async () => {
+    vi.spyOn(global, "fetch").mockResolvedValueOnce(
+      new Response("internal error", { status: 500 }),
+    );
+    await expect(getMe()).rejects.toBeInstanceOf(ApiError);
   });
 });

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { listProfiles, createProfile, updateProfile, deleteProfile, activateProfile } from "@/api/profiles";
+import { ApiError } from "@/api/client";
 
 const sample = { id: "p1", name: "x", settings_json: {}, rules_json: [] };
 
@@ -42,5 +43,19 @@ describe("profiles API", () => {
     const spy = vi.spyOn(global, "fetch").mockResolvedValueOnce(new Response(null, { status: 204 }));
     await activateProfile("p1");
     expect(String(spy.mock.calls[0][0])).toContain("/api/profiles/p1/activate");
+  });
+
+  it("delete throws ApiError on non-2xx (covers _voidFetch error path)", async () => {
+    vi.spyOn(global, "fetch").mockResolvedValueOnce(
+      new Response("forbidden", { status: 403 }),
+    );
+    await expect(deleteProfile("p1")).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it("activate throws ApiError on non-2xx", async () => {
+    vi.spyOn(global, "fetch").mockResolvedValueOnce(
+      new Response("not found", { status: 404 }),
+    );
+    await expect(activateProfile("p1")).rejects.toBeInstanceOf(ApiError);
   });
 });
