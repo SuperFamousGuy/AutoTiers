@@ -90,3 +90,29 @@ export interface DataSourceStatus {
 }
 
 export type DataStatusResponse = Record<string, DataSourceStatus>;
+
+// ---------- accounts & profiles ----------
+
+export interface User {
+  id: string;
+  email: string | null;
+  yahoo_subject: string | null;
+  last_active_profile_id: string | null;
+}
+
+export interface Profile {
+  id: string;
+  name: string;
+  settings_json: Record<string, unknown>;
+  rules_json: Array<{ name: string; enabled: boolean; weight: number }>;
+}
+
+export interface MeResponse {
+  user: User;
+  profiles: Profile[];
+}
+
+export interface ProfilesListResponse {
+  profiles: Profile[];
+  active_profile_id: string | null;
+}
