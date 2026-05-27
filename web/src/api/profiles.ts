@@ -1,5 +1,15 @@
-import { apiFetch, API_URL } from "./client";
+import { apiFetch, API_URL, ApiError } from "./client";
 import type { Profile, ProfilesListResponse } from "./types";
+
+
+/** 204 endpoint helper: raw fetch (no JSON parse), with ApiError on non-2xx. */
+async function _voidFetch(path: string, method: string): Promise<void> {
+  const resp = await fetch(`${API_URL}${path}`, { method, credentials: "include" });
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new ApiError(resp.status, body || resp.statusText);
+  }
+}
 
 export interface ProfileCreateBody {
   name: string;
@@ -31,16 +41,10 @@ export function updateProfile(id: string, body: ProfileUpdateBody): Promise<Prof
   });
 }
 
-export async function deleteProfile(id: string): Promise<void> {
-  await fetch(`${API_URL}/api/profiles/${id}`, {
-    method: "DELETE",
-    credentials: "include",
-  });
+export function deleteProfile(id: string): Promise<void> {
+  return _voidFetch(`/api/profiles/${id}`, "DELETE");
 }
 
-export async function activateProfile(id: string): Promise<void> {
-  await fetch(`${API_URL}/api/profiles/${id}/activate`, {
-    method: "POST",
-    credentials: "include",
-  });
+export function activateProfile(id: string): Promise<void> {
+  return _voidFetch(`/api/profiles/${id}/activate`, "POST");
 }

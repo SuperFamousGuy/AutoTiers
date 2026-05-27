@@ -22,10 +22,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const me = await getMe();
-    setUser(me?.user ?? null);
-    setProfiles(me?.profiles ?? []);
-    setLoading(false);
+    try {
+      const me = await getMe();
+      setUser(me?.user ?? null);
+      setProfiles(me?.profiles ?? []);
+    } finally {
+      // Always clear loading — getMe swallows 401 but a network/5xx
+      // error would otherwise leave the app stuck in the loading state.
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
