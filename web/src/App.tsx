@@ -80,19 +80,27 @@ export default function App() {
     rules_json: rules.map((r) => ({ name: r.name, enabled: r.enabled, weight: r.weight })) as unknown as Array<Record<string, unknown>>,
   }), [settings, rules]);
 
-  useAutoSave({
-    activeId: user ? activeProfileId : null,
-    payload: autosavePayload,
-    save: async (id, payload) => {
-      await updateProfile(id, payload);
-      setLastSavedSnapshot(payload);
-    },
-  });
-
   const isDirty = useMemo(() => {
     if (!lastSavedSnapshot) return false;
     return JSON.stringify(autosavePayload) !== JSON.stringify(lastSavedSnapshot);
   }, [autosavePayload, lastSavedSnapshot]);
+
+  useAutoSave({
+    activeId: user ? activeProfileId : null,
+    payload: autosavePayload,
+    save: async (id, payload) => {
+      // Bail when the payload matches what's already saved. The autosave
+      // effect fires whenever `payload` changes — including the change
+      // triggered by profile hydration itself — and without this guard
+      // we'd issue a wasted PATCH echoing back the just-loaded data on
+      // every page load and profile switch.
+      if (lastSavedSnapshot && JSON.stringify(payload) === JSON.stringify(lastSavedSnapshot)) {
+        return;
+      }
+      await updateProfile(id, payload);
+      setLastSavedSnapshot(payload);
+    },
+  });
 
   const handleSelectProfile = useCallback(async (id: string) => {
     setActiveProfileId(id);
