@@ -1,5 +1,6 @@
 """Profile CRUD endpoints. All require auth."""
 import uuid
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,8 +39,8 @@ async def create_profile(
 ) -> ProfileOut:
     count = await db.scalar(
         select(func.count(Profile.id)).where(Profile.user_id == user.id)
-    )
-    if count is not None and count >= _PROFILE_CAP:
+    ) or 0
+    if count >= _PROFILE_CAP:
         raise HTTPException(
             status_code=409,
             detail=f"Profile limit reached ({_PROFILE_CAP}). Delete one to add another.",
@@ -112,4 +113,7 @@ async def activate_profile(
     if profile.user_id != user.id:
         raise HTTPException(status_code=403, detail="Not your profile")
     user.last_active_profile_id = profile.id
+    # Bump updated_at so the list endpoint (ordered by updated_at desc)
+    # surfaces the active profile at the top after activation.
+    profile.updated_at = datetime.now(timezone.utc)
     await db.commit()
