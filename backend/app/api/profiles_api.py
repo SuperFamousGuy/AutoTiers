@@ -79,3 +79,22 @@ async def update_profile(
     await db.commit()
     await db.refresh(profile)
     return ProfileOut.model_validate(profile)
+
+
+@router.delete("/{profile_id}", status_code=204)
+async def delete_profile(
+    profile_id: uuid.UUID,
+    user: User = require_user,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    profile = await db.get(Profile, profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    if profile.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Not your profile")
+
+    if user.last_active_profile_id == profile.id:
+        user.last_active_profile_id = None
+
+    await db.delete(profile)
+    await db.commit()

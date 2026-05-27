@@ -88,3 +88,32 @@ async def test_patch_profile_403_when_other_user(async_client):
     await _signup(async_client, "bob@x.com")
     r = await async_client.patch(f"/api/profiles/{pid}", json={"name": "Hijack"})
     assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_delete_profile_removes_row(async_client):
+    await _signup(async_client)
+    create = await async_client.post("/api/profiles", json={
+        "name": "Doomed", "settings_json": {}, "rules_json": [],
+    })
+    pid = create.json()["id"]
+
+    r = await async_client.delete(f"/api/profiles/{pid}")
+    assert r.status_code == 204
+
+    listing = await async_client.get("/api/profiles")
+    assert listing.json()["profiles"] == []
+
+
+@pytest.mark.asyncio
+async def test_delete_profile_403_when_other_user(async_client):
+    await _signup(async_client, "alice@x.com")
+    create = await async_client.post("/api/profiles", json={
+        "name": "Alice's", "settings_json": {}, "rules_json": [],
+    })
+    pid = create.json()["id"]
+
+    await async_client.post("/api/auth/logout")
+    await _signup(async_client, "bob@x.com")
+    r = await async_client.delete(f"/api/profiles/{pid}")
+    assert r.status_code == 403
