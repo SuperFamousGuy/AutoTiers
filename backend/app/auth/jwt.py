@@ -39,7 +39,7 @@ def decode_jwt(token: str) -> uuid.UUID:
 def set_auth_cookie(response: Response, user_id: uuid.UUID, *, secure: Optional[bool] = None) -> None:
     """Set the session cookie. In test/dev, secure=False so non-HTTPS works."""
     if secure is None:
-        secure = not settings.debug if hasattr(settings, "debug") else True
+        secure = not settings.debug
     response.set_cookie(
         key=JWT_COOKIE_NAME,
         value=encode_jwt(user_id),
