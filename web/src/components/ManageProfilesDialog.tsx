@@ -1,0 +1,61 @@
+import { useState } from "react";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Trash2 } from "lucide-react";
+import type { Profile } from "@/api/types";
+
+interface ManageProfilesDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  profiles: Profile[];
+  onRename: (id: string, newName: string) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+}
+
+export function ManageProfilesDialog({ open, onOpenChange, profiles, onRename, onDelete }: ManageProfilesDialogProps) {
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draftName, setDraftName] = useState("");
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogTitle>Manage profiles</DialogTitle>
+        {profiles.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No profiles yet.</p>
+        ) : (
+          <ul className="space-y-2">
+            {profiles.map((p) => (
+              <li key={p.id} className="flex items-center justify-between gap-2 rounded border px-3 py-2">
+                {editingId === p.id ? (
+                  <>
+                    <input
+                      value={draftName}
+                      onChange={(e) => setDraftName(e.target.value)}
+                      className="flex-1 rounded border px-2 py-1 text-sm"
+                      autoFocus
+                    />
+                    <Button size="sm" onClick={async () => { await onRename(p.id, draftName); setEditingId(null); }}>Save</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>Cancel</Button>
+                  </>
+                ) : (
+                  <>
+                    <span className="flex-1 truncate">{p.name}</span>
+                    <Button size="sm" variant="ghost" onClick={() => { setEditingId(p.id); setDraftName(p.name); }}>Rename</Button>
+                    {confirmDeleteId === p.id ? (
+                      <Button size="sm" variant="destructive" onClick={async () => { await onDelete(p.id); setConfirmDeleteId(null); }}>Confirm delete</Button>
+                    ) : (
+                      <Button size="sm" variant="ghost" onClick={() => setConfirmDeleteId(p.id)} aria-label={`delete ${p.name}`}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
