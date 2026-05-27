@@ -14,4 +14,5 @@ export const handlers = [
       headers: { "Content-Type": "text/csv" },
     }),
   ),
+  http.get(`${API_URL}/api/auth/me`, () => HttpResponse.text("", { status: 401 })),
 ];

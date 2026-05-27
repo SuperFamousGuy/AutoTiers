@@ -1,24 +1,71 @@
+import { Menu } from "lucide-react";
+import { useState } from "react";
 import { DataFreshness } from "./DataFreshness";
 import { GenerateButton } from "./GenerateButton";
+import { AuthDialog } from "./AuthDialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/contexts/AuthContext";
+import type { SettingsState } from "./SettingsPanel";
+import type { Rule } from "@/api/types";
+
+interface HamburgerProps {
+  currentState: { settings: SettingsState; rules: Rule[] } | null;
+}
+
+function HamburgerMenu({ currentState }: HamburgerProps) {
+  const { user, logout } = useAuth();
+  const [authOpen, setAuthOpen] = useState(false);
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" aria-label="Menu">
+            <Menu className="h-5 w-5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          {user ? (
+            <>
+              <DropdownMenuItem disabled>{user.email ?? "Yahoo account"}</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => logout()}>Log out</DropdownMenuItem>
+            </>
+          ) : (
+            <DropdownMenuItem onSelect={() => setAuthOpen(true)}>Log in / Sign up</DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <AuthDialog open={authOpen} onOpenChange={setAuthOpen} initialState={currentState} />
+    </>
+  );
+}
 
 interface HeaderProps {
   generateDisabled: boolean;
   generateIsPending: boolean;
   onGenerate: () => void;
+  currentState: { settings: SettingsState; rules: Rule[] } | null;
+  profilePicker?: React.ReactNode;
 }
 
-export function Header({ generateDisabled, generateIsPending, onGenerate }: HeaderProps) {
+export function Header({ generateDisabled, generateIsPending, onGenerate, currentState, profilePicker }: HeaderProps) {
   return (
     <header className="flex items-center justify-between border-b bg-card px-6 py-4">
       <div className="flex items-baseline gap-6">
         <h1 className="text-2xl font-bold text-foreground">AutoTiers</h1>
         <DataFreshness />
       </div>
-      <GenerateButton
-        disabled={generateDisabled}
-        isPending={generateIsPending}
-        onClick={onGenerate}
-      />
+      <div className="flex items-center gap-3">
+        {profilePicker}
+        <GenerateButton
+          disabled={generateDisabled}
+          isPending={generateIsPending}
+          onClick={onGenerate}
+        />
+        <HamburgerMenu currentState={currentState} />
+      </div>
     </header>
   );
 }
