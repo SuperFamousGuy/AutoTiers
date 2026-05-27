@@ -55,13 +55,19 @@ jobs:
 
       - name: Backend coverage (cobertura)
         working-directory: backend
-        # COVERAGE_CORE=ctrace forces the legacy sys.settrace tracer.
-        # Coverage.py 7.14.1's new sys.monitoring tracer on Python 3.12
-        # under-counts line hits through FastAPI's decorator-wrapped async
-        # routes, dropping coverage from ~100% (3.14 / pytrace) to ~60%
-        # (3.12 / sysmon) on identical test runs.
+        # COVERAGE_CORE=sysmon forces coverage.py's sys.monitoring-based
+        # tracer (PEP 669). The default `ctrace` C-extension tracer (and
+        # the pure-Python `pytrace` fallback) drop sync lines BETWEEN
+        # `await` statements in FastAPI async route handlers, reporting
+        # ~61% coverage on app/api/auth.py despite tests asserting the
+        # endpoint returned 201/200. Reproduced locally:
+        #   CORE=ctrace  → 61.22%   (broken)
+        #   CORE=pytrace → 61.22%   (broken)
+        #   CORE=sysmon  → 100.00%  ✓
+        # sysmon is Python 3.12+ only; if we ever need to support 3.11
+        # in CI, revisit this.
         env:
-          COVERAGE_CORE: ctrace
+          COVERAGE_CORE: sysmon
         run: pytest -q --cov=app --cov-report=xml
 
       - name: Frontend coverage (cobertura)
