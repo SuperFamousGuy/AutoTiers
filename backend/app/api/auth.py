@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models import User, Profile
 from app.auth.hashing import hash_password, verify_password
-from app.auth.jwt import set_auth_cookie
+from app.auth.jwt import set_auth_cookie, clear_auth_cookie
 from app.auth.rate_limit import login_rate_limiter
 from app.schemas.auth import SignupRequest, LoginRequest, UserOut, MeResponse, ProfileOut
 
@@ -69,3 +69,8 @@ async def login(
         user=UserOut.model_validate(user),
         profiles=[ProfileOut.model_validate(p) for p in profiles],
     )
+
+
+@router.post("/logout", status_code=204)
+async def logout(response: Response) -> None:
+    clear_auth_cookie(response)

@@ -117,3 +117,14 @@ async def test_login_rate_limit_triggers_after_5_fails(async_client):
         "password": "correct horse battery",
     })
     assert r.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_logout_clears_cookie(async_client):
+    await async_client.post("/api/auth/signup", json={
+        "email": "alice@example.com",
+        "password": "correct horse battery",
+    })
+    r = await async_client.post("/api/auth/logout")
+    assert r.status_code == 204
+    assert "autotiers_session" not in async_client.cookies
