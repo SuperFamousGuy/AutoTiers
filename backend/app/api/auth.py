@@ -5,9 +5,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models import User, Profile
-from app.auth.hashing import hash_password
+from app.auth.hashing import hash_password, verify_password
 from app.auth.jwt import set_auth_cookie
-from app.schemas.auth import SignupRequest, UserOut, MeResponse, ProfileOut
+from app.auth.rate_limit import login_rate_limiter
+from app.schemas.auth import SignupRequest, LoginRequest, UserOut, MeResponse, ProfileOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -45,3 +46,26 @@ async def signup(
 
     profiles = [ProfileOut.model_validate(profile)] if profile else []
     return MeResponse(user=UserOut.model_validate(user), profiles=profiles)
+
+
+@router.post("/login", response_model=MeResponse)
+async def login(
+    body: LoginRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> MeResponse:
+    if not login_rate_limiter.check_and_record(body.email):
+        raise HTTPException(status_code=429, detail="Too many attempts; try again later")
+
+    user = await db.scalar(select(User).where(User.email == body.email))
+    if user is None or user.password_hash is None:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    if not verify_password(user.password_hash, body.password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    set_auth_cookie(response, user.id)
+    profiles = (await db.scalars(select(Profile).where(Profile.user_id == user.id))).all()
+    return MeResponse(
+        user=UserOut.model_validate(user),
+        profiles=[ProfileOut.model_validate(p) for p in profiles],
+    )
