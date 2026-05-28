@@ -3,10 +3,17 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "@/App";
+import { AuthProvider } from "@/contexts/AuthContext";
 
 function renderApp() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={client}><App /></QueryClientProvider>);
+  return render(
+    <QueryClientProvider client={client}>
+      <AuthProvider>
+        <App />
+      </AuthProvider>
+    </QueryClientProvider>,
+  );
 }
 
 describe("App (integration)", () => {
