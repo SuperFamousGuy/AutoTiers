@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { signup, login, logout, getMe, yahooAuthorizeUrl } from "@/api/auth";
+import { signup, login, logout, getMe, yahooAuthorizeUrl, googleAuthorizeUrl } from "@/api/auth";
 import { ApiError } from "@/api/client";
 
 describe("auth API", () => {
@@ -29,6 +29,10 @@ describe("auth API", () => {
 
   it("yahooAuthorizeUrl returns the API URL plus /api/auth/yahoo/authorize", () => {
     expect(yahooAuthorizeUrl()).toContain("/api/auth/yahoo/authorize");
+  });
+
+  it("googleAuthorizeUrl returns the API URL plus /api/auth/google/authorize", () => {
+    expect(googleAuthorizeUrl()).toContain("/api/auth/google/authorize");
   });
 
   it("logout POSTs to /api/auth/logout on the happy path", async () => {

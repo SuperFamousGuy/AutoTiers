@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { yahooAuthorizeUrl } from "@/api/auth";
+import { yahooAuthorizeUrl, googleAuthorizeUrl } from "@/api/auth";
 import { useAuth } from "@/contexts/AuthContext";
 import type { SettingsState } from "@/components/SettingsPanel";
 import type { Rule } from "@/api/types";
@@ -96,6 +96,14 @@ export function AuthDialog({ open, onOpenChange, initialState }: AuthDialogProps
           onClick={() => { window.location.href = yahooAuthorizeUrl(); }}
         >
           Continue with Yahoo
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full mt-2"
+          onClick={() => { window.location.href = googleAuthorizeUrl(); }}
+        >
+          Continue with Google
         </Button>
       </DialogContent>
     </Dialog>
