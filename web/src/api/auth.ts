@@ -53,3 +53,7 @@ export async function getMe(): Promise<MeResponse | null> {
 export function yahooAuthorizeUrl(): string {
   return `${API_URL}/api/auth/yahoo/authorize`;
 }
+
+export function googleAuthorizeUrl(): string {
+  return `${API_URL}/api/auth/google/authorize`;
+}

@@ -42,6 +42,12 @@ describe("AuthDialog", () => {
     expect(btn).toBeInTheDocument();
   });
 
+  it("shows 'Continue with Google' button", async () => {
+    _renderOpen();
+    const btn = await screen.findByRole("button", { name: /continue with google/i });
+    expect(btn).toBeInTheDocument();
+  });
+
   it("submitting the login form calls /api/auth/login and closes the dialog on success", async () => {
     const onOpenChange = vi.fn();
     const fetchSpy = vi.spyOn(global, "fetch")
