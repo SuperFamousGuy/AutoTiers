@@ -177,6 +177,41 @@ curl -X POST http://localhost:8000/api/generate \
 
 ---
 
+## Accounts
+
+Anonymous use is the default. Optional account creation gives users up to **5 saved profiles**, each capturing the full Settings + Rules configuration.
+
+### Auth endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/auth/signup` | Email + password signup; optionally migrates anonymous state to a first profile |
+| `POST` | `/api/auth/login` | Email + password login; rate-limited 5 / 15min per email |
+| `POST` | `/api/auth/logout` | Clears session cookie |
+| `GET`  | `/api/auth/me` | Returns the current user + profiles, or 401 |
+| `GET`  | `/api/auth/yahoo/authorize` | Starts Yahoo OAuth |
+| `GET`  | `/api/auth/yahoo/callback` | Yahoo OAuth return URL |
+
+### Profile endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET`    | `/api/profiles` | List user's profiles + active id |
+| `POST`   | `/api/profiles` | Create profile (409 when at 5) |
+| `PATCH`  | `/api/profiles/{id}` | Partial update (name, settings_json, rules_json) |
+| `DELETE` | `/api/profiles/{id}` | Delete |
+| `POST`   | `/api/profiles/{id}/activate` | Set as last-active |
+
+### Env vars
+
+- `JWT_SECRET` — 32+ byte secret for signing session JWTs (required in prod; dev default is a placeholder)
+- `YAHOO_CLIENT_ID`, `YAHOO_CLIENT_SECRET`, `YAHOO_REDIRECT_URI` — Yahoo OAuth app credentials (optional)
+- `FRONTEND_URL` — where Yahoo OAuth callback redirects after login (default `http://localhost:5173`)
+
+Email verification, password reset, and account linking are deferred for v1 — see the [design spec](docs/superpowers/specs/2026-05-26-accounts-and-profiles-design.md).
+
+---
+
 ## Engines
 
 ### Scoring Engine

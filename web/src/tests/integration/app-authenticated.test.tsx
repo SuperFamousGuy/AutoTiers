@@ -1,0 +1,251 @@
+import { describe, it, expect, vi } from "vitest";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { http, HttpResponse } from "msw";
+import App from "@/App";
+import { AuthProvider } from "@/contexts/AuthContext";
+import { server } from "@/tests/setup";
+
+const API_URL = "http://localhost:8000";
+
+const USER = {
+  id: "u1",
+  email: "alice@example.com",
+  yahoo_subject: null,
+  last_active_profile_id: "p1",
+};
+
+const PROFILE_ONE = {
+  id: "p1",
+  name: "PPR 12-team",
+  settings_json: {
+    scoring_format: "ppr",
+    league_size: 12,
+    draft_rounds: 15,
+    qb_td_points: 4,
+    bonus_100yd_rushing: false,
+    bonus_100yd_receiving: false,
+    bonus_first_downs: false,
+    weights: { prior: 30, consensus: 70 },
+  },
+  rules_json: [
+    { name: "Target Share Premium", enabled: false, weight: 1.0 },
+  ],
+};
+
+const PROFILE_TWO = {
+  id: "p2",
+  name: "Standard Keeper",
+  settings_json: {
+    scoring_format: "standard",
+    league_size: 10,
+    draft_rounds: 16,
+    qb_td_points: 6,
+    bonus_100yd_rushing: false,
+    bonus_100yd_receiving: false,
+    bonus_first_downs: false,
+    weights: { prior: 50, consensus: 50 },
+  },
+  rules_json: [],
+};
+
+function renderApp() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <AuthProvider>
+        <App />
+      </AuthProvider>
+    </QueryClientProvider>,
+  );
+}
+
+function mockAuthenticated(profiles = [PROFILE_ONE, PROFILE_TWO]) {
+  server.use(
+    http.get(`${API_URL}/api/auth/me`, () =>
+      HttpResponse.json({ user: USER, profiles }),
+    ),
+  );
+}
+
+describe("App (authenticated integration)", () => {
+  it("hydrates the active profile's settings + rules on load", async () => {
+    mockAuthenticated();
+    renderApp();
+
+    // ProfilePicker appears showing the active profile name
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument();
+    });
+
+    // Rules load; the user-customized rule reflects the profile (Target Share Premium disabled)
+    await waitFor(() => {
+      expect(screen.getByText("Target Share Premium")).toBeInTheDocument();
+    });
+  });
+
+  it("shows the hamburger user-email row and Log out item when authenticated", async () => {
+    mockAuthenticated();
+    renderApp();
+
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByLabelText(/menu/i)).toBeInTheDocument());
+    await user.click(screen.getByLabelText(/menu/i));
+
+    expect(await screen.findByText("alice@example.com")).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /log out/i })).toBeInTheDocument();
+  });
+
+  it("calls /api/auth/logout when Log out is clicked", async () => {
+    mockAuthenticated();
+    let logoutCalled = false;
+    server.use(
+      http.post(`${API_URL}/api/auth/logout`, () => {
+        logoutCalled = true;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    renderApp();
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByLabelText(/menu/i)).toBeInTheDocument());
+    await user.click(screen.getByLabelText(/menu/i));
+    await user.click(screen.getByRole("menuitem", { name: /log out/i }));
+
+    await waitFor(() => expect(logoutCalled).toBe(true));
+  });
+
+  it("switching profiles calls POST /activate on the picked profile", async () => {
+    mockAuthenticated();
+    let activatedId: string | null = null;
+    server.use(
+      http.post(`${API_URL}/api/profiles/:id/activate`, ({ params }) => {
+        activatedId = params.id as string;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    renderApp();
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: /PPR 12-team/i }));
+    await user.click(screen.getByRole("menuitem", { name: /Standard Keeper/i }));
+
+    await waitFor(() => expect(activatedId).toBe("p2"));
+  });
+
+  it("'+ New profile' creates a profile via POST /api/profiles", async () => {
+    mockAuthenticated([PROFILE_ONE]);
+    let createBody: { name?: string } = {};
+    server.use(
+      http.post(`${API_URL}/api/profiles`, async ({ request }) => {
+        createBody = (await request.json()) as { name?: string };
+        // Echo back the full settings_json so hydration doesn't blow up
+        // on the missing `weights` field.
+        return HttpResponse.json({
+          id: "p-new",
+          name: createBody.name,
+          settings_json: PROFILE_ONE.settings_json,
+          rules_json: [],
+        });
+      }),
+      http.post(`${API_URL}/api/profiles/:id/activate`, () => new HttpResponse(null, { status: 204 })),
+    );
+
+    renderApp();
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: /PPR 12-team/i }));
+    await user.click(screen.getByRole("menuitem", { name: /\+ New profile/i }));
+
+    await waitFor(() => expect(createBody.name).toBe("Profile 2"));
+  });
+
+  it("rename via Manage profiles PATCHes the profile name", async () => {
+    mockAuthenticated();
+    let patchBody: { name?: string } = {};
+    let patchedId: string | null = null;
+    server.use(
+      http.patch(`${API_URL}/api/profiles/:id`, async ({ params, request }) => {
+        patchedId = params.id as string;
+        patchBody = (await request.json()) as { name?: string };
+        return HttpResponse.json({ ...PROFILE_ONE, name: patchBody.name });
+      }),
+    );
+
+    renderApp();
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: /PPR 12-team/i }));
+    await user.click(screen.getByRole("menuitem", { name: /Manage profiles/i }));
+
+    // Inside the dialog, rename the first profile
+    const renameButtons = await screen.findAllByRole("button", { name: /^rename$/i });
+    await user.click(renameButtons[0]);
+    const input = screen.getByDisplayValue("PPR 12-team");
+    await user.clear(input);
+    await user.type(input, "Renamed Profile");
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => {
+      expect(patchedId).toBe("p1");
+      expect(patchBody.name).toBe("Renamed Profile");
+    });
+  });
+
+  it("delete via Manage profiles calls DELETE on the profile", async () => {
+    mockAuthenticated();
+    let deletedId: string | null = null;
+    server.use(
+      http.delete(`${API_URL}/api/profiles/:id`, ({ params }) => {
+        deletedId = params.id as string;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    renderApp();
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: /PPR 12-team/i }));
+    await user.click(screen.getByRole("menuitem", { name: /Manage profiles/i }));
+
+    // Two-click delete
+    const deleteIcons = await screen.findAllByRole("button", { name: /delete PPR 12-team/i });
+    await user.click(deleteIcons[0]);
+    await user.click(screen.getByRole("button", { name: /confirm delete/i }));
+
+    await waitFor(() => expect(deletedId).toBe("p1"));
+  });
+
+  it("Reset to saved button appears when state diverges from the active profile", async () => {
+    mockAuthenticated();
+    // We need a hydrated profile so lastSavedSnapshot is populated.
+    renderApp();
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument());
+
+    // Hydration is async; wait for the rule to reflect the profile state.
+    // Then toggle a rule to make local state dirty.
+    await waitFor(() => expect(screen.getByText("Target Share Premium")).toBeInTheDocument());
+
+    // The Target Share Premium rule is in the profile with enabled: false.
+    // Toggle it on locally — that makes the state dirty.
+    const switches = screen.getAllByRole("switch");
+    const initialState = switches.map((s) => s.getAttribute("data-state"));
+    // Click first switch to mutate state
+    await user.click(switches[0]);
+
+    // Reset button should appear
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /reset to saved/i })).toBeInTheDocument();
+    });
+
+    // Click Reset to saved — state should revert
+    await user.click(screen.getByRole("button", { name: /reset to saved/i }));
+    await waitFor(() => {
+      const restored = screen.getAllByRole("switch").map((s) => s.getAttribute("data-state"));
+      expect(restored).toEqual(initialState);
+    });
+  });
+});
