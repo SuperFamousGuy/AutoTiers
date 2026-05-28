@@ -28,7 +28,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-autotiers}
       DATABASE_URL_SYNC: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-autotiers}
       DEBUG: "true"
-      CORS_ORIGINS: '["*"]'
+      CORS_ORIGINS: '["http://localhost:5173"]'
       RUN_SCHEDULER: "false"
       ADMIN_API_KEY: ""
       SEED_DEV_DATA: "${SEED_DEV_DATA:-true}"

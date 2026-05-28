@@ -7,7 +7,11 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://localhost/autotiers"
     database_url_sync: str = "postgresql+psycopg2://localhost/autotiers"
     debug: bool = False
-    cors_origins: list[str] = ["*"]
+    # Specific origins required — wildcards are incompatible with
+    # credentialed requests (the frontend's fetch sets
+    # `credentials: "include"` so the JWT cookie travels with each request).
+    # Override via CORS_ORIGINS env (JSON array, e.g. '["https://app.example.com"]').
+    cors_origins: list[str] = ["http://localhost:5173"]
     run_scheduler: bool = False
     admin_api_key: str = ""
     jwt_secret: str = "dev-only-replace-in-prod"
