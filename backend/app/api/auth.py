@@ -129,11 +129,19 @@ async def yahoo_callback(
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
 
     access_token = await exchange_code(code)
-    yahoo_subject, _yahoo_email, _yahoo_email_verified = await fetch_identity(access_token)  # email fields wired in Task 3
+    yahoo_subject, yahoo_email, yahoo_email_verified = await fetch_identity(access_token)
 
     user = await db.scalar(select(User).where(User.yahoo_subject == yahoo_subject))
+    if user is None and yahoo_email_verified and yahoo_email:
+        user = await db.scalar(select(User).where(User.email == yahoo_email))
+        if user is not None:
+            user.yahoo_subject = yahoo_subject
+            await db.commit()
+            await db.refresh(user)
     if user is None:
         user = User(yahoo_subject=yahoo_subject)
+        if yahoo_email_verified and yahoo_email:
+            user.email = yahoo_email
         db.add(user)
         await db.commit()
         await db.refresh(user)
@@ -174,11 +182,20 @@ async def google_callback(
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
 
     access_token = await exchange_google_code(code)
-    google_subject, _google_email, _google_email_verified = await fetch_google_identity(access_token)  # email fields wired in Task 3
+    google_subject, google_email, google_email_verified = await fetch_google_identity(access_token)
 
+    # Sign-in flow only — linking flow comes in Task 4.
     user = await db.scalar(select(User).where(User.google_subject == google_subject))
+    if user is None and google_email_verified and google_email:
+        user = await db.scalar(select(User).where(User.email == google_email))
+        if user is not None:
+            user.google_subject = google_subject  # auto-link
+            await db.commit()
+            await db.refresh(user)
     if user is None:
         user = User(google_subject=google_subject)
+        if google_email_verified and google_email:
+            user.email = google_email
         db.add(user)
         await db.commit()
         await db.refresh(user)
