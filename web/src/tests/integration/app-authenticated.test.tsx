@@ -250,6 +250,27 @@ describe("App (authenticated integration)", () => {
     });
   });
 
+  it("opens Linked accounts dialog from the hamburger menu", async () => {
+    mockAuthenticated();
+    renderApp();
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByLabelText(/menu/i)).toBeInTheDocument());
+    await user.click(screen.getByLabelText(/menu/i));
+    await user.click(screen.getByRole("menuitem", { name: /linked accounts/i }));
+    expect(await screen.findByText(/^linked accounts$/i)).toBeInTheDocument();
+  });
+
+  it("auto-opens Linked accounts dialog with error when ?linking_error is present", async () => {
+    mockAuthenticated();
+    window.history.replaceState({}, "", "/?linking_error=already_linked_elsewhere");
+    renderApp();
+    await waitFor(() =>
+      expect(screen.getByText(/already linked to a different AutoTiers account/i)).toBeInTheDocument(),
+    );
+    // URL param is stripped.
+    expect(window.location.search).toBe("");
+  });
+
   it("autosave updates AuthContext profiles so switching away and back preserves edits", async () => {
     // Bug regression: autosave PATCHed the server but discarded the returned
     // profile, so local `profiles` stayed stale. Switching profiles then
