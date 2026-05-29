@@ -59,4 +59,4 @@ async def fetch_identity(access_token: str) -> tuple[str, str | None, bool]:
         )
         resp.raise_for_status()
         data = resp.json()
-        return data["sub"], data.get("email"), bool(data.get("email_verified", False))
+        return data["sub"], data.get("email"), data.get("email_verified") is True

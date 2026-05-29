@@ -129,7 +129,7 @@ async def yahoo_callback(
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
 
     access_token = await exchange_code(code)
-    yahoo_subject, _yahoo_email, _yahoo_email_verified = await fetch_identity(access_token)
+    yahoo_subject, _yahoo_email, _yahoo_email_verified = await fetch_identity(access_token)  # email fields wired in Task 3
 
     user = await db.scalar(select(User).where(User.yahoo_subject == yahoo_subject))
     if user is None:
@@ -174,7 +174,7 @@ async def google_callback(
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
 
     access_token = await exchange_google_code(code)
-    google_subject, _google_email, _google_email_verified = await fetch_google_identity(access_token)
+    google_subject, _google_email, _google_email_verified = await fetch_google_identity(access_token)  # email fields wired in Task 3
 
     user = await db.scalar(select(User).where(User.google_subject == google_subject))
     if user is None:
