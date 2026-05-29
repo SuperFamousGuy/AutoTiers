@@ -286,3 +286,43 @@ async def google_callback(
     response.delete_cookie(_GOOGLE_OAUTH_STATE_COOKIE, path="/")
     set_auth_cookie(response, user.id)
     return response
+
+
+def _has_other_method(user: User, removing: str) -> bool:
+    """True if the user has at least one sign-in method besides `removing`.
+
+    `removing` is one of: "password", "yahoo_subject", "google_subject".
+    """
+    methods = {
+        "password": user.password_hash is not None,
+        "yahoo_subject": user.yahoo_subject is not None,
+        "google_subject": user.google_subject is not None,
+    }
+    methods[removing] = False
+    return any(methods.values())
+
+
+@router.delete("/google/link", status_code=204)
+async def unlink_google(
+    user: User = require_user,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    if user.google_subject is None:
+        return  # idempotent
+    if not _has_other_method(user, "google_subject"):
+        raise HTTPException(status_code=400, detail="Cannot unlink last sign-in method")
+    user.google_subject = None
+    await db.commit()
+
+
+@router.delete("/yahoo/link", status_code=204)
+async def unlink_yahoo(
+    user: User = require_user,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    if user.yahoo_subject is None:
+        return
+    if not _has_other_method(user, "yahoo_subject"):
+        raise HTTPException(status_code=400, detail="Cannot unlink last sign-in method")
+    user.yahoo_subject = None
+    await db.commit()
