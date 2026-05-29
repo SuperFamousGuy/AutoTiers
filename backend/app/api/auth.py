@@ -1,5 +1,6 @@
 """Email/password auth endpoints. Yahoo OAuth lives in this same router but is added in phase 3."""
 import secrets
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response
 from fastapi.responses import RedirectResponse
@@ -102,6 +103,58 @@ async def me(
 _OAUTH_STATE_COOKIE = "autotiers_oauth_state"
 
 
+def _frontend_url_with_param(key: str, value: str) -> str:
+    """Append (or merge) a single query param onto settings.frontend_url.
+
+    Safe whether or not the configured frontend URL already carries a query string.
+    """
+    parts = urlsplit(settings.frontend_url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query[key] = value
+    return urlunsplit(parts._replace(query=urlencode(query)))
+
+
+async def _handle_oauth_link(
+    db: AsyncSession,
+    current_user: User,
+    subject_attr: str,
+    subject: str,
+    email: str | None,
+    email_verified: bool,
+    state_cookie_name: str,
+) -> RedirectResponse:
+    """Run the linking branch of an OAuth callback.
+
+    Attaches `subject` to `current_user.<subject_attr>` unless that subject is
+    already on a different user (returns linking_error redirect). Backfills
+    current_user.email if absent and the provider returned a verified email.
+    Returns a RedirectResponse (with the state cookie deleted) that does NOT
+    re-issue the session cookie — the caller is already authenticated.
+    """
+    existing_owner = await db.scalar(
+        select(User).where(getattr(User, subject_attr) == subject)
+    )
+    if existing_owner is not None and existing_owner.id != current_user.id:
+        url = _frontend_url_with_param("linking_error", "already_linked_elsewhere")
+        response = RedirectResponse(url=url, status_code=302)
+        response.delete_cookie(state_cookie_name, path="/")
+        return response
+
+    mutated = False
+    if existing_owner is None:
+        setattr(current_user, subject_attr, subject)
+        mutated = True
+    if current_user.email is None and email_verified and email:
+        current_user.email = email
+        mutated = True
+    if mutated:
+        await db.commit()
+
+    response = RedirectResponse(url=settings.frontend_url, status_code=302)
+    response.delete_cookie(state_cookie_name, path="/")
+    return response
+
+
 @router.get("/yahoo/authorize")
 async def yahoo_authorize() -> RedirectResponse:
     state = secrets.token_urlsafe(32)
@@ -135,23 +188,15 @@ async def yahoo_callback(
     current_user = await _resolve_user(autotiers_session, db)
 
     if current_user is not None:
-        # Linking flow.
-        existing_owner = await db.scalar(
-            select(User).where(User.yahoo_subject == yahoo_subject)
+        return await _handle_oauth_link(
+            db,
+            current_user,
+            subject_attr="yahoo_subject",
+            subject=yahoo_subject,
+            email=yahoo_email,
+            email_verified=yahoo_email_verified,
+            state_cookie_name=_OAUTH_STATE_COOKIE,
         )
-        if existing_owner is not None and existing_owner.id != current_user.id:
-            url = f"{settings.frontend_url}?linking_error=already_linked_elsewhere"
-            response = RedirectResponse(url=url, status_code=302)
-            response.delete_cookie(_OAUTH_STATE_COOKIE, path="/")
-            return response
-        if existing_owner is None:
-            current_user.yahoo_subject = yahoo_subject
-        if current_user.email is None and yahoo_email_verified and yahoo_email:
-            current_user.email = yahoo_email
-        await db.commit()
-        response = RedirectResponse(url=settings.frontend_url, status_code=302)
-        response.delete_cookie(_OAUTH_STATE_COOKIE, path="/")
-        return response
 
     # Sign-in flow only — linking flow handled above.
     user = await db.scalar(select(User).where(User.yahoo_subject == yahoo_subject))
@@ -211,23 +256,15 @@ async def google_callback(
     current_user = await _resolve_user(autotiers_session, db)
 
     if current_user is not None:
-        # Linking flow.
-        existing_owner = await db.scalar(
-            select(User).where(User.google_subject == google_subject)
+        return await _handle_oauth_link(
+            db,
+            current_user,
+            subject_attr="google_subject",
+            subject=google_subject,
+            email=google_email,
+            email_verified=google_email_verified,
+            state_cookie_name=_GOOGLE_OAUTH_STATE_COOKIE,
         )
-        if existing_owner is not None and existing_owner.id != current_user.id:
-            url = f"{settings.frontend_url}?linking_error=already_linked_elsewhere"
-            response = RedirectResponse(url=url, status_code=302)
-            response.delete_cookie(_GOOGLE_OAUTH_STATE_COOKIE, path="/")
-            return response
-        if existing_owner is None:
-            current_user.google_subject = google_subject
-        if current_user.email is None and google_email_verified and google_email:
-            current_user.email = google_email
-        await db.commit()
-        response = RedirectResponse(url=settings.frontend_url, status_code=302)
-        response.delete_cookie(_GOOGLE_OAUTH_STATE_COOKIE, path="/")
-        return response
 
     # Sign-in flow only — linking flow handled above.
     user = await db.scalar(select(User).where(User.google_subject == google_subject))
