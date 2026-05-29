@@ -20,6 +20,7 @@ class UserOut(BaseModel):
     id: uuid.UUID
     email: Optional[str]
     yahoo_subject: Optional[str]
+    google_subject: Optional[str]
     last_active_profile_id: Optional[uuid.UUID]
 
     model_config = {"from_attributes": True}

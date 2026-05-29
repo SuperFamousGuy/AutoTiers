@@ -95,6 +95,11 @@ async def test_callback_creates_new_user_on_first_login(async_client, test_db):
     assert users[0].email is None
     assert "autotiers_session" in r.cookies
 
+    # Also assert /me exposes google_subject
+    me = await async_client.get("/api/auth/me")
+    assert me.status_code == 200
+    assert me.json()["user"]["google_subject"] == "google-user-xyz"
+
 
 @pytest.mark.asyncio
 async def test_callback_finds_existing_user_on_repeat_login(async_client, test_db):

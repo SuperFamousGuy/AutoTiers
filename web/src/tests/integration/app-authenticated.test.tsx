@@ -13,6 +13,7 @@ const USER = {
   id: "u1",
   email: "alice@example.com",
   yahoo_subject: null,
+  google_subject: null,
   last_active_profile_id: "p1",
 };
 
