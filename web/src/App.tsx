@@ -97,8 +97,13 @@ export default function App() {
       if (lastSavedSnapshot && JSON.stringify(payload) === JSON.stringify(lastSavedSnapshot)) {
         return;
       }
-      await updateProfile(id, payload);
+      const updated = await updateProfile(id, payload);
       setLastSavedSnapshot(payload);
+      // Keep AuthContext's profiles array in sync with what's on the server.
+      // Without this, switching profiles re-hydrates from the original
+      // /me snapshot — so the edits the user just made get clobbered when
+      // they switch away and back.
+      setProfiles(profiles.map((p) => (p.id === id ? updated : p)));
     },
   });
 

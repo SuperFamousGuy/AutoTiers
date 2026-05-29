@@ -248,4 +248,57 @@ describe("App (authenticated integration)", () => {
       expect(restored).toEqual(initialState);
     });
   });
+
+  it("autosave updates AuthContext profiles so switching away and back preserves edits", async () => {
+    // Bug regression: autosave PATCHed the server but discarded the returned
+    // profile, so local `profiles` stayed stale. Switching profiles then
+    // re-hydrated from the original /me snapshot — clobbering recent edits.
+    mockAuthenticated();
+    server.use(
+      http.patch(`${API_URL}/api/profiles/:id`, async ({ params, request }) => {
+        const body = (await request.json()) as {
+          settings_json?: Record<string, unknown>;
+          rules_json?: Array<{ name: string; enabled: boolean; weight: number }>;
+        };
+        const base = (params.id as string) === "p1" ? PROFILE_ONE : PROFILE_TWO;
+        return HttpResponse.json({
+          ...base,
+          settings_json: body.settings_json ?? base.settings_json,
+          rules_json: body.rules_json ?? base.rules_json,
+        });
+      }),
+      http.post(`${API_URL}/api/profiles/:id/activate`, () => new HttpResponse(null, { status: 204 })),
+    );
+
+    renderApp();
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Target Share Premium")).toBeInTheDocument());
+
+    // Edit profile 1: toggle Target Share Premium on (it starts disabled in PROFILE_ONE).
+    const switches = screen.getAllByRole("switch");
+    await user.click(switches[0]);
+    const editedState = screen.getAllByRole("switch").map((s) => s.getAttribute("data-state"));
+
+    // Wait for autosave (800ms debounce) — Reset-to-saved disappears once saved.
+    await waitFor(
+      () => expect(screen.queryByRole("button", { name: /reset to saved/i })).not.toBeInTheDocument(),
+      { timeout: 3000 },
+    );
+
+    // Switch to profile 2, then back to profile 1.
+    await user.click(screen.getByRole("button", { name: /PPR 12-team/i }));
+    await user.click(screen.getByRole("menuitem", { name: /Standard Keeper/i }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Standard Keeper/i })).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: /Standard Keeper/i }));
+    await user.click(screen.getByRole("menuitem", { name: /PPR 12-team/i }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument());
+
+    // The edited state should be preserved — not clobbered by the original /me snapshot.
+    await waitFor(() => {
+      const restored = screen.getAllByRole("switch").map((s) => s.getAttribute("data-state"));
+      expect(restored).toEqual(editedState);
+    });
+  });
 });
