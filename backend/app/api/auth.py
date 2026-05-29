@@ -11,7 +11,7 @@ from app.database import get_db
 from app.models import User, Profile
 from app.auth.hashing import hash_password, verify_password
 from app.auth.jwt import set_auth_cookie, clear_auth_cookie
-from app.auth.dependencies import require_user
+from app.auth.dependencies import require_user, _resolve_user
 from app.auth.rate_limit import login_rate_limiter
 from app.auth.yahoo import build_authorize_url, exchange_code, fetch_identity
 from app.auth.google import (
@@ -123,6 +123,7 @@ async def yahoo_callback(
     code: str,
     state: str,
     autotiers_oauth_state: str | None = Cookie(default=None),
+    autotiers_session: str | None = Cookie(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
     if not autotiers_oauth_state or autotiers_oauth_state != state:
@@ -131,7 +132,28 @@ async def yahoo_callback(
     access_token = await exchange_code(code)
     yahoo_subject, yahoo_email, yahoo_email_verified = await fetch_identity(access_token)
 
-    # Sign-in flow only — linking flow comes in Task 4.
+    current_user = await _resolve_user(autotiers_session, db)
+
+    if current_user is not None:
+        # Linking flow.
+        existing_owner = await db.scalar(
+            select(User).where(User.yahoo_subject == yahoo_subject)
+        )
+        if existing_owner is not None and existing_owner.id != current_user.id:
+            url = f"{settings.frontend_url}?linking_error=already_linked_elsewhere"
+            response = RedirectResponse(url=url, status_code=302)
+            response.delete_cookie(_OAUTH_STATE_COOKIE, path="/")
+            return response
+        if existing_owner is None:
+            current_user.yahoo_subject = yahoo_subject
+        if current_user.email is None and yahoo_email_verified and yahoo_email:
+            current_user.email = yahoo_email
+        await db.commit()
+        response = RedirectResponse(url=settings.frontend_url, status_code=302)
+        response.delete_cookie(_OAUTH_STATE_COOKIE, path="/")
+        return response
+
+    # Sign-in flow only — linking flow handled above.
     user = await db.scalar(select(User).where(User.yahoo_subject == yahoo_subject))
     if user is None and yahoo_email_verified and yahoo_email:
         user = await db.scalar(select(User).where(User.email == yahoo_email))
@@ -177,6 +199,7 @@ async def google_callback(
     code: str,
     state: str,
     autotiers_google_oauth_state: str | None = Cookie(default=None),
+    autotiers_session: str | None = Cookie(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
     if not autotiers_google_oauth_state or autotiers_google_oauth_state != state:
@@ -185,7 +208,28 @@ async def google_callback(
     access_token = await exchange_google_code(code)
     google_subject, google_email, google_email_verified = await fetch_google_identity(access_token)
 
-    # Sign-in flow only — linking flow comes in Task 4.
+    current_user = await _resolve_user(autotiers_session, db)
+
+    if current_user is not None:
+        # Linking flow.
+        existing_owner = await db.scalar(
+            select(User).where(User.google_subject == google_subject)
+        )
+        if existing_owner is not None and existing_owner.id != current_user.id:
+            url = f"{settings.frontend_url}?linking_error=already_linked_elsewhere"
+            response = RedirectResponse(url=url, status_code=302)
+            response.delete_cookie(_GOOGLE_OAUTH_STATE_COOKIE, path="/")
+            return response
+        if existing_owner is None:
+            current_user.google_subject = google_subject
+        if current_user.email is None and google_email_verified and google_email:
+            current_user.email = google_email
+        await db.commit()
+        response = RedirectResponse(url=settings.frontend_url, status_code=302)
+        response.delete_cookie(_GOOGLE_OAUTH_STATE_COOKIE, path="/")
+        return response
+
+    # Sign-in flow only — linking flow handled above.
     user = await db.scalar(select(User).where(User.google_subject == google_subject))
     if user is None and google_email_verified and google_email:
         user = await db.scalar(select(User).where(User.email == google_email))
