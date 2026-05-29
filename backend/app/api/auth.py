@@ -131,6 +131,7 @@ async def yahoo_callback(
     access_token = await exchange_code(code)
     yahoo_subject, yahoo_email, yahoo_email_verified = await fetch_identity(access_token)
 
+    # Sign-in flow only — linking flow comes in Task 4.
     user = await db.scalar(select(User).where(User.yahoo_subject == yahoo_subject))
     if user is None and yahoo_email_verified and yahoo_email:
         user = await db.scalar(select(User).where(User.email == yahoo_email))

@@ -163,6 +163,7 @@ async def test_callback_auto_links_when_email_matches_existing_user(async_client
             follow_redirects=False,
         )
     assert r.status_code == 302
+    assert "autotiers_session" in r.cookies
     users = (await test_db.scalars(select(User))).all()
     assert len(users) == 1  # no duplicate
     await test_db.refresh(users[0])
@@ -195,3 +196,7 @@ async def test_callback_does_not_auto_link_when_email_not_verified(async_client,
     assert r.status_code == 302
     users = (await test_db.scalars(select(User))).all()
     assert len(users) == 2  # new user created — no auto-link
+    original = next(u for u in users if u.email == "u@example.com")
+    new_user = next(u for u in users if u.email is None)
+    assert original.google_subject is None  # existing user untouched
+    assert new_user.google_subject == "google-new-sub"
