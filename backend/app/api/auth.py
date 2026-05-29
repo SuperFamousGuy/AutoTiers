@@ -13,11 +13,11 @@ from app.auth.hashing import hash_password, verify_password
 from app.auth.jwt import set_auth_cookie, clear_auth_cookie
 from app.auth.dependencies import require_user
 from app.auth.rate_limit import login_rate_limiter
-from app.auth.yahoo import build_authorize_url, exchange_code, fetch_subject
+from app.auth.yahoo import build_authorize_url, exchange_code, fetch_identity
 from app.auth.google import (
     build_authorize_url as build_google_authorize_url,
     exchange_code as exchange_google_code,
-    fetch_subject as fetch_google_subject,
+    fetch_identity as fetch_google_identity,
 )
 from app.schemas.auth import SignupRequest, LoginRequest, UserOut, MeResponse, ProfileOut
 
@@ -129,7 +129,7 @@ async def yahoo_callback(
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
 
     access_token = await exchange_code(code)
-    yahoo_subject = await fetch_subject(access_token)
+    yahoo_subject, _yahoo_email, _yahoo_email_verified = await fetch_identity(access_token)
 
     user = await db.scalar(select(User).where(User.yahoo_subject == yahoo_subject))
     if user is None:
@@ -174,7 +174,7 @@ async def google_callback(
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
 
     access_token = await exchange_google_code(code)
-    google_subject = await fetch_google_subject(access_token)
+    google_subject, _google_email, _google_email_verified = await fetch_google_identity(access_token)
 
     user = await db.scalar(select(User).where(User.google_subject == google_subject))
     if user is None:

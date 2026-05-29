@@ -1,7 +1,7 @@
 import pytest
 import respx
 from httpx import Response
-from app.auth.yahoo import build_authorize_url, exchange_code, fetch_subject
+from app.auth.yahoo import build_authorize_url, exchange_code, fetch_identity
 
 
 def test_build_authorize_url_includes_required_params():
@@ -10,6 +10,7 @@ def test_build_authorize_url_includes_required_params():
     assert "redirect_uri=" in url
     assert "response_type=code" in url
     assert "state=random123" in url
+    assert "scope=openid+email" in url or "scope=openid%20email" in url
 
 
 @pytest.mark.asyncio
@@ -31,13 +32,23 @@ async def test_exchange_code_raises_on_error():
 
 
 @pytest.mark.asyncio
-async def test_fetch_subject_returns_sub_claim():
+async def test_fetch_identity_returns_subject_email_and_verified():
+    with respx.mock(base_url="https://api.login.yahoo.com") as router:
+        router.get("/openid/v1/userinfo").mock(return_value=Response(
+            200, json={"sub": "yahoo-user-abc", "email": "u@example.com", "email_verified": True}
+        ))
+        identity = await fetch_identity("access-token")
+    assert identity == ("yahoo-user-abc", "u@example.com", True)
+
+
+@pytest.mark.asyncio
+async def test_fetch_identity_handles_missing_email_fields():
     with respx.mock(base_url="https://api.login.yahoo.com") as router:
         router.get("/openid/v1/userinfo").mock(return_value=Response(
             200, json={"sub": "yahoo-user-abc"}
         ))
-        sub = await fetch_subject("access-token")
-    assert sub == "yahoo-user-abc"
+        identity = await fetch_identity("access-token")
+    assert identity == ("yahoo-user-abc", None, False)
 
 
 from sqlalchemy import select

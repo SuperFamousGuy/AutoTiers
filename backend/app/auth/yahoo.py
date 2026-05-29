@@ -1,9 +1,9 @@
 """Yahoo OAuth2 client.
 
-Used solely for identity: we exchange the auth code for a token, fetch the
-subject claim, and discard the token. We deliberately do not request email
-scope or store any Yahoo tokens — see the design doc's "Email-collision
-avoidance" section.
+Used for identity: we exchange the auth code for a token, fetch the
+subject + email + email_verified claims, and discard the token. We trust
+`email_verified` for auto-linking on first sign-in — see the design doc's
+"Email-collision policy" section.
 """
 from urllib.parse import urlencode
 import httpx
@@ -20,7 +20,7 @@ def build_authorize_url(state: str) -> str:
         "client_id": settings.yahoo_client_id,
         "redirect_uri": settings.yahoo_redirect_uri,
         "response_type": "code",
-        "scope": "openid",
+        "scope": "openid email",
         "state": state,
     }
     return f"{AUTHORIZE_URL}?{urlencode(params)}"
@@ -46,12 +46,17 @@ async def exchange_code(code: str) -> str:
         return resp.json()["access_token"]
 
 
-async def fetch_subject(access_token: str) -> str:
-    """Fetch the openid `sub` claim from Yahoo's userinfo endpoint."""
+async def fetch_identity(access_token: str) -> tuple[str, str | None, bool]:
+    """Fetch the openid `sub`, `email`, and `email_verified` claims from Yahoo's userinfo endpoint.
+
+    Returns (subject, email, email_verified). email is None and email_verified is False
+    if the provider declines to return them.
+    """
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.get(
             USERINFO_URL,
             headers={"Authorization": f"Bearer {access_token}"},
         )
         resp.raise_for_status()
-        return resp.json()["sub"]
+        data = resp.json()
+        return data["sub"], data.get("email"), bool(data.get("email_verified", False))
