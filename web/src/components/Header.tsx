@@ -11,9 +11,10 @@ import type { Rule } from "@/api/types";
 
 interface HamburgerProps {
   currentState: { settings: SettingsState; rules: Rule[] } | null;
+  onOpenLinkedAccounts?: () => void;
 }
 
-function HamburgerMenu({ currentState }: HamburgerProps) {
+function HamburgerMenu({ currentState, onOpenLinkedAccounts }: HamburgerProps) {
   const { user, logout } = useAuth();
   const [authOpen, setAuthOpen] = useState(false);
 
@@ -30,6 +31,9 @@ function HamburgerMenu({ currentState }: HamburgerProps) {
             <>
               <DropdownMenuItem disabled>{user.email ?? "Yahoo account"}</DropdownMenuItem>
               <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => onOpenLinkedAccounts?.()}>
+                Linked accounts
+              </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => logout()}>Log out</DropdownMenuItem>
             </>
           ) : (
@@ -48,9 +52,12 @@ interface HeaderProps {
   onGenerate: () => void;
   currentState: { settings: SettingsState; rules: Rule[] } | null;
   profilePicker?: React.ReactNode;
+  onOpenLinkedAccounts?: () => void;
 }
 
-export function Header({ generateDisabled, generateIsPending, onGenerate, currentState, profilePicker }: HeaderProps) {
+export function Header({
+  generateDisabled, generateIsPending, onGenerate, currentState, profilePicker, onOpenLinkedAccounts,
+}: HeaderProps) {
   return (
     <header className="flex items-center justify-between border-b bg-card px-6 py-4">
       <div className="flex items-baseline gap-6">
@@ -64,7 +71,7 @@ export function Header({ generateDisabled, generateIsPending, onGenerate, curren
           isPending={generateIsPending}
           onClick={onGenerate}
         />
-        <HamburgerMenu currentState={currentState} />
+        <HamburgerMenu currentState={currentState} onOpenLinkedAccounts={onOpenLinkedAccounts} />
       </div>
     </header>
   );
