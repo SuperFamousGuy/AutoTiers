@@ -5,6 +5,7 @@ import { RulesPanel } from "@/components/RulesPanel";
 import { TiersPanel } from "@/components/TiersPanel";
 import { ProfilePicker } from "@/components/ProfilePicker";
 import { ManageProfilesDialog } from "@/components/ManageProfilesDialog";
+import { LinkedAccountsDialog } from "@/components/LinkedAccountsDialog";
 import { Button } from "@/components/ui/button";
 import { useRules, useGenerateMutation, downloadCsv } from "@/api/hooks";
 import { useAuth } from "@/contexts/AuthContext";
@@ -25,12 +26,14 @@ const DEFAULT_SETTINGS: SettingsState = {
 };
 
 export default function App() {
-  const { user, profiles, setProfiles } = useAuth();
+  const { user, profiles, setProfiles, refresh } = useAuth();
   const [settings, setSettings] = useState<SettingsState>(DEFAULT_SETTINGS);
   const [rules, setRules] = useState<Rule[]>([]);
   const [seeded, setSeeded] = useState(false);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const [manageOpen, setManageOpen] = useState(false);
+  const [linkedOpen, setLinkedOpen] = useState(false);
+  const [linkingError, setLinkingError] = useState<string | null>(null);
   const [lastSavedSnapshot, setLastSavedSnapshot] = useState<{
     settings_json: Record<string, unknown>;
     rules_json: Array<Record<string, unknown>>;
@@ -46,6 +49,18 @@ export default function App() {
       setSeeded(true);
     }
   }, [fetchedRules, seeded]);
+
+  // On first mount, surface OAuth linking failures the backend signalled via query param.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("linking_error") === "already_linked_elsewhere") {
+      setLinkingError("This Google or Yahoo account is already linked to a different AutoTiers account.");
+      setLinkedOpen(true);
+      params.delete("linking_error");
+      const rest = params.toString();
+      window.history.replaceState({}, "", window.location.pathname + (rest ? `?${rest}` : ""));
+    }
+  }, []);
 
   // On user change, set activeProfileId from the user's last-active.
   useEffect(() => {
@@ -170,6 +185,7 @@ export default function App() {
         generateIsPending={generate.isPending}
         onGenerate={() => generate.mutate(buildRequest())}
         currentState={{ settings, rules }}
+        onOpenLinkedAccounts={user ? () => { setLinkingError(null); setLinkedOpen(true); } : undefined}
         profilePicker={user ? (
           <div className="flex items-center gap-2">
             <ProfilePicker
@@ -204,6 +220,15 @@ export default function App() {
         onRename={handleRenameProfile}
         onDelete={handleDeleteProfile}
       />
+      {user && (
+        <LinkedAccountsDialog
+          open={linkedOpen}
+          onOpenChange={setLinkedOpen}
+          user={user}
+          onRefresh={refresh}
+          initialError={linkingError}
+        />
+      )}
     </div>
   );
 }

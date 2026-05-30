@@ -57,3 +57,23 @@ export function yahooAuthorizeUrl(): string {
 export function googleAuthorizeUrl(): string {
   return `${API_URL}/api/auth/google/authorize`;
 }
+
+async function unlinkProvider(path: string): Promise<void> {
+  // Raw fetch because 204 No Content; check resp.ok so non-2xx surfaces.
+  const resp = await fetch(`${API_URL}${path}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new ApiError(resp.status, body || resp.statusText);
+  }
+}
+
+export function unlinkGoogle(): Promise<void> {
+  return unlinkProvider("/api/auth/google/link");
+}
+
+export function unlinkYahoo(): Promise<void> {
+  return unlinkProvider("/api/auth/yahoo/link");
+}

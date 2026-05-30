@@ -3,7 +3,7 @@ import { renderHook, waitFor, act } from "@testing-library/react";
 import { ReactNode } from "react";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 
-const me = { user: { id: "u1", email: "a@b.com", yahoo_subject: null, last_active_profile_id: null }, profiles: [] };
+const me = { user: { id: "u1", email: "a@b.com", yahoo_subject: null, google_subject: null, last_active_profile_id: null }, profiles: [] };
 
 function wrapper({ children }: { children: ReactNode }) {
   return <AuthProvider>{children}</AuthProvider>;

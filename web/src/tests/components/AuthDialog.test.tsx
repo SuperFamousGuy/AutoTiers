@@ -5,7 +5,7 @@ import { AuthDialog } from "@/components/AuthDialog";
 import { AuthProvider } from "@/contexts/AuthContext";
 
 const me = {
-  user: { id: "u1", email: "a@b.com", yahoo_subject: null, last_active_profile_id: null },
+  user: { id: "u1", email: "a@b.com", yahoo_subject: null, google_subject: null, last_active_profile_id: null },
   profiles: [],
 };
 

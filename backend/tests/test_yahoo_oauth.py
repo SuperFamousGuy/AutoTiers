@@ -1,7 +1,7 @@
 import pytest
 import respx
 from httpx import Response
-from app.auth.yahoo import build_authorize_url, exchange_code, fetch_subject
+from app.auth.yahoo import build_authorize_url, exchange_code, fetch_identity
 
 
 def test_build_authorize_url_includes_required_params():
@@ -10,6 +10,7 @@ def test_build_authorize_url_includes_required_params():
     assert "redirect_uri=" in url
     assert "response_type=code" in url
     assert "state=random123" in url
+    assert "scope=openid+email" in url or "scope=openid%20email" in url
 
 
 @pytest.mark.asyncio
@@ -31,13 +32,23 @@ async def test_exchange_code_raises_on_error():
 
 
 @pytest.mark.asyncio
-async def test_fetch_subject_returns_sub_claim():
+async def test_fetch_identity_returns_subject_email_and_verified():
+    with respx.mock(base_url="https://api.login.yahoo.com") as router:
+        router.get("/openid/v1/userinfo").mock(return_value=Response(
+            200, json={"sub": "yahoo-user-abc", "email": "u@example.com", "email_verified": True}
+        ))
+        identity = await fetch_identity("access-token")
+    assert identity == ("yahoo-user-abc", "u@example.com", True)
+
+
+@pytest.mark.asyncio
+async def test_fetch_identity_handles_missing_email_fields():
     with respx.mock(base_url="https://api.login.yahoo.com") as router:
         router.get("/openid/v1/userinfo").mock(return_value=Response(
             200, json={"sub": "yahoo-user-abc"}
         ))
-        sub = await fetch_subject("access-token")
-    assert sub == "yahoo-user-abc"
+        identity = await fetch_identity("access-token")
+    assert identity == ("yahoo-user-abc", None, False)
 
 
 from sqlalchemy import select
@@ -82,7 +93,9 @@ async def test_callback_creates_new_user_on_first_login(async_client, test_db):
             return_value=Response(200, json={"access_token": "tok"}),
         )
         router.get("https://api.login.yahoo.com/openid/v1/userinfo").mock(
-            return_value=Response(200, json={"sub": "yahoo-user-xyz"}),
+            return_value=Response(200, json={
+                "sub": "yahoo-user-xyz", "email": "newuser@example.com", "email_verified": True,
+            }),
         )
         r = await async_client.get(
             f"/api/auth/yahoo/callback?code=the-code&state={state}",
@@ -92,7 +105,7 @@ async def test_callback_creates_new_user_on_first_login(async_client, test_db):
     users = (await test_db.scalars(select(User))).all()
     assert len(users) == 1
     assert users[0].yahoo_subject == "yahoo-user-xyz"
-    assert users[0].email is None
+    assert users[0].email == "newuser@example.com"
     assert "autotiers_session" in r.cookies
 
 
@@ -118,3 +131,194 @@ async def test_callback_finds_existing_user_on_repeat_login(async_client, test_d
     assert r.status_code == 302
     users = (await test_db.scalars(select(User))).all()
     assert len(users) == 1  # no duplicate
+
+
+@pytest.mark.asyncio
+async def test_callback_auto_links_when_email_matches_existing_user(async_client, test_db):
+    """Existing email/password user; Yahoo returns same verified email -> attach subject, sign in."""
+    from app.auth.hashing import hash_password
+    existing = User(email="u@example.com", password_hash=hash_password("password-long-enough"))
+    test_db.add(existing)
+    await test_db.commit()
+    await test_db.refresh(existing)
+
+    state = "abc123"
+    async_client.cookies.set("autotiers_oauth_state", state)
+    with respx.mock() as router:
+        router.post("https://api.login.yahoo.com/oauth2/get_token").mock(
+            return_value=Response(200, json={"access_token": "tok"}),
+        )
+        router.get("https://api.login.yahoo.com/openid/v1/userinfo").mock(
+            return_value=Response(200, json={
+                "sub": "yahoo-new-sub", "email": "u@example.com", "email_verified": True,
+            }),
+        )
+        r = await async_client.get(
+            f"/api/auth/yahoo/callback?code=the-code&state={state}",
+            follow_redirects=False,
+        )
+    assert r.status_code == 302
+    assert "autotiers_session" in r.cookies
+    users = (await test_db.scalars(select(User))).all()
+    assert len(users) == 1  # no duplicate
+    await test_db.refresh(users[0])
+    assert users[0].yahoo_subject == "yahoo-new-sub"
+
+
+@pytest.mark.asyncio
+async def test_callback_does_not_auto_link_when_email_not_verified(async_client, test_db):
+    """Email match but email_verified=False -> create new user, do not attach."""
+    from app.auth.hashing import hash_password
+    existing = User(email="u@example.com", password_hash=hash_password("password-long-enough"))
+    test_db.add(existing)
+    await test_db.commit()
+
+    state = "abc123"
+    async_client.cookies.set("autotiers_oauth_state", state)
+    with respx.mock() as router:
+        router.post("https://api.login.yahoo.com/oauth2/get_token").mock(
+            return_value=Response(200, json={"access_token": "tok"}),
+        )
+        router.get("https://api.login.yahoo.com/openid/v1/userinfo").mock(
+            return_value=Response(200, json={
+                "sub": "yahoo-new-sub", "email": "u@example.com", "email_verified": False,
+            }),
+        )
+        r = await async_client.get(
+            f"/api/auth/yahoo/callback?code=the-code&state={state}",
+            follow_redirects=False,
+        )
+    assert r.status_code == 302
+    users = (await test_db.scalars(select(User))).all()
+    assert len(users) == 2  # new user created — no auto-link
+    original = next(u for u in users if u.email == "u@example.com")
+    new_user = next(u for u in users if u.email is None)
+    assert original.yahoo_subject is None  # existing user untouched
+    assert new_user.yahoo_subject == "yahoo-new-sub"
+
+
+async def _login_as(async_client, test_db, email="owner@example.com"):
+    """Helper: create an email/password user and obtain an auth cookie."""
+    from app.auth.hashing import hash_password
+    u = User(email=email, password_hash=hash_password("password-long-enough"))
+    test_db.add(u)
+    await test_db.commit()
+    await test_db.refresh(u)
+    r = await async_client.post(
+        "/api/auth/login",
+        json={"email": email, "password": "password-long-enough"},
+    )
+    assert r.status_code == 200
+    return u
+
+
+@pytest.mark.asyncio
+async def test_callback_links_subject_to_current_user_when_authenticated(async_client, test_db):
+    u = await _login_as(async_client, test_db)
+    state = "abc123"
+    async_client.cookies.set("autotiers_oauth_state", state)
+    with respx.mock() as router:
+        router.post("https://api.login.yahoo.com/oauth2/get_token").mock(
+            return_value=Response(200, json={"access_token": "tok"}),
+        )
+        router.get("https://api.login.yahoo.com/openid/v1/userinfo").mock(
+            return_value=Response(200, json={
+                "sub": "y-link-sub", "email": "owner@example.com", "email_verified": True,
+            }),
+        )
+        r = await async_client.get(
+            f"/api/auth/yahoo/callback?code=the-code&state={state}",
+            follow_redirects=False,
+        )
+    assert r.status_code == 302
+    assert "linking_error" not in r.headers["location"]
+    await test_db.refresh(u)
+    assert u.yahoo_subject == "y-link-sub"
+    # Only one user — no duplicate created.
+    users = (await test_db.scalars(select(User))).all()
+    assert len(users) == 1
+
+
+@pytest.mark.asyncio
+async def test_callback_links_no_op_when_already_linked_to_self(async_client, test_db):
+    u = await _login_as(async_client, test_db)
+    u.yahoo_subject = "y-link-sub"
+    await test_db.commit()
+    state = "abc123"
+    async_client.cookies.set("autotiers_oauth_state", state)
+    with respx.mock() as router:
+        router.post("https://api.login.yahoo.com/oauth2/get_token").mock(
+            return_value=Response(200, json={"access_token": "tok"}),
+        )
+        router.get("https://api.login.yahoo.com/openid/v1/userinfo").mock(
+            return_value=Response(200, json={
+                "sub": "y-link-sub", "email": "owner@example.com", "email_verified": True,
+            }),
+        )
+        r = await async_client.get(
+            f"/api/auth/yahoo/callback?code=the-code&state={state}",
+            follow_redirects=False,
+        )
+    assert r.status_code == 302
+    assert "linking_error" not in r.headers["location"]
+
+
+@pytest.mark.asyncio
+async def test_callback_redirects_with_linking_error_when_subject_on_other_user(async_client, test_db):
+    # Other user already owns the subject.
+    other = User(yahoo_subject="y-link-sub")
+    test_db.add(other)
+    await test_db.commit()
+    # Logged-in user tries to claim it.
+    u = await _login_as(async_client, test_db)
+    state = "abc123"
+    async_client.cookies.set("autotiers_oauth_state", state)
+    with respx.mock() as router:
+        router.post("https://api.login.yahoo.com/oauth2/get_token").mock(
+            return_value=Response(200, json={"access_token": "tok"}),
+        )
+        router.get("https://api.login.yahoo.com/openid/v1/userinfo").mock(
+            return_value=Response(200, json={
+                "sub": "y-link-sub", "email": "owner@example.com", "email_verified": True,
+            }),
+        )
+        r = await async_client.get(
+            f"/api/auth/yahoo/callback?code=the-code&state={state}",
+            follow_redirects=False,
+        )
+    assert r.status_code == 302
+    assert "linking_error=already_linked_elsewhere" in r.headers["location"]
+    await test_db.refresh(u)
+    assert u.yahoo_subject is None  # unchanged
+
+
+@pytest.mark.asyncio
+async def test_callback_backfills_email_when_linking_and_user_has_none(async_client, test_db):
+    """Google-only user (no email) links Yahoo -> email gets backfilled if verified."""
+    u = User(google_subject="g-existing")
+    test_db.add(u)
+    await test_db.commit()
+    await test_db.refresh(u)
+    # Manually issue a JWT for this user — they have no password to log in with.
+    from app.auth.jwt import encode_jwt, JWT_COOKIE_NAME
+    async_client.cookies.set(JWT_COOKIE_NAME, encode_jwt(u.id))
+
+    state = "abc123"
+    async_client.cookies.set("autotiers_oauth_state", state)
+    with respx.mock() as router:
+        router.post("https://api.login.yahoo.com/oauth2/get_token").mock(
+            return_value=Response(200, json={"access_token": "tok"}),
+        )
+        router.get("https://api.login.yahoo.com/openid/v1/userinfo").mock(
+            return_value=Response(200, json={
+                "sub": "y-new", "email": "backfilled@example.com", "email_verified": True,
+            }),
+        )
+        r = await async_client.get(
+            f"/api/auth/yahoo/callback?code=the-code&state={state}",
+            follow_redirects=False,
+        )
+    assert r.status_code == 302
+    await test_db.refresh(u)
+    assert u.yahoo_subject == "y-new"
+    assert u.email == "backfilled@example.com"
