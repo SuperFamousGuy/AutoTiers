@@ -1,9 +1,13 @@
 import uuid
 from datetime import datetime, timezone
+from typing import Optional, TYPE_CHECKING
 from sqlalchemy import JSON, String, DateTime, ForeignKey, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB
 from app.database import Base
+
+if TYPE_CHECKING:
+    from app.models.linked_league import LinkedLeague
 
 # JSONB on Postgres, JSON on SQLite (used in tests). SQLAlchemy doesn't
 # auto-fall-back JSONB to JSON, so we declare the variant explicitly.
@@ -33,4 +37,9 @@ class Profile(Base):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
+    )
+    linked_league: Mapped[Optional["LinkedLeague"]] = relationship(
+        "LinkedLeague",
+        cascade="all, delete-orphan",
+        uselist=False,
     )
