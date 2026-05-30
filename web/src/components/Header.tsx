@@ -29,7 +29,9 @@ function HamburgerMenu({ currentState, onOpenLinkedAccounts }: HamburgerProps) {
         <DropdownMenuContent>
           {user ? (
             <>
-              <DropdownMenuItem disabled>{user.email ?? "Yahoo account"}</DropdownMenuItem>
+              <DropdownMenuItem disabled>
+                {user.email ?? (user.google_subject ? "Google account" : "Yahoo account")}
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => onOpenLinkedAccounts?.()}>
                 Linked accounts
