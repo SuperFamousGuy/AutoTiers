@@ -67,6 +67,18 @@ async def test_fetch_private_league_without_cookies_raises_auth_required():
 
 
 @pytest.mark.asyncio
+async def test_fetch_redirect_treated_as_auth_required():
+    """ESPN redirects to a login page (3xx) for private leagues. Treat that the
+    same as 401/403 so the user gets the 'paste your cookies' hint."""
+    with respx.mock() as router:
+        router.get(_espn_base(2026, "12345")).mock(
+            return_value=Response(302, headers={"location": "https://www.espn.com/login"}),
+        )
+        with pytest.raises(EspnAuthRequired):
+            await fetch_league("12345", 2026, swid=None, espn_s2=None)
+
+
+@pytest.mark.asyncio
 async def test_fetch_league_returns_adp_when_draft_completed():
     with respx.mock() as router:
         router.get(_espn_base(2026, "12345")).mock(
