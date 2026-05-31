@@ -46,7 +46,6 @@ export function LinkedLeagueSection({ profile, onChanged }: Props) {
 
   return (
     <section className="space-y-3 border-t pt-4 mt-4">
-      <h3 className="text-sm font-medium">Fantasy league for "{profile.name}"</h3>
       {error && <p className="text-xs text-red-600">{error}</p>}
       {linked ? (
         <div className="flex items-center justify-between">
