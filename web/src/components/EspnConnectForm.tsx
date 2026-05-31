@@ -2,16 +2,12 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { connectEspn, type LinkedLeagueResponse } from "@/api/linkedLeague";
 import { ApiError } from "@/api/client";
+import { currentSeason } from "@/lib/season";
 
 interface Props {
   profileId: string;
   onLinked: (result: LinkedLeagueResponse) => void;
   onCancel: () => void;
-}
-
-function currentSeason(): number {
-  const now = new Date();
-  return now.getMonth() < 2 ? now.getFullYear() - 1 : now.getFullYear();
 }
 
 export function EspnConnectForm({ profileId, onLinked, onCancel }: Props) {
@@ -63,9 +59,56 @@ export function EspnConnectForm({ profileId, onLinked, onCancel }: Props) {
       </label>
       {isPrivate && (
         <>
-          <p className="text-xs text-muted-foreground">
-            Find these on fantasy.espn.com → DevTools (F12) → Application → Cookies.
-          </p>
+          <details className="rounded border bg-muted/40 p-2 text-xs open:pb-3">
+            <summary className="cursor-pointer select-none font-medium">
+              How to find SWID and espn_s2
+            </summary>
+            <ol className="mt-2 list-decimal space-y-2 pl-4 text-muted-foreground">
+              <li>
+                Sign in to{" "}
+                <a
+                  href="https://fantasy.espn.com"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline"
+                >
+                  fantasy.espn.com
+                </a>{" "}
+                in another browser tab.
+              </li>
+              <li>
+                Open DevTools — <kbd className="rounded border px-1">F12</kbd> on
+                Windows/Linux,{" "}
+                <kbd className="rounded border px-1">⌥ ⌘ I</kbd> on macOS — and
+                switch to the <strong>Application</strong> tab (Chrome / Edge)
+                or <strong>Storage</strong> tab (Firefox).
+              </li>
+              <li>
+                In the left sidebar, expand <strong>Cookies</strong> and click{" "}
+                <code className="rounded bg-foreground/10 px-1">
+                  https://fantasy.espn.com
+                </code>
+                .
+              </li>
+              <li>
+                Copy the <strong>Value</strong> column for the row named{" "}
+                <code className="rounded bg-foreground/10 px-1">SWID</code> and
+                paste it below. Repeat for{" "}
+                <code className="rounded bg-foreground/10 px-1">espn_s2</code>.
+              </li>
+            </ol>
+            <p className="mt-2">
+              Prefer video?{" "}
+              <a
+                href="https://www.youtube.com/results?search_query=espn+fantasy+swid+espn_s2+cookies+devtools"
+                target="_blank"
+                rel="noreferrer"
+                className="underline"
+              >
+                Show me how (YouTube)
+              </a>
+            </p>
+          </details>
           <label className="block text-sm">
             <span>SWID</span>
             <input
@@ -74,6 +117,7 @@ export function EspnConnectForm({ profileId, onLinked, onCancel }: Props) {
               value={swid}
               onChange={(e) => setSwid(e.target.value)}
               aria-label="SWID"
+              placeholder="{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}"
             />
           </label>
           <label className="block text-sm">
@@ -84,6 +128,7 @@ export function EspnConnectForm({ profileId, onLinked, onCancel }: Props) {
               value={espnS2}
               onChange={(e) => setEspnS2(e.target.value)}
               aria-label="espn_s2"
+              placeholder="long opaque string"
             />
           </label>
         </>
