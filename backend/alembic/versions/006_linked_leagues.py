@@ -1,7 +1,7 @@
 """linked_leagues table
 
-Revision ID: 006_linked_leagues
-Revises: 005_user_google_subject
+Revision ID: 006
+Revises: 005
 Create Date: 2026-05-29
 """
 from alembic import op
@@ -9,8 +9,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 
 
-revision = "006_linked_leagues"
-down_revision = "005_user_google_subject"
+revision = "006"
+down_revision = "005"
 branch_labels = None
 depends_on = None
 
