@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { LinkedAccountsDialog } from "@/components/LinkedAccountsDialog";
-import type { User } from "@/api/types";
+import type { User, Profile } from "@/api/types";
 
 vi.mock("@/api/auth", async () => {
   const actual = await vi.importActual<typeof import("@/api/auth")>("@/api/auth");
@@ -14,6 +14,14 @@ vi.mock("@/api/auth", async () => {
     yahooAuthorizeUrl: () => "http://localhost:8000/api/auth/yahoo/authorize",
   };
 });
+
+vi.mock("@/api/linkedLeague", () => ({
+  listSleeperLeagues: vi.fn(),
+  connectSleeper: vi.fn(),
+  connectEspn: vi.fn(),
+  refreshLink: vi.fn(),
+  disconnectLink: vi.fn(),
+}));
 
 const baseUser: User = {
   id: "u1",
@@ -106,5 +114,123 @@ describe("LinkedAccountsDialog", () => {
       />,
     );
     expect(screen.getByText(/already linked/i)).toBeInTheDocument();
+  });
+
+  const activeProfile: Profile = {
+    id: "p1",
+    name: "My",
+    settings_json: {},
+    rules_json: [],
+    linked_league: null,
+  };
+
+  it("shows 'Select a profile' fallback when no active profile and no league section", () => {
+    render(
+      <LinkedAccountsDialog
+        open={true}
+        onOpenChange={noop}
+        user={baseUser}
+        onRefresh={noop}
+        initialError={null}
+      />,
+    );
+    expect(screen.getByText(/select a profile/i)).toBeInTheDocument();
+  });
+
+  it("clicking 'Connect Sleeper' hides Google/Yahoo and shows the Sleeper sub-form", async () => {
+    render(
+      <LinkedAccountsDialog
+        open={true}
+        onOpenChange={noop}
+        user={baseUser}
+        onRefresh={vi.fn().mockResolvedValue(undefined)}
+        initialError={null}
+        activeProfile={activeProfile}
+      />,
+    );
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /connect sleeper/i }));
+    // Sub-form input is the only signal it's mounted.
+    expect(await screen.findByLabelText(/sleeper username/i)).toBeInTheDocument();
+    // The Google/Yahoo provider rows are gone while the form is up.
+    expect(screen.queryByText(/^Google$/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Yahoo$/)).not.toBeInTheDocument();
+  });
+
+  it("clicking 'Connect ESPN' hides Google/Yahoo and shows the ESPN sub-form", async () => {
+    render(
+      <LinkedAccountsDialog
+        open={true}
+        onOpenChange={noop}
+        user={baseUser}
+        onRefresh={vi.fn().mockResolvedValue(undefined)}
+        initialError={null}
+        activeProfile={activeProfile}
+      />,
+    );
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /connect espn/i }));
+    expect(await screen.findByLabelText(/league id/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^Google$/)).not.toBeInTheDocument();
+  });
+
+  it("Cancel from the Sleeper sub-form returns to the provider list", async () => {
+    render(
+      <LinkedAccountsDialog
+        open={true}
+        onOpenChange={noop}
+        user={baseUser}
+        onRefresh={vi.fn().mockResolvedValue(undefined)}
+        initialError={null}
+        activeProfile={activeProfile}
+      />,
+    );
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /connect sleeper/i }));
+    await u.click(screen.getByRole("button", { name: /^cancel$/i }));
+    // Provider list is back.
+    expect(await screen.findByText(/^Google$/)).toBeInTheDocument();
+  });
+
+  it("closing the dialog resets active sub-form state", async () => {
+    const onOpenChange = vi.fn();
+    const { rerender } = render(
+      <LinkedAccountsDialog
+        open={true}
+        onOpenChange={onOpenChange}
+        user={baseUser}
+        onRefresh={vi.fn().mockResolvedValue(undefined)}
+        initialError={null}
+        activeProfile={activeProfile}
+      />,
+    );
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /connect espn/i }));
+    expect(await screen.findByLabelText(/league id/i)).toBeInTheDocument();
+
+    // Close + reopen the dialog
+    rerender(
+      <LinkedAccountsDialog
+        open={false}
+        onOpenChange={onOpenChange}
+        user={baseUser}
+        onRefresh={vi.fn().mockResolvedValue(undefined)}
+        initialError={null}
+        activeProfile={activeProfile}
+      />,
+    );
+    rerender(
+      <LinkedAccountsDialog
+        open={true}
+        onOpenChange={onOpenChange}
+        user={baseUser}
+        onRefresh={vi.fn().mockResolvedValue(undefined)}
+        initialError={null}
+        activeProfile={activeProfile}
+      />,
+    );
+    // Provider list is showing again, not the ESPN form.
+    expect(await screen.findByText(/^Google$/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/league id/i)).not.toBeInTheDocument();
   });
 });
