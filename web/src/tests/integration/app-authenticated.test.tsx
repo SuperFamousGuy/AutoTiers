@@ -219,34 +219,50 @@ describe("App (authenticated integration)", () => {
     await waitFor(() => expect(deletedId).toBe("p1"));
   });
 
-  it("Reset to saved button appears when state diverges from the active profile", async () => {
+  it("Undo button appears after a save lands and rewinds to the prior save point", async () => {
     mockAuthenticated();
-    // We need a hydrated profile so lastSavedSnapshot is populated.
+    // Track the most recent payload sent to the server.
+    let lastPatchPayload: { rules_json?: Array<{ name: string; enabled: boolean; weight: number }> } = {};
+    server.use(
+      http.patch(`${API_URL}/api/profiles/:id`, async ({ request }) => {
+        lastPatchPayload = (await request.json()) as typeof lastPatchPayload;
+        return HttpResponse.json({ ...PROFILE_ONE, ...lastPatchPayload });
+      }),
+    );
+
     renderApp();
     const user = userEvent.setup();
     await waitFor(() => expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument());
-
-    // Hydration is async; wait for the rule to reflect the profile state.
-    // Then toggle a rule to make local state dirty.
     await waitFor(() => expect(screen.getByText("Target Share Premium")).toBeInTheDocument());
 
-    // The Target Share Premium rule is in the profile with enabled: false.
-    // Toggle it on locally — that makes the state dirty.
-    const switches = screen.getAllByRole("switch");
-    const initialState = switches.map((s) => s.getAttribute("data-state"));
-    // Click first switch to mutate state
-    await user.click(switches[0]);
+    // Capture the initial rendered switch state.
+    const initialState = screen.getAllByRole("switch").map((s) => s.getAttribute("data-state"));
 
-    // Reset button should appear
+    // No save has landed yet → only 1 entry in history → Undo not shown.
+    expect(screen.queryByRole("button", { name: /^undo$/i })).not.toBeInTheDocument();
+
+    // Toggle the first switch and wait for the autosave PATCH to land.
+    await user.click(screen.getAllByRole("switch")[0]);
+    await waitFor(
+      () => expect(lastPatchPayload.rules_json).toBeDefined(),
+      { timeout: 3000 },
+    );
+
+    // Now history has 2 entries → Undo button appears.
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /reset to saved/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^undo$/i })).toBeInTheDocument();
     });
 
-    // Click Reset to saved — state should revert
-    await user.click(screen.getByRole("button", { name: /reset to saved/i }));
+    // Click Undo — rewinds to the initial save point.
+    await user.click(screen.getByRole("button", { name: /^undo$/i }));
     await waitFor(() => {
       const restored = screen.getAllByRole("switch").map((s) => s.getAttribute("data-state"));
       expect(restored).toEqual(initialState);
+    });
+
+    // After Undo, history is back to 1 entry → button disappears.
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /^undo$/i })).not.toBeInTheDocument();
     });
   });
 
@@ -338,9 +354,9 @@ describe("App (authenticated integration)", () => {
     await user.click(switches[0]);
     const editedState = screen.getAllByRole("switch").map((s) => s.getAttribute("data-state"));
 
-    // Wait for autosave (800ms debounce) — Reset-to-saved disappears once saved.
+    // Wait for autosave (800ms debounce) — Undo only appears after the save lands.
     await waitFor(
-      () => expect(screen.queryByRole("button", { name: /reset to saved/i })).not.toBeInTheDocument(),
+      () => expect(screen.getByRole("button", { name: /^undo$/i })).toBeInTheDocument(),
       { timeout: 3000 },
     );
 
