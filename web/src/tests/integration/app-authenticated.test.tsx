@@ -260,6 +260,42 @@ describe("App (authenticated integration)", () => {
     expect(await screen.findByText(/^linked accounts$/i)).toBeInTheDocument();
   });
 
+  it("includes keepers and league_adp in the generate request when active profile is linked", async () => {
+    const linkedProfile = {
+      ...PROFILE_ONE,
+      linked_league: {
+        profile_id: "p1", provider: "sleeper" as const, league_id: "L1",
+        league_metadata_json: { name: "PPR Champs", season: 2026 },
+        keepers_json: [
+          { player_name: "Justin Jefferson", position: "WR", team: "MIN" },
+        ],
+        adp_json: { "Justin Jefferson": 1.0 },
+        last_synced_at: "2026-01-01",
+      },
+    };
+    mockAuthenticated([linkedProfile]);
+
+    let generateBody: Record<string, unknown> = {};
+    server.use(
+      http.post(`${API_URL}/api/generate`, async ({ request }) => {
+        generateBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ players: [], total: 0, data_as_of: null });
+      }),
+    );
+
+    renderApp();
+    await waitFor(() => expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument());
+    await screen.findByText("Target Share Premium");
+
+    const generateBtn = screen.getByRole("button", { name: /generate/i });
+    await userEvent.setup().click(generateBtn);
+
+    await waitFor(() => {
+      expect(generateBody.keepers).toEqual(["Justin Jefferson"]);
+      expect(generateBody.league_adp).toEqual({ "Justin Jefferson": 1.0 });
+    });
+  });
+
   it("auto-opens Linked accounts dialog with error when ?linking_error is present", async () => {
     mockAuthenticated();
     window.history.replaceState({}, "", "/?linking_error=already_linked_elsewhere");

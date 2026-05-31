@@ -41,6 +41,8 @@ export interface GenerateRequest {
   weight_consensus: number;
   draft_rounds: number;
   rules: Rule[];
+  keepers?: string[];
+  league_adp?: Record<string, number>;
 }
 
 export interface RuleApplication {

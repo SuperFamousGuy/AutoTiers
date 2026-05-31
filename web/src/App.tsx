@@ -161,20 +161,26 @@ export default function App() {
     }));
   }, [lastSavedSnapshot, fetchedRules]);
 
-  const buildRequest = (): GenerateRequest => ({
-    scoring_format: settings.scoring_format,
-    league_type: "standard",
-    league_size: settings.league_size,
-    qb_td_points: settings.qb_td_points,
-    bonus_100yd_rushing: settings.bonus_100yd_rushing,
-    bonus_100yd_receiving: settings.bonus_100yd_receiving,
-    bonus_first_downs: settings.bonus_first_downs,
-    weight_prior_year: settings.weights.prior / 100,
-    weight_espn: 0,
-    weight_consensus: settings.weights.consensus / 100,
-    draft_rounds: settings.draft_rounds,
-    rules,
-  });
+  const buildRequest = (): GenerateRequest => {
+    const active = profiles.find((p) => p.id === activeProfileId);
+    const linked = active?.linked_league ?? null;
+    return {
+      scoring_format: settings.scoring_format,
+      league_type: "standard",
+      league_size: settings.league_size,
+      qb_td_points: settings.qb_td_points,
+      bonus_100yd_rushing: settings.bonus_100yd_rushing,
+      bonus_100yd_receiving: settings.bonus_100yd_receiving,
+      bonus_first_downs: settings.bonus_first_downs,
+      weight_prior_year: settings.weights.prior / 100,
+      weight_espn: 0,
+      weight_consensus: settings.weights.consensus / 100,
+      draft_rounds: settings.draft_rounds,
+      rules,
+      keepers: linked?.keepers_json.map((k) => k.player_name) ?? undefined,
+      league_adp: linked?.adp_json ?? undefined,
+    };
+  };
 
   const canGenerate = weightsAreValid(settings.weights) && rules.length > 0;
 
@@ -205,12 +211,27 @@ export default function App() {
         ) : null}
       />
       <main className="flex-1 grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_minmax(0,1.5fr)] lg:grid-rows-1 overflow-hidden">
-        <SettingsPanel value={settings} onChange={setSettings} />
+        <SettingsPanel
+          value={settings}
+          onChange={setSettings}
+          linkedLeague={
+            (() => {
+              const active = profiles.find((p) => p.id === activeProfileId);
+              const ll = active?.linked_league;
+              return ll ? { provider: ll.provider, leagueName: ll.league_metadata_json.name } : null;
+            })()
+          }
+          profileId={activeProfileId}
+          onRefreshLink={refresh}
+        />
         <RulesPanel rules={rules} onChange={setRules} />
         <TiersPanel
           result={generate.data ?? null}
           isPending={generate.isPending}
           onDownloadCsv={() => downloadCsv(buildRequest())}
+          keepers={
+            profiles.find((p) => p.id === activeProfileId)?.linked_league?.keepers_json
+          }
         />
       </main>
       <ManageProfilesDialog
@@ -227,6 +248,7 @@ export default function App() {
           user={user}
           onRefresh={refresh}
           initialError={linkingError}
+          activeProfile={profiles.find((p) => p.id === activeProfileId) ?? null}
         />
       )}
     </div>
