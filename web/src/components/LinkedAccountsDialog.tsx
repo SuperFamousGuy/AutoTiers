@@ -92,7 +92,7 @@ export function LinkedAccountsDialog({ open, onOpenChange, user, onRefresh, init
           <LinkedLeagueSection profile={activeProfile} onChanged={onRefresh} />
         )}
         {!activeProfile && (
-          <p className="text-xs text-muted-foreground border-t pt-4 mt-4">
+          <p className="text-xs text-muted-foreground mt-3">
             Select a profile to link a fantasy league.
           </p>
         )}

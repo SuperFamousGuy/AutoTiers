@@ -46,7 +46,7 @@ export function LinkedLeagueSection({ profile, onChanged }: Props) {
   const linked = profile.linked_league;
 
   return (
-    <section className="space-y-3 border-t pt-4 mt-4">
+    <section className="space-y-3 mt-3">
       {error && <p className="text-xs text-red-600">{error}</p>}
       {linked ? (
         <div className="flex items-center justify-between">
@@ -76,7 +76,7 @@ export function LinkedLeagueSection({ profile, onChanged }: Props) {
           onCancel={() => setActiveForm(null)}
         />
       ) : (
-        <ul className="space-y-2 text-sm">
+        <ul className="space-y-3 text-sm">
           <li className="flex items-center justify-between">
             <span className="flex items-center gap-2"><SleeperIcon />Sleeper</span>
             <Button size="sm" aria-label="Connect Sleeper" onClick={() => setActiveForm("sleeper")}>Connect</Button>
