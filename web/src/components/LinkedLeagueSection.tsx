@@ -79,11 +79,11 @@ export function LinkedLeagueSection({ profile, onChanged }: Props) {
         <ul className="space-y-2 text-sm">
           <li className="flex items-center justify-between">
             <span className="flex items-center gap-2"><SleeperIcon />Sleeper</span>
-            <Button size="sm" onClick={() => setActiveForm("sleeper")}>Connect Sleeper</Button>
+            <Button size="sm" aria-label="Connect Sleeper" onClick={() => setActiveForm("sleeper")}>Connect</Button>
           </li>
           <li className="flex items-center justify-between">
             <span className="flex items-center gap-2"><EspnIcon />ESPN</span>
-            <Button size="sm" onClick={() => setActiveForm("espn")}>Connect ESPN</Button>
+            <Button size="sm" aria-label="Connect ESPN" onClick={() => setActiveForm("espn")}>Connect</Button>
           </li>
           <li className="flex items-center justify-between text-muted-foreground">
             <span className="flex items-center gap-2"><NflFantasyIcon />NFL Fantasy</span>
