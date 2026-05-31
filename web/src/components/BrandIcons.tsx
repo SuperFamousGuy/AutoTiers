@@ -1,22 +1,12 @@
 /**
  * Brand icons for the Linked Accounts dialog.
  *
- * Google / Yahoo come from react-icons (Font Awesome) — vector marks that scale
- * crisp at any size. ESPN, NFL, Sleeper, and CBS aren't in any major icon library,
- * so we self-host each provider's actual favicon under `web/public/icons/`. See
- * `web/public/icons/README.md` for the sources and how to refresh them.
+ * All six provider icons are self-hosted under `web/public/icons/`. No
+ * third-party icon library, no runtime third-party requests. See
+ * `web/public/icons/README.md` for sources and how to refresh them.
  */
-import { FaGoogle, FaYahoo } from "react-icons/fa";
 
 const SIZE = "h-4 w-4 shrink-0";
-
-export function GoogleIcon() {
-  return <FaGoogle aria-hidden className={`${SIZE} text-[#4285F4]`} />;
-}
-
-export function YahooIcon() {
-  return <FaYahoo aria-hidden className={`${SIZE} text-[#6001D2]`} />;
-}
 
 function LocalIcon({ src, alt }: { src: string; alt: string }) {
   return (
@@ -27,6 +17,14 @@ function LocalIcon({ src, alt }: { src: string; alt: string }) {
       loading="lazy"
     />
   );
+}
+
+export function GoogleIcon() {
+  return <LocalIcon src="/icons/google.png" alt="Google" />;
+}
+
+export function YahooIcon() {
+  return <LocalIcon src="/icons/yahoo.png" alt="Yahoo" />;
 }
 
 export function SleeperIcon() {
