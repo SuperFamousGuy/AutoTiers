@@ -71,6 +71,7 @@ export interface TieredPlayer {
   adp_standard: number | null;
   adp_ppr: number | null;
   adp_dynasty: number | null;
+  league_adp: number | null;
   vbd_score: number;
   position_replacement: number;
   flags: string[];
