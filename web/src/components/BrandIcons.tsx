@@ -1,10 +1,10 @@
 /**
  * Brand icons for the Linked Accounts dialog.
  *
- * Google / Yahoo come from react-icons (Font Awesome), since their vector marks
- * render cleaner at small sizes than rasters. ESPN, NFL, Sleeper, and CBS aren't
- * in any major icon library, so we use DuckDuckGo's icon proxy — it returns each
- * site's actual favicon as a PNG. Real official mark, no hand-drawn approximation.
+ * Google / Yahoo come from react-icons (Font Awesome) — vector marks that scale
+ * crisp at any size. ESPN, NFL, Sleeper, and CBS aren't in any major icon library,
+ * so we self-host each provider's actual favicon under `web/public/icons/`. See
+ * `web/public/icons/README.md` for the sources and how to refresh them.
  */
 import { FaGoogle, FaYahoo } from "react-icons/fa";
 
@@ -18,10 +18,10 @@ export function YahooIcon() {
   return <FaYahoo aria-hidden className={`${SIZE} text-[#6001D2]`} />;
 }
 
-function FaviconIcon({ domain, alt }: { domain: string; alt: string }) {
+function LocalIcon({ src, alt }: { src: string; alt: string }) {
   return (
     <img
-      src={`https://icons.duckduckgo.com/ip3/${domain}.ico`}
+      src={src}
       alt={alt}
       className={`${SIZE} rounded-sm object-contain`}
       loading="lazy"
@@ -30,17 +30,17 @@ function FaviconIcon({ domain, alt }: { domain: string; alt: string }) {
 }
 
 export function SleeperIcon() {
-  return <FaviconIcon domain="sleeper.com" alt="Sleeper" />;
+  return <LocalIcon src="/icons/sleeper.png" alt="Sleeper" />;
 }
 
 export function EspnIcon() {
-  return <FaviconIcon domain="espn.com" alt="ESPN" />;
+  return <LocalIcon src="/icons/espn.png" alt="ESPN" />;
 }
 
 export function NflFantasyIcon() {
-  return <FaviconIcon domain="fantasy.nfl.com" alt="NFL Fantasy" />;
+  return <LocalIcon src="/icons/nfl.png" alt="NFL Fantasy" />;
 }
 
 export function CbsIcon() {
-  return <FaviconIcon domain="cbssports.com" alt="CBS Sports" />;
+  return <LocalIcon src="/icons/cbs.png" alt="CBS Sports" />;
 }
