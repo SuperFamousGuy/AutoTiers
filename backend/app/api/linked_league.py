@@ -49,11 +49,25 @@ class LinkedLeagueResponse(BaseModel):
     profile: ProfileOut
 
 
+async def _check_ownership(
+    profile_id: uuid.UUID,
+    user: User,
+    db: AsyncSession,
+) -> None:
+    """Lightweight ownership check — no eager-loading. Raises 404 if not owned by caller."""
+    exists = await db.scalar(
+        select(Profile.id).where(Profile.id == profile_id, Profile.user_id == user.id)
+    )
+    if exists is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+
 async def _resolve_profile(
     profile_id: uuid.UUID,
     user: User,
     db: AsyncSession,
 ) -> Profile:
+    """Load profile + linked_league, raising 404 if not owned by caller."""
     p = await db.scalar(
         select(Profile)
         .where(Profile.id == profile_id, Profile.user_id == user.id)
@@ -71,6 +85,22 @@ def _apply_settings(profile: Profile, mapped: dict) -> None:
     profile.settings_json = current
 
 
+def _upsert_linked_league(profile: Profile, db: AsyncSession) -> LinkedLeague:
+    """Return the existing LinkedLeague row or create and register a new one."""
+    if profile.linked_league is None:
+        ll = LinkedLeague(profile_id=profile.id)
+        db.add(ll)
+        return ll
+    return profile.linked_league
+
+
+def _build_response(ll: LinkedLeague, profile: Profile) -> LinkedLeagueResponse:
+    return LinkedLeagueResponse(
+        linked_league=LinkedLeagueOut.model_validate(ll),
+        profile=ProfileOut.model_validate(profile),
+    )
+
+
 @router.get("/sleeper/leagues", response_model=list[SleeperLeagueSummaryOut])
 async def get_sleeper_leagues(
     profile_id: uuid.UUID,
@@ -79,7 +109,7 @@ async def get_sleeper_leagues(
     user: User = require_user,
     db: AsyncSession = Depends(get_db),
 ) -> list[SleeperLeagueSummaryOut]:
-    await _resolve_profile(profile_id, user, db)
+    await _check_ownership(profile_id, user, db)
     try:
         leagues = await list_user_leagues(username, season)
     except SleeperUserNotFound:
@@ -99,11 +129,7 @@ async def post_sleeper(
     mapped = sleeper_to_settings(data.raw_scoring, league_size=data.league_size)
     _apply_settings(profile, mapped)
 
-    if profile.linked_league is None:
-        ll = LinkedLeague(profile_id=profile.id)
-        db.add(ll)
-    else:
-        ll = profile.linked_league
+    ll = _upsert_linked_league(profile, db)
     ll.provider = "sleeper"
     ll.league_id = data.league_id
     ll.username_or_swid = body.username
@@ -115,10 +141,7 @@ async def post_sleeper(
 
     await db.commit()
     await db.refresh(profile, attribute_names=["linked_league"])
-    return LinkedLeagueResponse(
-        linked_league=LinkedLeagueOut.model_validate(ll),
-        profile=ProfileOut.model_validate(profile),
-    )
+    return _build_response(ll, profile)
 
 
 @router.post("/espn", response_model=LinkedLeagueResponse)
@@ -139,11 +162,7 @@ async def post_espn(
     mapped = espn_to_settings(data.raw_scoring, league_size=data.league_size)
     _apply_settings(profile, mapped)
 
-    if profile.linked_league is None:
-        ll = LinkedLeague(profile_id=profile.id)
-        db.add(ll)
-    else:
-        ll = profile.linked_league
+    ll = _upsert_linked_league(profile, db)
     ll.provider = "espn"
     ll.league_id = data.league_id
     ll.username_or_swid = body.swid or ""
@@ -155,10 +174,7 @@ async def post_espn(
 
     await db.commit()
     await db.refresh(profile, attribute_names=["linked_league"])
-    return LinkedLeagueResponse(
-        linked_league=LinkedLeagueOut.model_validate(ll),
-        profile=ProfileOut.model_validate(profile),
-    )
+    return _build_response(ll, profile)
 
 
 @router.post("/refresh", response_model=LinkedLeagueResponse)
@@ -172,6 +188,10 @@ async def refresh(
     if ll is None:
         raise HTTPException(status_code=400, detail="Profile has no linked league")
 
+    stored_season: int = ll.league_metadata_json.get("season") or 0
+    if not stored_season:
+        raise HTTPException(status_code=400, detail="Linked league is missing season metadata — please reconnect.")
+
     if ll.provider == "sleeper":
         data = await fetch_sleeper_league(ll.league_id)
         mapped = sleeper_to_settings(data.raw_scoring, league_size=data.league_size)
@@ -179,7 +199,7 @@ async def refresh(
         espn_s2 = decrypt(ll.credentials_encrypted) if ll.credentials_encrypted else None
         try:
             data = await fetch_espn_league(
-                ll.league_id, ll.league_metadata_json.get("season", 2026),
+                ll.league_id, stored_season,
                 ll.username_or_swid or None, espn_s2,
             )
         except EspnAuthRequired:
@@ -195,10 +215,7 @@ async def refresh(
     ll.last_synced_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(profile, attribute_names=["linked_league"])
-    return LinkedLeagueResponse(
-        linked_league=LinkedLeagueOut.model_validate(ll),
-        profile=ProfileOut.model_validate(profile),
-    )
+    return _build_response(ll, profile)
 
 
 @router.delete("", status_code=204)
@@ -209,6 +226,6 @@ async def delete_link(
 ) -> None:
     profile = await _resolve_profile(profile_id, user, db)
     if profile.linked_league is None:
-        return  # idempotent
+        return
     await db.delete(profile.linked_league)
     await db.commit()
