@@ -1,12 +1,12 @@
 /**
  * Brand icons for the Linked Accounts dialog.
  *
- * Google / Yahoo / CBS come from react-icons (Font Awesome + Simple Icons).
- * Sleeper, ESPN, and NFL aren't in those libraries, so they're styled letter marks
- * in each provider's brand color. All icons render at 16px and stay color-aware.
+ * Google / Yahoo come from react-icons (Font Awesome), since their vector marks
+ * render cleaner at small sizes than rasters. ESPN, NFL, Sleeper, and CBS aren't
+ * in any major icon library, so we use DuckDuckGo's icon proxy — it returns each
+ * site's actual favicon as a PNG. Real official mark, no hand-drawn approximation.
  */
 import { FaGoogle, FaYahoo } from "react-icons/fa";
-import { SiCbs } from "react-icons/si";
 
 const SIZE = "h-4 w-4 shrink-0";
 
@@ -18,41 +18,29 @@ export function YahooIcon() {
   return <FaYahoo aria-hidden className={`${SIZE} text-[#6001D2]`} />;
 }
 
-export function CbsIcon() {
-  return <SiCbs aria-hidden className={`${SIZE} text-foreground`} />;
-}
-
-function LetterMark({
-  label,
-  bg,
-  color = "white",
-}: {
-  label: string;
-  bg: string;
-  color?: string;
-}) {
+function FaviconIcon({ domain, alt }: { domain: string; alt: string }) {
   return (
-    <span
-      aria-hidden
-      className={`${SIZE} inline-flex items-center justify-center rounded-sm text-[8px] font-bold leading-none`}
-      style={{ backgroundColor: bg, color }}
-    >
-      {label}
-    </span>
+    <img
+      src={`https://icons.duckduckgo.com/ip3/${domain}.ico`}
+      alt={alt}
+      className={`${SIZE} rounded-sm object-contain`}
+      loading="lazy"
+    />
   );
 }
 
 export function SleeperIcon() {
-  // Sleeper's brand orange.
-  return <LetterMark label="S" bg="#FF7900" />;
+  return <FaviconIcon domain="sleeper.com" alt="Sleeper" />;
 }
 
 export function EspnIcon() {
-  // ESPN's signature red.
-  return <LetterMark label="E" bg="#D81F26" />;
+  return <FaviconIcon domain="espn.com" alt="ESPN" />;
 }
 
 export function NflFantasyIcon() {
-  // NFL navy.
-  return <LetterMark label="N" bg="#013369" />;
+  return <FaviconIcon domain="fantasy.nfl.com" alt="NFL Fantasy" />;
+}
+
+export function CbsIcon() {
+  return <FaviconIcon domain="cbssports.com" alt="CBS Sports" />;
 }
