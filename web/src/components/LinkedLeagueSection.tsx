@@ -51,12 +51,17 @@ export function LinkedLeagueSection({ profile, onChanged, onConnectSleeper, onCo
         <div className="flex items-center justify-between">
           <span className="flex items-center gap-2 text-sm">
             {linked.provider === "sleeper" ? <SleeperIcon /> : <EspnIcon />}
-            {linked.provider === "sleeper" ? "Sleeper" : "ESPN"} · {linked.league_metadata_json.name}
+            {linked.provider === "sleeper" ? "Sleeper" : "ESPN"}
+            {linked.league_metadata_json
+              ? ` · ${linked.league_metadata_json.name}`
+              : " · account linked (no league)"}
           </span>
           <div className="flex gap-2">
-            <Button size="sm" variant="outline" disabled={busy} onClick={handleRefresh}>
-              Refresh
-            </Button>
+            {linked.league_id && (
+              <Button size="sm" variant="outline" disabled={busy} onClick={handleRefresh}>
+                Refresh
+              </Button>
+            )}
             <Button size="sm" variant="outline" disabled={busy} onClick={handleDisconnect}>
               Disconnect
             </Button>

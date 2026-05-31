@@ -107,9 +107,10 @@ export interface User {
 export interface LinkedLeague {
   profile_id: string;
   provider: "sleeper" | "espn";
-  league_id: string;
-  league_metadata_json: { name: string; season: number };
-  keepers_json: Array<{ player_name: string; position: string; team: string }>;
+  // Null when the user pre-linked a provider account without selecting a league.
+  league_id: string | null;
+  league_metadata_json: { name: string; season: number } | null;
+  keepers_json: Array<{ player_name: string; position: string; team: string }> | null;
   adp_json: Record<string, number> | null;
   last_synced_at: string;
 }

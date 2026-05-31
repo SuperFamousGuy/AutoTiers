@@ -38,13 +38,17 @@ class SleeperLeagueSummaryOut(BaseModel):
 
 class SleeperConnectBody(BaseModel):
     username: str
-    league_id: str
-    season: int
+    # Either both league_id + season are present (full link with league data),
+    # or neither (pre-link the provider account without a league).
+    league_id: Optional[str] = None
+    season: Optional[int] = None
 
 
 class EspnConnectBody(BaseModel):
-    league_id: str
-    season: int
+    # league_id + season are optional so users can link an ESPN account
+    # (cookies-only) to unlock auth-gated rankings without picking a league.
+    league_id: Optional[str] = None
+    season: Optional[int] = None
     swid: Optional[str] = None
     espn_s2: Optional[str] = None
 
@@ -162,22 +166,29 @@ async def post_sleeper(
     db: AsyncSession = Depends(get_db),
 ) -> LinkedLeagueResponse:
     profile = await _resolve_profile(profile_id, user, db)
-    try:
-        data = await fetch_sleeper_league(body.league_id)
-    except Exception as e:
-        raise _provider_http_error("Sleeper", e)
-    mapped = sleeper_to_settings(data.raw_scoring, league_size=data.league_size)
-    _apply_settings(profile, mapped)
-
     ll = _upsert_linked_league(profile, db)
     ll.provider = "sleeper"
-    ll.league_id = data.league_id
     ll.username_or_swid = body.username
     ll.credentials_encrypted = None
-    ll.league_metadata_json = {"name": data.name, "season": data.season}
-    ll.keepers_json = data.keepers
-    ll.adp_json = data.adp_json
     ll.last_synced_at = datetime.now(timezone.utc)
+
+    if body.league_id:
+        try:
+            data = await fetch_sleeper_league(body.league_id)
+        except Exception as e:
+            raise _provider_http_error("Sleeper", e)
+        mapped = sleeper_to_settings(data.raw_scoring, league_size=data.league_size)
+        _apply_settings(profile, mapped)
+        ll.league_id = data.league_id
+        ll.league_metadata_json = {"name": data.name, "season": data.season}
+        ll.keepers_json = data.keepers
+        ll.adp_json = data.adp_json
+    else:
+        # Pre-link: provider account stored, no league data fetched.
+        ll.league_id = None
+        ll.league_metadata_json = None
+        ll.keepers_json = None
+        ll.adp_json = None
 
     await db.commit()
     await db.refresh(profile, attribute_names=["linked_league"])
@@ -192,27 +203,34 @@ async def post_espn(
     db: AsyncSession = Depends(get_db),
 ) -> LinkedLeagueResponse:
     profile = await _resolve_profile(profile_id, user, db)
-    try:
-        data = await fetch_espn_league(body.league_id, body.season, body.swid, body.espn_s2)
-    except EspnAuthRequired:
-        raise HTTPException(
-            status_code=400,
-            detail="ESPN rejected the request — the league may be private; paste your SWID and espn_s2 cookies and try again.",
-        )
-    except Exception as e:
-        raise _provider_http_error("ESPN", e)
-    mapped = espn_to_settings(data.raw_scoring, league_size=data.league_size)
-    _apply_settings(profile, mapped)
-
     ll = _upsert_linked_league(profile, db)
     ll.provider = "espn"
-    ll.league_id = data.league_id
     ll.username_or_swid = body.swid or ""
     ll.credentials_encrypted = encrypt(body.espn_s2) if body.espn_s2 else None
-    ll.league_metadata_json = {"name": data.name, "season": data.season}
-    ll.keepers_json = data.keepers
-    ll.adp_json = data.adp_json
     ll.last_synced_at = datetime.now(timezone.utc)
+
+    if body.league_id and body.season is not None:
+        try:
+            data = await fetch_espn_league(body.league_id, body.season, body.swid, body.espn_s2)
+        except EspnAuthRequired:
+            raise HTTPException(
+                status_code=400,
+                detail="ESPN rejected the request — the league may be private; paste your SWID and espn_s2 cookies and try again.",
+            )
+        except Exception as e:
+            raise _provider_http_error("ESPN", e)
+        mapped = espn_to_settings(data.raw_scoring, league_size=data.league_size)
+        _apply_settings(profile, mapped)
+        ll.league_id = data.league_id
+        ll.league_metadata_json = {"name": data.name, "season": data.season}
+        ll.keepers_json = data.keepers
+        ll.adp_json = data.adp_json
+    else:
+        # Pre-link: cookies stored, no league data fetched.
+        ll.league_id = None
+        ll.league_metadata_json = None
+        ll.keepers_json = None
+        ll.adp_json = None
 
     await db.commit()
     await db.refresh(profile, attribute_names=["linked_league"])
@@ -228,9 +246,15 @@ async def refresh(
     profile = await _resolve_profile(profile_id, user, db)
     ll = profile.linked_league
     if ll is None:
-        raise HTTPException(status_code=400, detail="Profile has no linked league")
+        raise HTTPException(status_code=400, detail="Profile has no linked provider account")
+    if not ll.league_id:
+        # Pre-linked provider with no league selected — nothing to refresh.
+        raise HTTPException(
+            status_code=400,
+            detail="No league is selected on this linked account — pick one before refreshing.",
+        )
 
-    stored_season: int = ll.league_metadata_json.get("season") or 0
+    stored_season: int = (ll.league_metadata_json or {}).get("season") or 0
     if not stored_season:
         raise HTTPException(status_code=400, detail="Linked league is missing season metadata — please reconnect.")
 

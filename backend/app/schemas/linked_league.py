@@ -11,9 +11,11 @@ from pydantic import BaseModel
 class LinkedLeagueOut(BaseModel):
     profile_id: uuid.UUID
     provider: str  # "sleeper" | "espn"
-    league_id: str
-    league_metadata_json: dict[str, Any]
-    keepers_json: list[dict[str, Any]]
+    # league_id and the league-derived fields are None when the user pre-linked
+    # a provider account without selecting a league.
+    league_id: Optional[str]
+    league_metadata_json: Optional[dict[str, Any]]
+    keepers_json: Optional[list[dict[str, Any]]]
     adp_json: Optional[dict[str, float]]
     last_synced_at: datetime
 

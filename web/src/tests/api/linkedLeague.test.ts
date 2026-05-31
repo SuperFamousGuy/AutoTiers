@@ -70,7 +70,7 @@ describe("linkedLeague API", () => {
       }), { status: 200 }),
     );
     const out = await refreshLink(PID);
-    expect(out.linked_league.league_metadata_json.name).toBe("New");
+    expect(out.linked_league.league_metadata_json?.name).toBe("New");
   });
 
   it("connectSleeper throws ApiError on 404", async () => {

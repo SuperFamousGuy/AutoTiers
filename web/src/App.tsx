@@ -211,7 +211,7 @@ export default function App() {
       weight_consensus: settings.weights.consensus / 100,
       draft_rounds: settings.draft_rounds,
       rules,
-      keepers: linked?.keepers_json.map((k) => k.player_name) ?? undefined,
+      keepers: linked?.keepers_json?.map((k) => k.player_name) ?? undefined,
       league_adp: linked?.adp_json ?? undefined,
     };
   };
@@ -252,7 +252,10 @@ export default function App() {
             (() => {
               const active = profiles.find((p) => p.id === activeProfileId);
               const ll = active?.linked_league;
-              return ll ? { provider: ll.provider, leagueName: ll.league_metadata_json.name } : null;
+              // Only show the auto-detected chip when an actual league is selected.
+              return ll && ll.league_metadata_json
+                ? { provider: ll.provider, leagueName: ll.league_metadata_json.name }
+                : null;
             })()
           }
           profileId={activeProfileId}
@@ -264,7 +267,7 @@ export default function App() {
           isPending={generate.isPending}
           onDownloadCsv={() => downloadCsv(buildRequest())}
           keepers={
-            profiles.find((p) => p.id === activeProfileId)?.linked_league?.keepers_json
+            profiles.find((p) => p.id === activeProfileId)?.linked_league?.keepers_json ?? undefined
           }
         />
       </main>
