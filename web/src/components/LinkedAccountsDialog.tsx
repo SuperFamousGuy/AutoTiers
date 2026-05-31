@@ -3,7 +3,8 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { googleAuthorizeUrl, yahooAuthorizeUrl, unlinkGoogle, unlinkYahoo } from "@/api/auth";
 import { ApiError } from "@/api/client";
-import type { User } from "@/api/types";
+import { LinkedLeagueSection } from "@/components/LinkedLeagueSection";
+import type { User, Profile } from "@/api/types";
 
 interface Props {
   open: boolean;
@@ -11,9 +12,10 @@ interface Props {
   user: User;
   onRefresh: () => Promise<void>;
   initialError: string | null;
+  activeProfile?: Profile | null;
 }
 
-export function LinkedAccountsDialog({ open, onOpenChange, user, onRefresh, initialError }: Props) {
+export function LinkedAccountsDialog({ open, onOpenChange, user, onRefresh, initialError, activeProfile }: Props) {
   const [error, setError] = useState<string | null>(initialError);
   const [busy, setBusy] = useState<"google" | "yahoo" | null>(null);
 
@@ -91,6 +93,14 @@ export function LinkedAccountsDialog({ open, onOpenChange, user, onRefresh, init
             )}
           </li>
         </ul>
+        {activeProfile && (
+          <LinkedLeagueSection profile={activeProfile} onChanged={onRefresh} />
+        )}
+        {!activeProfile && (
+          <p className="text-xs text-muted-foreground border-t pt-4 mt-4">
+            Select a profile to link a fantasy league.
+          </p>
+        )}
       </DialogContent>
     </Dialog>
   );
