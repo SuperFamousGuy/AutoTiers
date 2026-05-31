@@ -1,7 +1,5 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { SleeperConnectForm } from "@/components/SleeperConnectForm";
-import { EspnConnectForm } from "@/components/EspnConnectForm";
 import { refreshLink, disconnectLink } from "@/api/linkedLeague";
 import { ApiError } from "@/api/client";
 import { SleeperIcon, EspnIcon, NflFantasyIcon, CbsIcon } from "@/components/BrandIcons";
@@ -10,10 +8,11 @@ import type { Profile } from "@/api/types";
 interface Props {
   profile: Profile;
   onChanged: () => Promise<void> | void;
+  onConnectSleeper: () => void;
+  onConnectEspn: () => void;
 }
 
-export function LinkedLeagueSection({ profile, onChanged }: Props) {
-  const [activeForm, setActiveForm] = useState<"sleeper" | "espn" | null>(null);
+export function LinkedLeagueSection({ profile, onChanged, onConnectSleeper, onConnectEspn }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -63,27 +62,15 @@ export function LinkedLeagueSection({ profile, onChanged }: Props) {
             </Button>
           </div>
         </div>
-      ) : activeForm === "sleeper" ? (
-        <SleeperConnectForm
-          profileId={profile.id}
-          onLinked={async () => { setActiveForm(null); await onChanged(); }}
-          onCancel={() => setActiveForm(null)}
-        />
-      ) : activeForm === "espn" ? (
-        <EspnConnectForm
-          profileId={profile.id}
-          onLinked={async () => { setActiveForm(null); await onChanged(); }}
-          onCancel={() => setActiveForm(null)}
-        />
       ) : (
         <ul className="space-y-3 text-sm">
           <li className="flex items-center justify-between">
             <span className="flex items-center gap-2"><SleeperIcon />Sleeper</span>
-            <Button size="sm" aria-label="Connect Sleeper" onClick={() => setActiveForm("sleeper")}>Connect</Button>
+            <Button size="sm" aria-label="Connect Sleeper" onClick={onConnectSleeper}>Connect</Button>
           </li>
           <li className="flex items-center justify-between">
             <span className="flex items-center gap-2"><EspnIcon />ESPN</span>
-            <Button size="sm" aria-label="Connect ESPN" onClick={() => setActiveForm("espn")}>Connect</Button>
+            <Button size="sm" aria-label="Connect ESPN" onClick={onConnectEspn}>Connect</Button>
           </li>
           <li className="flex items-center justify-between text-muted-foreground">
             <span className="flex items-center gap-2"><NflFantasyIcon />NFL Fantasy</span>

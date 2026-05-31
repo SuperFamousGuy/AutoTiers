@@ -1,13 +1,18 @@
 """Per-profile fantasy-league linking endpoints."""
+import asyncio
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 import uuid
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+
+logger = logging.getLogger(__name__)
 
 from app.database import get_db
 from app.models import User, Profile, LinkedLeague
@@ -94,6 +99,36 @@ def _upsert_linked_league(profile: Profile, db: AsyncSession) -> LinkedLeague:
     return profile.linked_league
 
 
+def _provider_http_error(provider: str, e: Exception) -> HTTPException:
+    """Convert a provider-side error into a structured HTTPException.
+
+    Without this, an unhandled exception from httpx (timeout, HTTP error from the
+    provider, JSON decode error, etc.) becomes a FastAPI 500 whose response often
+    skips CORS headers — the browser blocks it, the frontend sees a network error
+    instead of a useful message, and we lose any signal about what went wrong.
+    """
+    logger.exception("%s provider error", provider)
+    if isinstance(e, httpx.HTTPStatusError):
+        return HTTPException(
+            status_code=502,
+            detail=f"{provider} returned HTTP {e.response.status_code}. Verify the league id and your credentials.",
+        )
+    if isinstance(e, (httpx.TimeoutException, asyncio.TimeoutError)):
+        return HTTPException(
+            status_code=504,
+            detail=f"{provider} timed out. Try again in a moment.",
+        )
+    if isinstance(e, httpx.RequestError):
+        return HTTPException(
+            status_code=502,
+            detail=f"Couldn't reach {provider} ({type(e).__name__}).",
+        )
+    return HTTPException(
+        status_code=502,
+        detail=f"Unexpected {provider} error: {type(e).__name__}: {e}",
+    )
+
+
 def _build_response(ll: LinkedLeague, profile: Profile) -> LinkedLeagueResponse:
     return LinkedLeagueResponse(
         linked_league=LinkedLeagueOut.model_validate(ll),
@@ -114,6 +149,8 @@ async def get_sleeper_leagues(
         leagues = await list_user_leagues(username, season)
     except SleeperUserNotFound:
         raise HTTPException(status_code=404, detail=f"Sleeper user '{username}' not found")
+    except Exception as e:
+        raise _provider_http_error("Sleeper", e)
     return [SleeperLeagueSummaryOut(id=l.id, name=l.name, season=l.season) for l in leagues]
 
 
@@ -125,7 +162,10 @@ async def post_sleeper(
     db: AsyncSession = Depends(get_db),
 ) -> LinkedLeagueResponse:
     profile = await _resolve_profile(profile_id, user, db)
-    data = await fetch_sleeper_league(body.league_id)
+    try:
+        data = await fetch_sleeper_league(body.league_id)
+    except Exception as e:
+        raise _provider_http_error("Sleeper", e)
     mapped = sleeper_to_settings(data.raw_scoring, league_size=data.league_size)
     _apply_settings(profile, mapped)
 
@@ -159,6 +199,8 @@ async def post_espn(
             status_code=400,
             detail="ESPN rejected the request — the league may be private; paste your SWID and espn_s2 cookies and try again.",
         )
+    except Exception as e:
+        raise _provider_http_error("ESPN", e)
     mapped = espn_to_settings(data.raw_scoring, league_size=data.league_size)
     _apply_settings(profile, mapped)
 
@@ -193,7 +235,10 @@ async def refresh(
         raise HTTPException(status_code=400, detail="Linked league is missing season metadata — please reconnect.")
 
     if ll.provider == "sleeper":
-        data = await fetch_sleeper_league(ll.league_id)
+        try:
+            data = await fetch_sleeper_league(ll.league_id)
+        except Exception as e:
+            raise _provider_http_error("Sleeper", e)
         mapped = sleeper_to_settings(data.raw_scoring, league_size=data.league_size)
     elif ll.provider == "espn":
         espn_s2 = decrypt(ll.credentials_encrypted) if ll.credentials_encrypted else None
@@ -204,6 +249,8 @@ async def refresh(
             )
         except EspnAuthRequired:
             raise HTTPException(status_code=400, detail="ESPN cookies expired — please reconnect.")
+        except Exception as e:
+            raise _provider_http_error("ESPN", e)
         mapped = espn_to_settings(data.raw_scoring, league_size=data.league_size)
     else:
         raise HTTPException(status_code=400, detail=f"Unknown provider '{ll.provider}'")

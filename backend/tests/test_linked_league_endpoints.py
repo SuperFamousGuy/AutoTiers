@@ -127,6 +127,129 @@ async def test_post_espn_public_league_succeeds(async_client, test_db):
 
 
 @pytest.mark.asyncio
+async def test_get_sleeper_leagues_502_on_network_error(async_client, test_db):
+    """RequestError from Sleeper (e.g. connection refused) → 502 with provider name."""
+    import httpx as httpx_module
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    with respx.mock() as router:
+        router.get("https://api.sleeper.app/v1/user/alice").mock(
+            side_effect=httpx_module.ConnectError("no route"),
+        )
+        r = await async_client.get(
+            f"/api/profiles/{p.id}/link/sleeper/leagues?username=alice&season=2026"
+        )
+    assert r.status_code == 502
+    assert "sleeper" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_post_sleeper_502_on_generic_exception(async_client, test_db):
+    """A non-httpx exception during connect still surfaces as a structured 502."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    with respx.mock() as router:
+        # respx will raise a non-httpx exception here.
+        router.get("https://api.sleeper.app/v1/league/L1").mock(side_effect=RuntimeError("boom"))
+        r = await async_client.post(
+            f"/api/profiles/{p.id}/link/sleeper",
+            json={"username": "alice", "league_id": "L1", "season": 2026},
+        )
+    assert r.status_code == 502
+    assert "unexpected" in r.json()["detail"].lower() or "sleeper" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_refresh_502_on_sleeper_error(async_client, test_db):
+    """Refreshing a Sleeper-linked profile when Sleeper is down → 502."""
+    import httpx as httpx_module
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    from datetime import datetime, timezone
+    ll = LinkedLeague(
+        profile_id=p.id, provider="sleeper", league_id="L1",
+        username_or_swid="alice",
+        league_metadata_json={"name": "Old", "season": 2026},
+        keepers_json=[], adp_json=None,
+        last_synced_at=datetime.now(timezone.utc),
+    )
+    test_db.add(ll)
+    await test_db.commit()
+    with respx.mock() as router:
+        router.get("https://api.sleeper.app/v1/league/L1").mock(
+            side_effect=httpx_module.ConnectError("down"),
+        )
+        r = await async_client.post(f"/api/profiles/{p.id}/link/refresh")
+    assert r.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_refresh_502_on_espn_error(async_client, test_db):
+    """Refreshing an ESPN-linked profile when ESPN is down → 502."""
+    import httpx as httpx_module
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    from datetime import datetime, timezone
+    ll = LinkedLeague(
+        profile_id=p.id, provider="espn", league_id="12345",
+        username_or_swid="",
+        league_metadata_json={"name": "Old", "season": 2026},
+        keepers_json=[], adp_json=None,
+        last_synced_at=datetime.now(timezone.utc),
+    )
+    test_db.add(ll)
+    await test_db.commit()
+    with respx.mock() as router:
+        url = (
+            "https://fantasy.espn.com/apis/v3/games/ffl/seasons/2026"
+            "/segments/0/leagues/12345"
+        )
+        router.get(url__startswith=url).mock(side_effect=httpx_module.ConnectError("down"))
+        r = await async_client.post(f"/api/profiles/{p.id}/link/refresh")
+    assert r.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_post_espn_returns_502_when_espn_responds_5xx(async_client, test_db):
+    """ESPN returning a 5xx should surface as 502 with a useful message (not a raw 500)."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    with respx.mock() as router:
+        url = (
+            "https://fantasy.espn.com/apis/v3/games/ffl/seasons/2026"
+            "/segments/0/leagues/12345"
+        )
+        router.get(url__startswith=url).mock(return_value=Response(503, json={}))
+        r = await async_client.post(
+            f"/api/profiles/{p.id}/link/espn",
+            json={"league_id": "12345", "season": 2026},
+        )
+    assert r.status_code == 502
+    detail = r.json()["detail"].lower()
+    assert "espn" in detail and "503" in detail
+
+
+@pytest.mark.asyncio
+async def test_post_espn_returns_504_on_timeout(async_client, test_db):
+    """An httpx timeout from ESPN should map to 504, not an uncaught 500."""
+    import httpx as httpx_module
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    with respx.mock() as router:
+        url = (
+            "https://fantasy.espn.com/apis/v3/games/ffl/seasons/2026"
+            "/segments/0/leagues/12345"
+        )
+        router.get(url__startswith=url).mock(side_effect=httpx_module.ReadTimeout("slow"))
+        r = await async_client.post(
+            f"/api/profiles/{p.id}/link/espn",
+            json={"league_id": "12345", "season": 2026},
+        )
+    assert r.status_code == 504
+    assert "espn" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
 async def test_post_espn_private_without_cookies_returns_400(async_client, test_db):
     u, p = await _make_user_and_profile(test_db)
     await _login(async_client)
