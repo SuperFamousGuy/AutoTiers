@@ -4,6 +4,7 @@ import { SleeperConnectForm } from "@/components/SleeperConnectForm";
 import { EspnConnectForm } from "@/components/EspnConnectForm";
 import { refreshLink, disconnectLink } from "@/api/linkedLeague";
 import { ApiError } from "@/api/client";
+import { SleeperIcon, EspnIcon, NflFantasyIcon, CbsIcon } from "@/components/BrandIcons";
 import type { Profile } from "@/api/types";
 
 interface Props {
@@ -49,7 +50,8 @@ export function LinkedLeagueSection({ profile, onChanged }: Props) {
       {error && <p className="text-xs text-red-600">{error}</p>}
       {linked ? (
         <div className="flex items-center justify-between">
-          <span className="text-sm">
+          <span className="flex items-center gap-2 text-sm">
+            {linked.provider === "sleeper" ? <SleeperIcon /> : <EspnIcon />}
             {linked.provider === "sleeper" ? "Sleeper" : "ESPN"} · {linked.league_metadata_json.name}
           </span>
           <div className="flex gap-2">
@@ -76,19 +78,19 @@ export function LinkedLeagueSection({ profile, onChanged }: Props) {
       ) : (
         <ul className="space-y-2 text-sm">
           <li className="flex items-center justify-between">
-            <span>Sleeper</span>
+            <span className="flex items-center gap-2"><SleeperIcon />Sleeper</span>
             <Button size="sm" onClick={() => setActiveForm("sleeper")}>Connect Sleeper</Button>
           </li>
           <li className="flex items-center justify-between">
-            <span>ESPN</span>
+            <span className="flex items-center gap-2"><EspnIcon />ESPN</span>
             <Button size="sm" onClick={() => setActiveForm("espn")}>Connect ESPN</Button>
           </li>
           <li className="flex items-center justify-between text-muted-foreground">
-            <span>NFL Fantasy</span>
+            <span className="flex items-center gap-2"><NflFantasyIcon />NFL Fantasy</span>
             <span className="text-xs">Coming soon</span>
           </li>
           <li className="flex items-center justify-between text-muted-foreground">
-            <span>CBS</span>
+            <span className="flex items-center gap-2"><CbsIcon />CBS</span>
             <span className="text-xs">Coming soon</span>
           </li>
         </ul>

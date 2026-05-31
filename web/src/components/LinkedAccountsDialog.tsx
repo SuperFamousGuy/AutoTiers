@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { googleAuthorizeUrl, yahooAuthorizeUrl, unlinkGoogle, unlinkYahoo } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { LinkedLeagueSection } from "@/components/LinkedLeagueSection";
+import { GoogleIcon, YahooIcon } from "@/components/BrandIcons";
 import type { User, Profile } from "@/api/types";
 
 interface Props {
@@ -51,7 +52,7 @@ export function LinkedAccountsDialog({ open, onOpenChange, user, onRefresh, init
         {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
         <ul className="space-y-3">
           <li className="flex items-center justify-between">
-            <span className="text-sm">Google</span>
+            <span className="flex items-center gap-2 text-sm"><GoogleIcon />Google</span>
             {user.google_subject ? (
               <Button
                 size="sm"
@@ -69,7 +70,7 @@ export function LinkedAccountsDialog({ open, onOpenChange, user, onRefresh, init
             )}
           </li>
           <li className="flex items-center justify-between">
-            <span className="text-sm">Yahoo</span>
+            <span className="flex items-center gap-2 text-sm"><YahooIcon />Yahoo</span>
             {user.yahoo_subject ? (
               <Button
                 size="sm"
