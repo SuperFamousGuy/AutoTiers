@@ -22,9 +22,13 @@ export function EspnConnectForm({ profileId, onLinked, onCancel }: Props) {
     setError(null);
     setBusy(true);
     try {
+      const trimmedLeague = leagueId.trim();
       const result = await connectEspn(profileId, {
-        league_id: leagueId.trim(),
-        season: currentSeason(),
+        // Send league_id + season only when the user filled in a league.
+        // Otherwise we're pre-linking the ESPN account (cookies only) so the
+        // backend skips the league fetch and just stores the credentials.
+        league_id: trimmedLeague || undefined,
+        season: trimmedLeague ? currentSeason() : undefined,
         swid: isPrivate ? swid.trim() : undefined,
         espn_s2: isPrivate ? espnS2.trim() : undefined,
       });
@@ -40,12 +44,13 @@ export function EspnConnectForm({ profileId, onLinked, onCancel }: Props) {
     <div className="space-y-3">
       {error && <p className="text-xs text-red-600">{error}</p>}
       <label className="block text-sm">
-        <span>League ID</span>
+        <span>League ID <span className="text-xs text-muted-foreground">(optional)</span></span>
         <input
           className="mt-1 block w-full rounded border px-2 py-1 text-sm"
           value={leagueId}
           onChange={(e) => setLeagueId(e.target.value)}
           aria-label="League ID"
+          placeholder="Leave blank to link your ESPN account without a league"
         />
       </label>
       <label className="flex items-center gap-2 text-sm">
@@ -135,7 +140,7 @@ export function EspnConnectForm({ profileId, onLinked, onCancel }: Props) {
       )}
       <div className="flex gap-2 justify-end">
         <Button size="sm" variant="ghost" onClick={onCancel}>Cancel</Button>
-        <Button size="sm" disabled={busy || !leagueId.trim()} onClick={handleConnect}>
+        <Button size="sm" disabled={busy} onClick={handleConnect}>
           Connect
         </Button>
       </div>

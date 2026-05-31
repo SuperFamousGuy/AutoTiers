@@ -19,11 +19,14 @@ class LinkedLeague(Base):
         primary_key=True,
     )
     provider: Mapped[str] = mapped_column(String, nullable=False)  # "sleeper" | "espn"
-    league_id: Mapped[str] = mapped_column(String, nullable=False)
+    # league_id / league_metadata_json / keepers_json are nullable: users can
+    # link a provider account without selecting a league (so we can pull
+    # auth-gated rankings later even if they haven't joined a league).
+    league_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     username_or_swid: Mapped[str] = mapped_column(String, nullable=False)
     credentials_encrypted: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    league_metadata_json: Mapped[dict] = mapped_column(_JSON_OR_JSONB, nullable=False)
-    keepers_json: Mapped[list] = mapped_column(_JSON_OR_JSONB, nullable=False)
+    league_metadata_json: Mapped[Optional[dict]] = mapped_column(_JSON_OR_JSONB, nullable=True)
+    keepers_json: Mapped[Optional[list]] = mapped_column(_JSON_OR_JSONB, nullable=True)
     adp_json: Mapped[Optional[dict]] = mapped_column(_JSON_OR_JSONB, nullable=True)
     last_synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

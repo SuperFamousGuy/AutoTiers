@@ -58,7 +58,7 @@ export function SleeperConnectForm({ profileId, onLinked, onCancel }: Props) {
       if (result.length === 0) {
         setError(
           `No Sleeper leagues found for "${username_trimmed}" in ${seasons[1]} or ${seasons[0]}. ` +
-          `AutoTiers needs a league to pull scoring and keepers — join one on Sleeper, then come back.`,
+          `You can still link your account using "Skip — link account only" above; join a league later and re-link to import its settings.`,
         );
         return;
       }
@@ -90,6 +90,19 @@ export function SleeperConnectForm({ profileId, onLinked, onCancel }: Props) {
     }
   }
 
+  async function handleLinkWithoutLeague() {
+    setError(null);
+    setBusy(true);
+    try {
+      const result = await connectSleeper(profileId, { username: username.trim() });
+      onLinked(result);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Connect failed. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-3">
       {error && <p className="text-xs text-red-600">{error}</p>}
@@ -106,6 +119,14 @@ export function SleeperConnectForm({ profileId, onLinked, onCancel }: Props) {
           </label>
           <div className="flex gap-2 justify-end">
             <Button size="sm" variant="ghost" onClick={onCancel}>Cancel</Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy || !username.trim()}
+              onClick={handleLinkWithoutLeague}
+            >
+              Skip — link account only
+            </Button>
             <Button size="sm" disabled={busy || !username.trim()} onClick={handleContinue}>
               Continue
             </Button>

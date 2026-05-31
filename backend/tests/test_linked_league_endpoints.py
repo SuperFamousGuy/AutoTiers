@@ -127,6 +127,70 @@ async def test_post_espn_public_league_succeeds(async_client, test_db):
 
 
 @pytest.mark.asyncio
+async def test_post_sleeper_pre_link_stores_username_with_no_league(async_client, test_db):
+    """No league_id in the body → just store the account; don't fetch from Sleeper."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    # No respx mock — if the endpoint tries to hit Sleeper, the test will fail.
+    r = await async_client.post(
+        f"/api/profiles/{p.id}/link/sleeper",
+        json={"username": "alice"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["linked_league"]["provider"] == "sleeper"
+    assert body["linked_league"]["league_id"] is None
+    assert body["linked_league"]["league_metadata_json"] is None
+    assert body["linked_league"]["keepers_json"] is None
+    # settings_json should NOT have been overwritten with mapped scoring.
+    assert "scoring_format" not in body["profile"]["settings_json"]
+
+
+@pytest.mark.asyncio
+async def test_post_espn_pre_link_stores_cookies_with_no_league(async_client, test_db):
+    """ESPN body with cookies but no league_id → store cookies, skip league fetch."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    r = await async_client.post(
+        f"/api/profiles/{p.id}/link/espn",
+        json={"swid": "{abc-123}", "espn_s2": "blob"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["linked_league"]["provider"] == "espn"
+    assert body["linked_league"]["league_id"] is None
+    # The encrypted credential should be persisted but never echoed back.
+    from sqlalchemy import select as sql_select
+    rows = (await test_db.scalars(sql_select(LinkedLeague))).all()
+    assert len(rows) == 1
+    assert rows[0].credentials_encrypted is not None
+    assert rows[0].credentials_encrypted != "blob"  # encrypted at rest
+
+
+@pytest.mark.asyncio
+async def test_refresh_400_when_no_league_selected(async_client, test_db):
+    """Pre-linked account (no league_id) → refresh returns a clear 400."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    from datetime import datetime, timezone
+    ll = LinkedLeague(
+        profile_id=p.id, provider="sleeper",
+        league_id=None,
+        username_or_swid="alice",
+        credentials_encrypted=None,
+        league_metadata_json=None,
+        keepers_json=None,
+        adp_json=None,
+        last_synced_at=datetime.now(timezone.utc),
+    )
+    test_db.add(ll)
+    await test_db.commit()
+    r = await async_client.post(f"/api/profiles/{p.id}/link/refresh")
+    assert r.status_code == 400
+    assert "no league" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
 async def test_get_sleeper_leagues_502_on_network_error(async_client, test_db):
     """RequestError from Sleeper (e.g. connection refused) → 502 with provider name."""
     import httpx as httpx_module

@@ -77,6 +77,23 @@ describe("SleeperConnectForm", () => {
     await waitFor(() => expect(screen.getByText(/couldn't find/i)).toBeInTheDocument());
   });
 
+  it("Skip button pre-links the account with no league", async () => {
+    const { connectSleeper } = await import("@/api/linkedLeague");
+    (connectSleeper as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      linked_league: { profile_id: "p1", provider: "sleeper", league_id: null,
+        league_metadata_json: null, keepers_json: null,
+        adp_json: null, last_synced_at: "x" },
+      profile: { id: "p1", name: "My", settings_json: {}, rules_json: [], linked_league: null },
+    });
+    const onLinked = vi.fn();
+    render(<SleeperConnectForm profileId="p1" onLinked={onLinked} onCancel={vi.fn()} />);
+    const u = userEvent.setup();
+    await u.type(screen.getByLabelText(/sleeper username/i), "alice");
+    await u.click(screen.getByRole("button", { name: /skip — link account only/i }));
+    await waitFor(() => expect(connectSleeper).toHaveBeenCalledWith("p1", { username: "alice" }));
+    await waitFor(() => expect(onLinked).toHaveBeenCalled());
+  });
+
   it("shows a helpful message when the username exists but has zero leagues", async () => {
     const { listSleeperLeagues } = await import("@/api/linkedLeague");
     (listSleeperLeagues as ReturnType<typeof vi.fn>)
@@ -87,7 +104,7 @@ describe("SleeperConnectForm", () => {
     await u.type(screen.getByLabelText(/sleeper username/i), "leagueless");
     await u.click(screen.getByRole("button", { name: /^continue$/i }));
     await waitFor(() =>
-      expect(screen.getByText(/needs a league|join one on sleeper/i)).toBeInTheDocument(),
+      expect(screen.getAllByText(/skip — link account only/i).length).toBeGreaterThan(0),
     );
   });
 });

@@ -19,7 +19,7 @@ export function listSleeperLeagues(
 
 export function connectSleeper(
   profileId: string,
-  body: { username: string; league_id: string; season: number },
+  body: { username: string; league_id?: string; season?: number },
 ): Promise<LinkedLeagueResponse> {
   return apiFetch<LinkedLeagueResponse>(
     `/api/profiles/${profileId}/link/sleeper`,
@@ -29,7 +29,7 @@ export function connectSleeper(
 
 export function connectEspn(
   profileId: string,
-  body: { league_id: string; season: number; swid?: string; espn_s2?: string },
+  body: { league_id?: string; season?: number; swid?: string; espn_s2?: string },
 ): Promise<LinkedLeagueResponse> {
   return apiFetch<LinkedLeagueResponse>(
     `/api/profiles/${profileId}/link/espn`,

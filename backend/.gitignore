@@ -1,5 +1,6 @@
 # Virtual environment
 venv/
+venv*/
 .venv/
 env/
 
@@ -15,6 +16,7 @@ build/
 # Testing
 .pytest_cache/
 .coverage
+coverage.xml
 htmlcov/
 
 # Environment secrets
