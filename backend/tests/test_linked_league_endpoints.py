@@ -127,6 +127,46 @@ async def test_post_espn_public_league_succeeds(async_client, test_db):
 
 
 @pytest.mark.asyncio
+async def test_post_espn_returns_502_when_espn_responds_5xx(async_client, test_db):
+    """ESPN returning a 5xx should surface as 502 with a useful message (not a raw 500)."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    with respx.mock() as router:
+        url = (
+            "https://fantasy.espn.com/apis/v3/games/ffl/seasons/2026"
+            "/segments/0/leagues/12345"
+        )
+        router.get(url__startswith=url).mock(return_value=Response(503, json={}))
+        r = await async_client.post(
+            f"/api/profiles/{p.id}/link/espn",
+            json={"league_id": "12345", "season": 2026},
+        )
+    assert r.status_code == 502
+    detail = r.json()["detail"].lower()
+    assert "espn" in detail and "503" in detail
+
+
+@pytest.mark.asyncio
+async def test_post_espn_returns_504_on_timeout(async_client, test_db):
+    """An httpx timeout from ESPN should map to 504, not an uncaught 500."""
+    import httpx as httpx_module
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    with respx.mock() as router:
+        url = (
+            "https://fantasy.espn.com/apis/v3/games/ffl/seasons/2026"
+            "/segments/0/leagues/12345"
+        )
+        router.get(url__startswith=url).mock(side_effect=httpx_module.ReadTimeout("slow"))
+        r = await async_client.post(
+            f"/api/profiles/{p.id}/link/espn",
+            json={"league_id": "12345", "season": 2026},
+        )
+    assert r.status_code == 504
+    assert "espn" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
 async def test_post_espn_private_without_cookies_returns_400(async_client, test_db):
     u, p = await _make_user_and_profile(test_db)
     await _login(async_client)
