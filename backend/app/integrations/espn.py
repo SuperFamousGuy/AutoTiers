@@ -36,7 +36,11 @@ async def fetch_league(
 
     async with httpx.AsyncClient(timeout=10.0, cookies=cookies) as client:
         resp = await client.get(url)
-        if resp.status_code in (401, 403):
+        # 401/403 are the explicit auth-required cases. ESPN also redirects
+        # (3xx) to their login page for private leagues, so treat redirects
+        # the same way — otherwise we'd surface a confusing "ESPN returned
+        # HTTP 302" message that doesn't tell the user to add cookies.
+        if resp.status_code in (401, 403) or resp.is_redirect:
             raise EspnAuthRequired("ESPN rejected the request — league may be private and cookies missing/expired")
         resp.raise_for_status()
         data = resp.json()
