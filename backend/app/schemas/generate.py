@@ -18,6 +18,8 @@ class GenerateRequest(BaseModel):
     weight_consensus: float = 0.70
     draft_rounds: int = 15
     rules: list[RuleSchema] = Field(default_factory=list)
+    keepers: Optional[list[str]] = None
+    league_adp: Optional[dict[str, float]] = None
 
     @field_validator("league_size")
     @classmethod
@@ -73,6 +75,7 @@ class TieredPlayerOut(BaseModel):
     adp_standard: Optional[float]
     adp_ppr: Optional[float]
     adp_dynasty: Optional[float]
+    league_adp: Optional[float] = None
     vbd_score: float
     position_replacement: float
     flags: list[str]

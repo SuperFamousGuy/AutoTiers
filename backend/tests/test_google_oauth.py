@@ -327,3 +327,24 @@ async def test_callback_backfills_email_when_linking_and_user_has_none(async_cli
     await test_db.refresh(u)
     assert u.google_subject == "g-new"
     assert u.email == "backfilled@example.com"
+
+
+@pytest.mark.asyncio
+async def test_me_returns_null_linked_league_when_profile_has_none(async_client, test_db):
+    """Profile without a linked league must serialize linked_league=null."""
+    from app.auth.hashing import hash_password
+    from app.models import User, Profile
+    u = User(email="u-linked@example.com", password_hash=hash_password("password-long-enough"))
+    test_db.add(u)
+    await test_db.commit()
+    await test_db.refresh(u)
+    p = Profile(user_id=u.id, name="P1", settings_json={"scoring_format": "ppr"}, rules_json=[])
+    test_db.add(p)
+    await test_db.commit()
+
+    r = await async_client.post(
+        "/api/auth/login", json={"email": "u-linked@example.com", "password": "password-long-enough"},
+    )
+    assert r.status_code == 200
+    me = (await async_client.get("/api/auth/me")).json()
+    assert me["profiles"][0]["linked_league"] is None

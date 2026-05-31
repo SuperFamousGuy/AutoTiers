@@ -5,8 +5,8 @@ import { ManageProfilesDialog } from "@/components/ManageProfilesDialog";
 import type { Profile } from "@/api/types";
 
 const profiles: Profile[] = [
-  { id: "p1", name: "PPR 12-team", settings_json: {}, rules_json: [] },
-  { id: "p2", name: "Standard Keeper", settings_json: {}, rules_json: [] },
+  { id: "p1", name: "PPR 12-team", settings_json: {}, rules_json: [], linked_league: null },
+  { id: "p2", name: "Standard Keeper", settings_json: {}, rules_json: [], linked_league: null },
 ];
 
 function _render(overrides: Partial<Parameters<typeof ManageProfilesDialog>[0]> = {}) {

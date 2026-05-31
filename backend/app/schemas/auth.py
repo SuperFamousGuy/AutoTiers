@@ -2,6 +2,7 @@
 import uuid
 from typing import Optional, Any
 from pydantic import BaseModel, EmailStr, Field
+from app.schemas.linked_league import LinkedLeagueOut
 
 
 class SignupRequest(BaseModel):
@@ -36,6 +37,7 @@ class ProfileOut(BaseModel):
     name: str
     settings_json: dict[str, Any]
     rules_json: list[dict[str, Any]]
+    linked_league: Optional[LinkedLeagueOut] = None
 
     model_config = {"from_attributes": True}
 

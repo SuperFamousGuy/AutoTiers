@@ -6,6 +6,7 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.database import get_db
@@ -56,8 +57,10 @@ async def signup(
 
     set_auth_cookie(response, user.id)
 
-    profiles = [ProfileOut.model_validate(profile)] if profile else []
-    return MeResponse(user=UserOut.model_validate(user), profiles=profiles)
+    profiles = (await db.scalars(
+        select(Profile).where(Profile.user_id == user.id).options(selectinload(Profile.linked_league))
+    )).all()
+    return MeResponse(user=UserOut.model_validate(user), profiles=[ProfileOut.model_validate(p) for p in profiles])
 
 
 @router.post("/login", response_model=MeResponse)
@@ -76,7 +79,9 @@ async def login(
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     set_auth_cookie(response, user.id)
-    profiles = (await db.scalars(select(Profile).where(Profile.user_id == user.id))).all()
+    profiles = (await db.scalars(
+        select(Profile).where(Profile.user_id == user.id).options(selectinload(Profile.linked_league))
+    )).all()
     return MeResponse(
         user=UserOut.model_validate(user),
         profiles=[ProfileOut.model_validate(p) for p in profiles],
@@ -93,7 +98,9 @@ async def me(
     user: User = require_user,
     db: AsyncSession = Depends(get_db),
 ) -> MeResponse:
-    profiles = (await db.scalars(select(Profile).where(Profile.user_id == user.id))).all()
+    profiles = (await db.scalars(
+        select(Profile).where(Profile.user_id == user.id).options(selectinload(Profile.linked_league))
+    )).all()
     return MeResponse(
         user=UserOut.model_validate(user),
         profiles=[ProfileOut.model_validate(p) for p in profiles],

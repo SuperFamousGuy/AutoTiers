@@ -19,6 +19,7 @@ from app.engine.rules import Rule, RuleCondition, RuleEffect, PlayerContext, app
 from app.engine.builtin_rules import BUILTIN_RULES, OVER_THE_HILL_AGE
 from app.engine.tiers import TieredPlayer, assign_tiers
 from app.schemas.generate import GenerateRequest, GenerateResponse, TieredPlayerOut, RuleApplicationOut
+from app.data.matching import normalize_name
 
 router = APIRouter()
 
@@ -177,6 +178,10 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
         merged[cr.name] = cr  # custom always wins (already deduplicated by name)
     rules = list(merged.values())
 
+    keepers_normalized: set[str] = (
+        {normalize_name(n) for n in req.keepers} if req.keepers else set()
+    )
+
     current_year = datetime.utcnow().year
     bad_offense_teams = await _compute_bad_offense_teams(db, current_year)
 
@@ -194,6 +199,8 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
 
     tiered: list[TieredPlayer] = []
     for player in players:
+        if keepers_normalized and normalize_name(player.name) in keepers_normalized:
+            continue
         stat = _get_stat(player.stats)
         avg_proj = _avg_projection(player.projections, scoring_fmt)
         espn_pts = _get_projection(player.projections, "espn", scoring_fmt)
@@ -367,11 +374,15 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
 async def generate_tiers(req: GenerateRequest, db: AsyncSession = Depends(get_db)) -> GenerateResponse:
     ranked = await _run_generate(req, db)
     data_as_of = await _compute_data_as_of(db)
+    league_adp_normalized: dict[str, float] = (
+        {normalize_name(k): v for k, v in req.league_adp.items()} if req.league_adp else {}
+    )
     return GenerateResponse(
         players=[
             TieredPlayerOut(
                 **{k: v for k, v in p.__dict__.items() if k != "rule_applications"},
                 rule_applications=[RuleApplicationOut(**a.__dict__) for a in p.rule_applications],
+                league_adp=league_adp_normalized.get(normalize_name(p.name)),
             )
             for p in ranked
         ],

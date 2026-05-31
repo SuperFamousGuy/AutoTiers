@@ -22,6 +22,7 @@ const basePlayer: TieredPlayer = {
   adp_standard: 18,
   adp_ppr: 16,
   adp_dynasty: 22,
+  league_adp: null,
   vbd_score: 95.4,
   position_replacement: 155.9,
   flags: ["Contract Year"],
