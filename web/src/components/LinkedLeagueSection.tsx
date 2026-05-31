@@ -87,11 +87,11 @@ export function LinkedLeagueSection({ profile, onChanged }: Props) {
           </li>
           <li className="flex items-center justify-between text-muted-foreground">
             <span className="flex items-center gap-2"><NflFantasyIcon />NFL Fantasy</span>
-            <span className="text-xs">Coming soon</span>
+            <span className="text-xs">Coming Soon</span>
           </li>
           <li className="flex items-center justify-between text-muted-foreground">
             <span className="flex items-center gap-2"><CbsIcon />CBS</span>
-            <span className="text-xs">Coming soon</span>
+            <span className="text-xs">Coming Soon</span>
           </li>
         </ul>
       )}

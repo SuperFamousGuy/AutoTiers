@@ -46,7 +46,7 @@ export function SettingsPanel({ value, onChange, linkedLeague, profileId, onRefr
       <h2 className="text-lg font-semibold">Settings</h2>
 
       <div className="space-y-2">
-        <Label>Scoring format</Label>
+        <Label>Scoring Format</Label>
         <RadioGroup
           value={value.scoring_format}
           onValueChange={(v) => set("scoring_format", v as ScoringFormat)}
@@ -65,7 +65,7 @@ export function SettingsPanel({ value, onChange, linkedLeague, profileId, onRefr
       </div>
 
       <div className="space-y-2">
-        <Label>League size</Label>
+        <Label>League Size</Label>
         <Select
           value={String(value.league_size)}
           onValueChange={(v) => set("league_size", Number(v) as LeagueSize)}
@@ -82,7 +82,7 @@ export function SettingsPanel({ value, onChange, linkedLeague, profileId, onRefr
       </div>
 
       <div className="space-y-2">
-        <Label>Draft rounds</Label>
+        <Label>Draft Rounds</Label>
         <Select
           value={String(value.draft_rounds)}
           onValueChange={(v) => set("draft_rounds", Number(v))}
@@ -99,7 +99,7 @@ export function SettingsPanel({ value, onChange, linkedLeague, profileId, onRefr
       </div>
 
       <div className="space-y-2">
-        <Label>QB passing TDs</Label>
+        <Label>QB Passing TDs</Label>
         <RadioGroup
           value={String(value.qb_td_points)}
           onValueChange={(v) => set("qb_td_points", Number(v) as QbTdPoints)}
@@ -117,9 +117,9 @@ export function SettingsPanel({ value, onChange, linkedLeague, profileId, onRefr
       <div className="space-y-3">
         <Label>Bonuses</Label>
         {([
-          ["bonus_100yd_rushing", "100-yd rushing"],
-          ["bonus_100yd_receiving", "100-yd receiving"],
-          ["bonus_first_downs", "First down bonus"],
+          ["bonus_100yd_rushing", "100-yd Rushing"],
+          ["bonus_100yd_receiving", "100-yd Receiving"],
+          ["bonus_first_downs", "First Down Bonus"],
         ] as const).map(([key, label]) => (
           <div key={key} className="flex items-center justify-between">
             <Label htmlFor={key} className="cursor-pointer">{label}</Label>

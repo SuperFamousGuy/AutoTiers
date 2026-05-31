@@ -48,7 +48,7 @@ export function LinkedAccountsDialog({ open, onOpenChange, user, onRefresh, init
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
-        <DialogTitle>Linked accounts</DialogTitle>
+        <DialogTitle>Linked Accounts</DialogTitle>
         {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
         <ul className="space-y-3">
           <li className="flex items-center justify-between">

@@ -70,7 +70,7 @@ export function SleeperConnectForm({ profileId, onLinked, onCancel }: Props) {
       {step === "username" ? (
         <>
           <label className="block text-sm">
-            <span>Sleeper username</span>
+            <span>Sleeper Username</span>
             <input
               className="mt-1 block w-full rounded border px-2 py-1 text-sm"
               value={username}
@@ -88,7 +88,7 @@ export function SleeperConnectForm({ profileId, onLinked, onCancel }: Props) {
       ) : (
         <>
           <label className="block text-sm">
-            <span>Select your league</span>
+            <span>Select Your League</span>
             <select
               className="mt-1 block w-full rounded border px-2 py-1 text-sm"
               value={chosenLeague}

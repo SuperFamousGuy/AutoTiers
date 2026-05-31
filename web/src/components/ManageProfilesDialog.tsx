@@ -42,7 +42,7 @@ export function ManageProfilesDialog({ open, onOpenChange, profiles, onRename, o
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
-        <DialogTitle>Manage profiles</DialogTitle>
+        <DialogTitle>Manage Profiles</DialogTitle>
         {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
         {profiles.length === 0 ? (
           <p className="text-sm text-muted-foreground">No profiles yet.</p>
@@ -66,7 +66,7 @@ export function ManageProfilesDialog({ open, onOpenChange, profiles, onRename, o
                     <span className="flex-1 truncate">{p.name}</span>
                     <Button size="sm" variant="ghost" onClick={() => { setEditingId(p.id); setDraftName(p.name); setError(null); }}>Rename</Button>
                     {confirmDeleteId === p.id ? (
-                      <Button size="sm" variant="destructive" onClick={() => handleDelete(p.id)}>Confirm delete</Button>
+                      <Button size="sm" variant="destructive" onClick={() => handleDelete(p.id)}>Confirm Delete</Button>
                     ) : (
                       <Button size="sm" variant="ghost" onClick={() => { setConfirmDeleteId(p.id); setError(null); }} aria-label={`delete ${p.name}`}>
                         <Trash2 className="h-4 w-4" />

@@ -27,7 +27,7 @@ describe("ProfilePicker", () => {
     render(<ProfilePicker profiles={profiles} activeId="p1" onSelect={() => {}} onNew={() => {}} onManage={() => {}} canCreate={false} />);
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /PPR 12-team/ }));
-    const item = screen.getByRole("menuitem", { name: /\+ New profile/ });
+    const item = screen.getByRole("menuitem", { name: /\+ New Profile/i });
     expect(item).toHaveAttribute("data-disabled");
   });
 });
