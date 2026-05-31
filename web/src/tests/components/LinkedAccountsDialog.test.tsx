@@ -40,7 +40,6 @@ describe("LinkedAccountsDialog", () => {
         initialError={null}
       />,
     );
-    expect(screen.getByText("alice@example.com")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /^connect$/i })).toHaveLength(2);
   });
 

@@ -51,12 +51,6 @@ export function LinkedAccountsDialog({ open, onOpenChange, user, onRefresh, init
         {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
         <ul className="space-y-3">
           <li className="flex items-center justify-between">
-            <span className="text-sm">Email</span>
-            <span className="text-sm text-muted-foreground">
-              {user.email ?? "Not set"}
-            </span>
-          </li>
-          <li className="flex items-center justify-between">
             <span className="text-sm">Google</span>
             {user.google_subject ? (
               <Button
