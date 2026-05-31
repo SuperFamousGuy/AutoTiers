@@ -34,10 +34,21 @@ export default function App() {
   const [manageOpen, setManageOpen] = useState(false);
   const [linkedOpen, setLinkedOpen] = useState(false);
   const [linkingError, setLinkingError] = useState<string | null>(null);
-  const [lastSavedSnapshot, setLastSavedSnapshot] = useState<{
+  // Per-profile undo history. Each entry is a snapshot of a moment when state
+  // was committed to the server. Tip (last entry) is the current server state.
+  // Undo pops the tip and re-PATCHes the prior tip, so undo also persists.
+  type Snapshot = {
     settings_json: Record<string, unknown>;
     rules_json: Array<Record<string, unknown>>;
-  } | null>(null);
+  };
+  const HISTORY_CAP = 10;
+  const [history, setHistory] = useState<Record<string, Snapshot[]>>({});
+  const lastSavedSnapshot: Snapshot | null = activeProfileId
+    ? history[activeProfileId]?.at(-1) ?? null
+    : null;
+  const canUndo = activeProfileId
+    ? (history[activeProfileId]?.length ?? 0) >= 2
+    : false;
 
   const { data: fetchedRules } = useRules();
   const generate = useGenerateMutation();
@@ -67,12 +78,12 @@ export default function App() {
     setActiveProfileId(user?.last_active_profile_id ?? null);
   }, [user]);
 
-  // When activeProfileId changes, hydrate settings + rules + snapshot from that profile.
+  // When activeProfileId changes, hydrate settings + rules from that profile.
+  // Also seed undo history with the loaded snapshot — but only on the first
+  // hydration for the profile, so existing in-memory history survives
+  // profile-switch round-trips.
   useEffect(() => {
-    if (!activeProfileId) {
-      setLastSavedSnapshot(null);
-      return;
-    }
+    if (!activeProfileId) return;
     const active = profiles.find((p) => p.id === activeProfileId);
     if (!active) return;
 
@@ -84,9 +95,15 @@ export default function App() {
         return o ? { ...r, enabled: o.enabled, weight: o.weight } : r;
       }));
     }
-    setLastSavedSnapshot({
-      settings_json: active.settings_json as Record<string, unknown>,
-      rules_json: active.rules_json as unknown as Array<Record<string, unknown>>,
+    setHistory((prev) => {
+      if ((prev[activeProfileId]?.length ?? 0) > 0) return prev;
+      return {
+        ...prev,
+        [activeProfileId]: [{
+          settings_json: active.settings_json as Record<string, unknown>,
+          rules_json: active.rules_json as unknown as Array<Record<string, unknown>>,
+        }],
+      };
     });
   }, [activeProfileId, profiles, fetchedRules]);
 
@@ -94,11 +111,6 @@ export default function App() {
     settings_json: settings as unknown as Record<string, unknown>,
     rules_json: rules.map((r) => ({ name: r.name, enabled: r.enabled, weight: r.weight })) as unknown as Array<Record<string, unknown>>,
   }), [settings, rules]);
-
-  const isDirty = useMemo(() => {
-    if (!lastSavedSnapshot) return false;
-    return JSON.stringify(autosavePayload) !== JSON.stringify(lastSavedSnapshot);
-  }, [autosavePayload, lastSavedSnapshot]);
 
   useAutoSave({
     activeId: user ? activeProfileId : null,
@@ -113,7 +125,14 @@ export default function App() {
         return;
       }
       const updated = await updateProfile(id, payload);
-      setLastSavedSnapshot(payload);
+      // Append the new save point to history. Cap at HISTORY_CAP so memory
+      // doesn't grow unbounded over long sessions.
+      setHistory((prev) => {
+        const current = prev[id] ?? [];
+        const next = [...current, payload];
+        if (next.length > HISTORY_CAP) next.shift();
+        return { ...prev, [id]: next };
+      });
       // Keep AuthContext's profiles array in sync with what's on the server.
       // Without this, switching profiles re-hydrates from the original
       // /me snapshot — so the edits the user just made get clobbered when
@@ -149,17 +168,32 @@ export default function App() {
     if (activeProfileId === id) setActiveProfileId(null);
   }, [profiles, activeProfileId, setProfiles]);
 
-  const handleResetToSaved = useCallback(() => {
-    if (!lastSavedSnapshot || !fetchedRules) return;
-    setSettings(lastSavedSnapshot.settings_json as unknown as SettingsState);
+  const handleUndo = useCallback(async () => {
+    if (!activeProfileId || !fetchedRules) return;
+    const current = history[activeProfileId];
+    if (!current || current.length < 2) return;
+    // Drop the current tip; the entry before it becomes the new tip.
+    const trimmed = current.slice(0, -1);
+    const newTip = trimmed[trimmed.length - 1];
+
+    // Apply to local state immediately so the UI updates without waiting
+    // for the server round-trip.
+    setSettings(newTip.settings_json as unknown as SettingsState);
     const overrides = new Map(
-      (lastSavedSnapshot.rules_json as Array<{ name: string; enabled: boolean; weight: number }>).map((r) => [r.name, r]),
+      (newTip.rules_json as Array<{ name: string; enabled: boolean; weight: number }>).map((r) => [r.name, r]),
     );
     setRules(fetchedRules.map((r) => {
       const o = overrides.get(r.name);
       return o ? { ...r, enabled: o.enabled, weight: o.weight } : r;
     }));
-  }, [lastSavedSnapshot, fetchedRules]);
+
+    // Drop the popped entry from history. The autosave guard ("bail if payload
+    // matches tip") now blocks the debounced save from firing redundantly —
+    // but the server still has the old tip, so we PATCH explicitly here.
+    setHistory((prev) => ({ ...prev, [activeProfileId]: trimmed }));
+    const updated = await updateProfile(activeProfileId, newTip);
+    setProfiles(profiles.map((p) => (p.id === activeProfileId ? updated : p)));
+  }, [activeProfileId, fetchedRules, history, profiles, setProfiles]);
 
   const buildRequest = (): GenerateRequest => {
     const active = profiles.find((p) => p.id === activeProfileId);
@@ -202,9 +236,9 @@ export default function App() {
               onManage={() => setManageOpen(true)}
               canCreate={profiles.length < 5}
             />
-            {isDirty && (
-              <Button size="sm" variant="ghost" onClick={handleResetToSaved}>
-                Reset to saved
+            {canUndo && (
+              <Button size="sm" variant="ghost" onClick={handleUndo}>
+                Undo
               </Button>
             )}
           </div>
