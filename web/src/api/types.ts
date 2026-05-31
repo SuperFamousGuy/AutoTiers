@@ -101,11 +101,28 @@ export interface User {
   last_active_profile_id: string | null;
 }
 
+export interface LinkedLeague {
+  profile_id: string;
+  provider: "sleeper" | "espn";
+  league_id: string;
+  league_metadata_json: { name: string; season: number };
+  keepers_json: Array<{ player_name: string; position: string; team: string }>;
+  adp_json: Record<string, number> | null;
+  last_synced_at: string;
+}
+
+export interface SleeperLeagueSummary {
+  id: string;
+  name: string;
+  season: number;
+}
+
 export interface Profile {
   id: string;
   name: string;
   settings_json: Record<string, unknown>;
   rules_json: Array<{ name: string; enabled: boolean; weight: number }>;
+  linked_league: LinkedLeague | null;
 }
 
 export interface MeResponse {
