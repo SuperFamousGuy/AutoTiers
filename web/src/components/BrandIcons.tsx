@@ -1,17 +1,17 @@
 /**
  * Brand icons for the Linked Accounts dialog.
  *
- * All six provider icons are self-hosted under `web/public/icons/`. No
- * third-party icon library, no runtime third-party requests. See
- * `web/public/icons/README.md` for sources and how to refresh them.
+ * Each icon is served by DuckDuckGo's icon proxy — it returns the site's
+ * current favicon. Using the third-party service means rebrands flow through
+ * automatically without us shipping a new asset.
  */
 
 const SIZE = "h-4 w-4 shrink-0";
 
-function LocalIcon({ src, alt }: { src: string; alt: string }) {
+function FaviconIcon({ domain, alt }: { domain: string; alt: string }) {
   return (
     <img
-      src={src}
+      src={`https://icons.duckduckgo.com/ip3/${domain}.ico`}
       alt={alt}
       className={`${SIZE} rounded-sm object-contain`}
       loading="lazy"
@@ -20,25 +20,25 @@ function LocalIcon({ src, alt }: { src: string; alt: string }) {
 }
 
 export function GoogleIcon() {
-  return <LocalIcon src="/icons/google.png" alt="Google" />;
+  return <FaviconIcon domain="google.com" alt="Google" />;
 }
 
 export function YahooIcon() {
-  return <LocalIcon src="/icons/yahoo.png" alt="Yahoo" />;
+  return <FaviconIcon domain="yahoo.com" alt="Yahoo" />;
 }
 
 export function SleeperIcon() {
-  return <LocalIcon src="/icons/sleeper.png" alt="Sleeper" />;
+  return <FaviconIcon domain="sleeper.com" alt="Sleeper" />;
 }
 
 export function EspnIcon() {
-  return <LocalIcon src="/icons/espn.png" alt="ESPN" />;
+  return <FaviconIcon domain="espn.com" alt="ESPN" />;
 }
 
 export function NflFantasyIcon() {
-  return <LocalIcon src="/icons/nfl.png" alt="NFL Fantasy" />;
+  return <FaviconIcon domain="fantasy.nfl.com" alt="NFL Fantasy" />;
 }
 
 export function CbsIcon() {
-  return <LocalIcon src="/icons/cbs.png" alt="CBS Sports" />;
+  return <FaviconIcon domain="cbssports.com" alt="CBS Sports" />;
 }
