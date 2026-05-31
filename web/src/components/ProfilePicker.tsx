@@ -30,8 +30,8 @@ export function ProfilePicker({ profiles, activeId, onSelect, onNew, onManage, c
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={onNew} disabled={!canCreate}>+ New profile</DropdownMenuItem>
-        <DropdownMenuItem onSelect={onManage}>Manage profiles…</DropdownMenuItem>
+        <DropdownMenuItem onSelect={onNew} disabled={!canCreate}>+ New Profile</DropdownMenuItem>
+        <DropdownMenuItem onSelect={onManage}>Manage Profiles…</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

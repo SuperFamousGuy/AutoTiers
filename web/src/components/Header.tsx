@@ -34,12 +34,12 @@ function HamburgerMenu({ currentState, onOpenLinkedAccounts }: HamburgerProps) {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => onOpenLinkedAccounts?.()}>
-                Linked accounts
+                Linked Accounts
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => logout()}>Log out</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => logout()}>Log Out</DropdownMenuItem>
             </>
           ) : (
-            <DropdownMenuItem onSelect={() => setAuthOpen(true)}>Log in / Sign up</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setAuthOpen(true)}>Log In / Sign Up</DropdownMenuItem>
           )}
         </DropdownMenuContent>
       </DropdownMenu>

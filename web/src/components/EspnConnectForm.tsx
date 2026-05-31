@@ -59,7 +59,7 @@ export function EspnConnectForm({ profileId, onLinked, onCancel }: Props) {
           onChange={(e) => setIsPrivate(e.target.checked)}
           aria-label="Private league"
         />
-        <span>Private league</span>
+        <span>Private League</span>
       </label>
       {isPrivate && (
         <>

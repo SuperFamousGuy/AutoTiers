@@ -52,8 +52,8 @@ export function AuthDialog({ open, onOpenChange, initialState }: AuthDialogProps
         <DialogTitle>Account</DialogTitle>
         <Tabs defaultValue="login" onValueChange={() => setError(null)}>
           <TabsList>
-            <TabsTrigger value="login">Log in</TabsTrigger>
-            <TabsTrigger value="signup">Sign up</TabsTrigger>
+            <TabsTrigger value="login">Log In</TabsTrigger>
+            <TabsTrigger value="signup">Sign Up</TabsTrigger>
           </TabsList>
 
           <TabsContent value="login">
@@ -67,7 +67,7 @@ export function AuthDialog({ open, onOpenChange, initialState }: AuthDialogProps
                 <input id="login-password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded border px-2 py-1" />
               </div>
               {error && <p className="text-xs text-red-600">{error}</p>}
-              <Button type="submit" className="w-full">Log in</Button>
+              <Button type="submit" className="w-full">Log In</Button>
             </form>
           </TabsContent>
 

@@ -81,7 +81,7 @@ export function ScoreWeights({ weights, onChange }: ScoreWeightsProps) {
 
   return (
     <div className="space-y-3">
-      <Label>Score weights</Label>
+      <Label>Score Weights</Label>
       {ROWS.map(({ key, label }) => (
         <WeightRow
           key={key}
