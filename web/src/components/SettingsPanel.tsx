@@ -3,6 +3,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScoreWeights } from "./ScoreWeights";
+import { LinkedLeagueChip } from "@/components/LinkedLeagueChip";
 import type { ScoringFormat, LeagueSize, QbTdPoints } from "@/api/types";
 import type { Weights } from "@/lib/weights";
 
@@ -20,17 +21,28 @@ export interface SettingsState {
 interface SettingsPanelProps {
   value: SettingsState;
   onChange: (next: SettingsState) => void;
+  linkedLeague?: { provider: "sleeper" | "espn"; leagueName: string } | null;
+  profileId?: string | null;
+  onRefreshLink?: () => Promise<void> | void;
 }
 
 const LEAGUE_SIZES: LeagueSize[] = [8, 10, 12, 14, 16];
 const DRAFT_ROUNDS_OPTIONS = [10, 12, 14, 15, 16, 18, 20, 25] as const;
 
-export function SettingsPanel({ value, onChange }: SettingsPanelProps) {
+export function SettingsPanel({ value, onChange, linkedLeague, profileId, onRefreshLink }: SettingsPanelProps) {
   const set = <K extends keyof SettingsState>(key: K, v: SettingsState[K]) =>
     onChange({ ...value, [key]: v });
 
   return (
     <aside className="space-y-6 border-r bg-card p-6 overflow-y-auto min-h-0">
+      {linkedLeague && profileId && (
+        <LinkedLeagueChip
+          profileId={profileId}
+          provider={linkedLeague.provider}
+          leagueName={linkedLeague.leagueName}
+          onRefreshed={async () => { await onRefreshLink?.(); }}
+        />
+      )}
       <h2 className="text-lg font-semibold">Settings</h2>
 
       <div className="space-y-2">
