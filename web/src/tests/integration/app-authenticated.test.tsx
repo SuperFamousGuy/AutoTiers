@@ -323,6 +323,16 @@ describe("App (authenticated integration)", () => {
     expect(window.location.search).toBe("");
   });
 
+  it("auto-opens Linked accounts dialog with session-lost message when ?linking_error=session_lost", async () => {
+    mockAuthenticated();
+    window.history.replaceState({}, "", "/?linking_error=session_lost");
+    renderApp();
+    await waitFor(() =>
+      expect(screen.getByText(/sign-in session was lost/i)).toBeInTheDocument(),
+    );
+    expect(window.location.search).toBe("");
+  });
+
   it("autosave updates AuthContext profiles so switching away and back preserves edits", async () => {
     // Bug regression: autosave PATCHed the server but discarded the returned
     // profile, so local `profiles` stayed stale. Switching profiles then
