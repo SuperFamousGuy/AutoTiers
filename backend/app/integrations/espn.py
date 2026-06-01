@@ -20,6 +20,13 @@ class EspnAuthRequired(Exception):
 _BASE_URL = "https://fantasy.espn.com/apis/v3/games/ffl"
 _VIEWS = "view=mSettings&view=mTeam&view=mDraftDetail"
 
+# ESPN rejects requests that look like a script (default httpx UA). Use a
+# regular browser UA so the API call goes through.
+_BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+
 
 async def fetch_league(
     league_id: str,
@@ -28,14 +35,23 @@ async def fetch_league(
     espn_s2: str | None,
 ) -> LeagueData:
     url = f"{_BASE_URL}/seasons/{season}/segments/0/leagues/{league_id}?{_VIEWS}"
-    cookies = {}
+    headers: dict[str, str] = {
+        "User-Agent": _BROWSER_UA,
+        "Accept": "application/json",
+    }
+    # Build the Cookie header by hand — httpx URL-encodes cookie values via
+    # its Cookies object, which mangles the braces in SWID. ESPN wants the
+    # raw values (e.g. `SWID={ABCD-1234-...}; espn_s2=...`).
+    parts = []
     if swid:
-        cookies["SWID"] = swid
+        parts.append(f"SWID={swid}")
     if espn_s2:
-        cookies["espn_s2"] = espn_s2
+        parts.append(f"espn_s2={espn_s2}")
+    if parts:
+        headers["Cookie"] = "; ".join(parts)
 
-    async with httpx.AsyncClient(timeout=10.0, cookies=cookies) as client:
-        resp = await client.get(url)
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(url, headers=headers)
         # 401/403 are the explicit auth-required cases. ESPN also redirects
         # (3xx) to their login page for private leagues, so treat redirects
         # the same way — otherwise we'd surface a confusing "ESPN returned
