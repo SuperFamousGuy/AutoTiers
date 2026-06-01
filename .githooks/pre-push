@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# Pre-push hook: refuse to push to a branch whose PR has already been merged
+# or closed. Prevents the "I pushed five more commits to the dead branch"
+# class of mistake.
+#
+# Activate this hook by setting (once per clone):
+#   git config core.hooksPath .githooks
+#
+# If `gh` isn't available or the network is down, the hook fails open
+# (allows the push). Better to let one slip through than to block legit work
+# when offline.
+
+set -e
+
+BRANCH="$(git symbolic-ref --short HEAD 2>/dev/null || true)"
+
+# Pushes from a detached HEAD (rebase, bisect, etc.) — don't interfere.
+if [ -z "$BRANCH" ]; then
+  exit 0
+fi
+
+# main / master pushes — let git's own protections handle it.
+case "$BRANCH" in
+  main|master|develop) exit 0 ;;
+esac
+
+# gh CLI is required for the check. Without it, fail open with a warning.
+if ! command -v gh >/dev/null 2>&1; then
+  echo "[pre-push] gh CLI not found — skipping merged-PR check." >&2
+  exit 0
+fi
+
+# Ask GitHub: what's the state of the PR for THIS branch?
+# We allow the network call to fail silently (no network, no gh auth, etc.).
+PR_STATE="$(gh pr view "$BRANCH" --json state -q .state 2>/dev/null || true)"
+
+case "$PR_STATE" in
+  MERGED)
+    cat >&2 <<EOF
+
+╭─ pre-push BLOCKED ───────────────────────────────────────────────╮
+│                                                                  │
+│  The PR for branch '$BRANCH' is already MERGED.
+│  Pushing more commits to it will create a stale, orphan branch
+│  and a confusing review history.
+│
+│  Move your work to a fresh branch:
+│
+│    git log origin/main..HEAD --oneline       # see what to keep
+│    git checkout main && git pull --ff-only
+│    git checkout -b <new-branch-name>
+│    git cherry-pick <commit-shas>
+│    git push -u origin <new-branch-name>
+│    gh pr create
+│
+│  To bypass (rarely correct), re-run with --no-verify.
+│                                                                  │
+╰──────────────────────────────────────────────────────────────────╯
+EOF
+    exit 1
+    ;;
+  CLOSED)
+    cat >&2 <<EOF
+
+╭─ pre-push BLOCKED ───────────────────────────────────────────────╮
+│                                                                  │
+│  The PR for branch '$BRANCH' was CLOSED without merging.
+│  Pushing more commits won't reopen it.
+│
+│  Open a fresh branch + PR if the work is still wanted:
+│    git checkout main && git pull --ff-only
+│    git checkout -b <new-branch-name>
+│    git cherry-pick <commit-shas>
+│
+│  To bypass (rarely correct), re-run with --no-verify.
+│                                                                  │
+╰──────────────────────────────────────────────────────────────────╯
+EOF
+    exit 1
+    ;;
+  OPEN|"")
+    # OPEN PR → normal push; empty → no PR yet (first push, that's fine).
+    exit 0
+    ;;
+  *)
+    echo "[pre-push] Unexpected PR state '$PR_STATE' for branch '$BRANCH'. Allowing push." >&2
+    exit 0
+    ;;
+esac

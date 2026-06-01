@@ -91,3 +91,13 @@ Before claiming DONE on a change:
 4. For new code branches: a test exists that would FAIL if that branch's behaviour was deleted. Coverage tool catches presence; only manual inspection catches sincerity.
 
 If you can't satisfy all four, report `DONE_WITH_CONCERNS` listing exactly what you couldn't verify, not `DONE`.
+
+## Pre-push gate
+
+The repo ships a `.githooks/pre-push` hook that refuses to push to a branch whose PR is already MERGED or CLOSED — a class of mistake we've shipped repeatedly. Activate it once per clone:
+
+```bash
+./.githooks/setup.sh
+```
+
+If the hook fires, do NOT pass `--no-verify`. Move the work to a fresh branch — the hook's error message includes the exact commands.

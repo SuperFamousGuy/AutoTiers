@@ -39,6 +39,28 @@ For every change, in this order:
 
 7. **Inspect `git status` before committing.** Never `git add -A` or `git add .`. Stage explicit paths. Reject any working-directory junk that could pollute the commit (venv dirs, coverage.xml, .DS_Store, editor temp files).
 
+8. **Before pushing, verify the branch's PR isn't already merged.** Run:
+
+   ```bash
+   gh pr view "$(git branch --show-current)" --json state,url -q '.state + "  " + .url'
+   ```
+
+   - **`OPEN`** → push as normal; the existing PR will pick up the new commit.
+   - **`MERGED` or `CLOSED`** → STOP. The `.githooks/pre-push` hook will also block this, but don't rely on it. Move the new work to a fresh branch:
+
+     ```bash
+     git log origin/main..HEAD --oneline       # list commits to keep
+     git checkout main && git pull --ff-only
+     git checkout -b <new-branch-name>
+     git cherry-pick <shas>
+     git push -u origin <new-branch-name>
+     gh pr create --title "..." --body "..."
+     ```
+
+   - **Empty / no PR** → first push for this branch; proceed.
+
+   This is structural, not memory. Every push goes through this check.
+
 ## What "done" actually means
 
 Before reporting DONE, verify each of these by literally checking, not by feeling confident:
