@@ -128,16 +128,33 @@ No new row for the Yahoo subject you just signed in with.
 
 ## Database inspection
 
-Inside the `db` container:
+Container is named `autotiers-db` (defined in `docker-compose.yml`). Default credentials when no `.env` overrides are set: user `postgres`, password `password`, db `autotiers`. The `-d autotiers` argument matters — the default db wouldn't be the right one.
 
 ```bash
-podman exec -it autotiers-db psql -U postgres -d autotiers
+podman exec -it autotiers-db env PGPASSWORD=password psql -U postgres -d autotiers
+```
 
-# Inside psql:
-\dt linked_leagues   -- describe the table
-SELECT profile_id, provider, league_id, league_metadata_json FROM linked_leagues;
-SELECT id, email, yahoo_subject, google_subject FROM users;
-\dt profiles
+Then inside `psql`:
+
+```sql
+-- Schemas
+\dt
+\d linked_leagues
+\d users
+\d profiles
+
+-- Linked leagues — verify provider, league_id (NULL for pre-link), and that
+-- credentials_encrypted is non-NULL and clearly different from any plaintext
+-- you typed.
+SELECT profile_id, provider, league_id, league_metadata_json, credentials_encrypted
+  FROM linked_leagues;
+
+-- Users — verify yahoo_subject / google_subject attach to the existing user
+-- rather than creating a phantom new one.
+SELECT id, email, yahoo_subject, google_subject FROM users ORDER BY created_at DESC LIMIT 5;
+
+-- Profiles + the user's last-active marker (drives which profile the app
+-- shows after a re-login).
 SELECT id, user_id, name, last_active_profile_id FROM profiles;
 ```
 
