@@ -57,8 +57,7 @@ export function SleeperConnectForm({ profileId, onLinked, onCancel }: Props) {
       const result = Array.from(byId.values()).sort((a, b) => b.season - a.season);
       if (result.length === 0) {
         setError(
-          `No Sleeper leagues found for "${username_trimmed}" in ${seasons[1]} or ${seasons[0]}. ` +
-          `You can still link your account using "Skip — link account only" above; join a league later and re-link to import its settings.`,
+          `No Sleeper leagues found for "${username_trimmed}" in ${seasons[1]} or ${seasons[0]}.`,
         );
         return;
       }
@@ -103,9 +102,28 @@ export function SleeperConnectForm({ profileId, onLinked, onCancel }: Props) {
     }
   }
 
+  // True when handleContinue confirmed the username exists but found zero
+  // leagues across both seasons we check. In that state we offer an inline
+  // "Link without a league" button instead of stranding the user.
+  const noLeaguesFound = error !== null && error.includes("No Sleeper leagues");
+
   return (
     <div className="space-y-3">
-      {error && <p className="text-xs text-red-600">{error}</p>}
+      {error && (
+        <div className="space-y-2">
+          <p className="text-xs text-red-600">{error}</p>
+          {noLeaguesFound && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy || !username.trim()}
+              onClick={handleLinkWithoutLeague}
+            >
+              Link without a league
+            </Button>
+          )}
+        </div>
+      )}
       {step === "username" ? (
         <>
           <label className="block text-sm">
@@ -119,14 +137,6 @@ export function SleeperConnectForm({ profileId, onLinked, onCancel }: Props) {
           </label>
           <div className="flex gap-2 justify-end">
             <Button size="sm" variant="ghost" onClick={onCancel}>Cancel</Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy || !username.trim()}
-              onClick={handleLinkWithoutLeague}
-            >
-              Skip — link account only
-            </Button>
             <Button size="sm" disabled={busy || !username.trim()} onClick={handleContinue}>
               Continue
             </Button>

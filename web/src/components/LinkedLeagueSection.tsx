@@ -12,6 +12,8 @@ interface Props {
   onConnectEspn: () => void;
 }
 
+type Provider = "sleeper" | "espn";
+
 export function LinkedLeagueSection({ profile, onChanged, onConnectSleeper, onConnectEspn }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -44,49 +46,68 @@ export function LinkedLeagueSection({ profile, onChanged, onConnectSleeper, onCo
 
   const linked = profile.linked_league;
 
+  function rowActions(provider: Provider, onConnect: () => void) {
+    if (linked?.provider !== provider) {
+      const label = provider === "sleeper" ? "Connect Sleeper" : "Connect ESPN";
+      return (
+        <Button size="sm" aria-label={label} onClick={onConnect}>
+          Connect
+        </Button>
+      );
+    }
+    return (
+      <div className="flex gap-2">
+        {linked.league_id && (
+          <Button size="sm" variant="outline" disabled={busy} onClick={handleRefresh}>
+            Refresh
+          </Button>
+        )}
+        <Button size="sm" variant="outline" disabled={busy} onClick={handleDisconnect}>
+          Disconnect
+        </Button>
+      </div>
+    );
+  }
+
+  function rowLabel(provider: Provider, name: string, Icon: () => JSX.Element) {
+    const isLinked = linked?.provider === provider;
+    let suffix = "";
+    if (isLinked) {
+      if (linked?.league_metadata_json) {
+        suffix = ` · ${linked.league_metadata_json.name}`;
+      } else {
+        suffix = " · account linked (no league)";
+      }
+    }
+    return (
+      <span className="flex items-center gap-2">
+        <Icon />
+        {name}{suffix}
+      </span>
+    );
+  }
+
   return (
     <section className="space-y-3 mt-3">
       {error && <p className="text-xs text-red-600">{error}</p>}
-      {linked ? (
-        <div className="flex items-center justify-between">
-          <span className="flex items-center gap-2 text-sm">
-            {linked.provider === "sleeper" ? <SleeperIcon /> : <EspnIcon />}
-            {linked.provider === "sleeper" ? "Sleeper" : "ESPN"}
-            {linked.league_metadata_json
-              ? ` · ${linked.league_metadata_json.name}`
-              : " · account linked (no league)"}
-          </span>
-          <div className="flex gap-2">
-            {linked.league_id && (
-              <Button size="sm" variant="outline" disabled={busy} onClick={handleRefresh}>
-                Refresh
-              </Button>
-            )}
-            <Button size="sm" variant="outline" disabled={busy} onClick={handleDisconnect}>
-              Disconnect
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <ul className="space-y-3 text-sm">
-          <li className="flex items-center justify-between">
-            <span className="flex items-center gap-2"><SleeperIcon />Sleeper</span>
-            <Button size="sm" aria-label="Connect Sleeper" onClick={onConnectSleeper}>Connect</Button>
-          </li>
-          <li className="flex items-center justify-between">
-            <span className="flex items-center gap-2"><EspnIcon />ESPN</span>
-            <Button size="sm" aria-label="Connect ESPN" onClick={onConnectEspn}>Connect</Button>
-          </li>
-          <li className="flex items-center justify-between text-muted-foreground">
-            <span className="flex items-center gap-2"><NflFantasyIcon />NFL Fantasy</span>
-            <span className="text-xs">Coming Soon</span>
-          </li>
-          <li className="flex items-center justify-between text-muted-foreground">
-            <span className="flex items-center gap-2"><CbsIcon />CBS</span>
-            <span className="text-xs">Coming Soon</span>
-          </li>
-        </ul>
-      )}
+      <ul className="space-y-3 text-sm">
+        <li className="flex items-center justify-between">
+          {rowLabel("sleeper", "Sleeper", SleeperIcon)}
+          {rowActions("sleeper", onConnectSleeper)}
+        </li>
+        <li className="flex items-center justify-between">
+          {rowLabel("espn", "ESPN", EspnIcon)}
+          {rowActions("espn", onConnectEspn)}
+        </li>
+        <li className="flex items-center justify-between text-muted-foreground">
+          <span className="flex items-center gap-2"><NflFantasyIcon />NFL Fantasy</span>
+          <span className="text-xs">Coming Soon</span>
+        </li>
+        <li className="flex items-center justify-between text-muted-foreground">
+          <span className="flex items-center gap-2"><CbsIcon />CBS</span>
+          <span className="text-xs">Coming Soon</span>
+        </li>
+      </ul>
     </section>
   );
 }

@@ -50,7 +50,7 @@ describe("LinkedLeagueSection", () => {
     expect(onConnectEspn).toHaveBeenCalled();
   });
 
-  it("when linked, shows provider + league name + Refresh + Disconnect", () => {
+  it("when linked, the connected row shows league name + Refresh + Disconnect — and other providers remain visible", () => {
     const linked = {
       ...profile,
       linked_league: {
@@ -67,9 +67,15 @@ describe("LinkedLeagueSection", () => {
         onConnectEspn={vi.fn()}
       />,
     );
+    // Connected row state
     expect(screen.getByText(/PPR Champs/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^refresh$/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^disconnect$/i })).toBeInTheDocument();
+    // Other providers remain reachable from the same list
+    expect(screen.getByRole("button", { name: /connect espn/i })).toBeInTheDocument();
+    expect(screen.getByText(/nfl fantasy/i)).toBeInTheDocument();
+    expect(screen.getByText(/cbs/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/coming soon/i)).toHaveLength(2);
   });
 
   it("disconnect calls API and onChanged", async () => {

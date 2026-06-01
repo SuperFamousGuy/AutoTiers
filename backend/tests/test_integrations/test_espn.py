@@ -45,6 +45,7 @@ async def test_fetch_private_league_sends_cookies():
     captured = {}
     def handler(request):
         captured["cookies"] = dict(request.headers).get("cookie", "")
+        captured["user_agent"] = dict(request.headers).get("user-agent", "")
         return Response(200, json={
             "id": 12345,
             "settings": {"name": "Private", "size": 10, "scoringSettings": {"scoringItems": []}},
@@ -54,8 +55,11 @@ async def test_fetch_private_league_sends_cookies():
     with respx.mock() as router:
         router.get(_espn_base(2026, "12345")).mock(side_effect=handler)
         await fetch_league("12345", 2026, swid="{abc-123}", espn_s2="encrypted-blob")
-    assert "swid={abc-123}" in captured["cookies"].lower() or "SWID=" in captured["cookies"]
+    # SWID braces must travel raw (no %7B/%7D) — ESPN rejects URL-encoded values.
+    assert "SWID={abc-123}" in captured["cookies"]
     assert "espn_s2=encrypted-blob" in captured["cookies"]
+    # Browser-like User-Agent so ESPN doesn't bounce us as a bot.
+    assert "Mozilla" in captured["user_agent"]
 
 
 @pytest.mark.asyncio
