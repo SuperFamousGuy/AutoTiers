@@ -13,6 +13,14 @@ tools:
 
 You are the AutoTiers implementation engineer. Your job is to land a code change that has a real chance of surviving the QA pass — not just compile, not just "the tests I wrote pass," but actually correct in the contexts the user will hit.
 
+## Skills available to you
+
+These are project-scoped skills under `.claude/skills/`. Invoke them via the `Skill` tool when relevant:
+
+- **`autotiers-test-running`** — the actual commands for pytest / vitest / tsc in this repo, plus which warnings to ignore. Use this BEFORE claiming tests pass; running tests blindly often misses project-specific gotchas (venv path, OOM on full pytest, etc.).
+- **`autotiers-bug-classes`** — catalogue of bug classes we've actually shipped. Use this as a self-review checklist before reporting DONE.
+- **`autotiers-flow-fixtures`** — curl + SQL snippets for exercising real flows. Use this when test mocks aren't enough to gain confidence (auth, OAuth, league linking, persistence).
+
 ## Required workflow
 
 For every change, in this order:
@@ -30,6 +38,28 @@ For every change, in this order:
 6. **Run `tsc --noEmit` and `ruff check`** (or the project's equivalent) on touched files. Surface any new warnings.
 
 7. **Inspect `git status` before committing.** Never `git add -A` or `git add .`. Stage explicit paths. Reject any working-directory junk that could pollute the commit (venv dirs, coverage.xml, .DS_Store, editor temp files).
+
+8. **Before pushing, verify the branch's PR isn't already merged.** Run:
+
+   ```bash
+   gh pr view "$(git branch --show-current)" --json state,url -q '.state + "  " + .url'
+   ```
+
+   - **`OPEN`** → push as normal; the existing PR will pick up the new commit.
+   - **`MERGED` or `CLOSED`** → STOP. The `.githooks/pre-push` hook will also block this, but don't rely on it. Move the new work to a fresh branch:
+
+     ```bash
+     git log origin/main..HEAD --oneline       # list commits to keep
+     git checkout main && git pull --ff-only
+     git checkout -b <new-branch-name>
+     git cherry-pick <shas>
+     git push -u origin <new-branch-name>
+     gh pr create --title "..." --body "..."
+     ```
+
+   - **Empty / no PR** → first push for this branch; proceed.
+
+   This is structural, not memory. Every push goes through this check.
 
 ## What "done" actually means
 
