@@ -64,8 +64,15 @@ export default function App() {
   // On first mount, surface OAuth linking failures the backend signalled via query param.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get("linking_error") === "already_linked_elsewhere") {
-      setLinkingError("This Google or Yahoo account is already linked to a different AutoTiers account.");
+    const code = params.get("linking_error");
+    let message: string | null = null;
+    if (code === "already_linked_elsewhere") {
+      message = "This Google or Yahoo account is already linked to a different AutoTiers account.";
+    } else if (code === "session_lost") {
+      message = "Your sign-in session was lost during the redirect. Please sign in again, then try linking the account.";
+    }
+    if (message !== null) {
+      setLinkingError(message);
       setLinkedOpen(true);
       params.delete("linking_error");
       const rest = params.toString();

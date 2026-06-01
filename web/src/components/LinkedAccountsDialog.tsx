@@ -50,8 +50,12 @@ export function LinkedAccountsDialog({ open, onOpenChange, user, onRefresh, init
   }
 
   function handleConnect(provider: "google" | "yahoo") {
-    // Full-page navigation; OAuth callback brings us back.
-    window.location.href = provider === "google" ? googleAuthorizeUrl() : yahooAuthorizeUrl();
+    // Full-page navigation; OAuth callback brings us back. intent=link tells
+    // the backend we're attaching to the current account — if the session
+    // cookie fails to make the round-trip the user gets a clear error
+    // instead of being silently signed in as a brand-new account.
+    const base = provider === "google" ? googleAuthorizeUrl() : yahooAuthorizeUrl();
+    window.location.href = `${base}?intent=link`;
   }
 
   return (

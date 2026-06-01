@@ -162,12 +162,17 @@ async def _handle_oauth_link(
     return response
 
 
-@router.get("/yahoo/authorize")
-async def yahoo_authorize() -> RedirectResponse:
-    state = secrets.token_urlsafe(32)
-    response = RedirectResponse(url=build_authorize_url(state), status_code=307)
+# Set alongside the state cookie when the user clicks 'Connect' from inside
+# the app (signalling 'link to my current account', NOT 'sign in / sign up').
+# We use this in the callback to avoid silently creating a new account when
+# the session cookie failed to travel — we'd rather error out and ask the
+# user to retry than orphan their existing data on a phantom user.
+_OAUTH_INTENT_COOKIE = "autotiers_oauth_intent"
+
+
+def _set_oauth_state_cookies(response, state_cookie_name: str, state: str, intent: str | None) -> None:
     response.set_cookie(
-        key=_OAUTH_STATE_COOKIE,
+        key=state_cookie_name,
         value=state,
         max_age=600,  # 10 min
         httponly=True,
@@ -175,6 +180,23 @@ async def yahoo_authorize() -> RedirectResponse:
         samesite="lax",
         path="/",
     )
+    if intent == "link":
+        response.set_cookie(
+            key=_OAUTH_INTENT_COOKIE,
+            value="link",
+            max_age=600,
+            httponly=True,
+            secure=not settings.debug,
+            samesite="lax",
+            path="/",
+        )
+
+
+@router.get("/yahoo/authorize")
+async def yahoo_authorize(intent: str | None = None) -> RedirectResponse:
+    state = secrets.token_urlsafe(32)
+    response = RedirectResponse(url=build_authorize_url(state), status_code=307)
+    _set_oauth_state_cookies(response, _OAUTH_STATE_COOKIE, state, intent)
     return response
 
 
@@ -184,6 +206,7 @@ async def yahoo_callback(
     state: str,
     autotiers_oauth_state: str | None = Cookie(default=None),
     autotiers_session: str | None = Cookie(default=None),
+    autotiers_oauth_intent: str | None = Cookie(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
     if not autotiers_oauth_state or autotiers_oauth_state != state:
@@ -205,6 +228,16 @@ async def yahoo_callback(
             state_cookie_name=_OAUTH_STATE_COOKIE,
         )
 
+    # The user clicked "Connect" from inside the app intending to link, but
+    # we couldn't resolve their session. Bail out instead of silently signing
+    # them in as a different account and orphaning their existing profile.
+    if autotiers_oauth_intent == "link":
+        url = _frontend_url_with_param("linking_error", "session_lost")
+        response = RedirectResponse(url=url, status_code=302)
+        response.delete_cookie(_OAUTH_STATE_COOKIE, path="/")
+        response.delete_cookie(_OAUTH_INTENT_COOKIE, path="/")
+        return response
+
     # Sign-in flow only — linking flow handled above.
     user = await db.scalar(select(User).where(User.yahoo_subject == yahoo_subject))
     if user is None and yahoo_email_verified and yahoo_email:
@@ -223,6 +256,7 @@ async def yahoo_callback(
 
     response = RedirectResponse(url=settings.frontend_url, status_code=302)
     response.delete_cookie(_OAUTH_STATE_COOKIE, path="/")
+    response.delete_cookie(_OAUTH_INTENT_COOKIE, path="/")
     set_auth_cookie(response, user.id)
     return response
 
@@ -231,18 +265,10 @@ _GOOGLE_OAUTH_STATE_COOKIE = "autotiers_google_oauth_state"
 
 
 @router.get("/google/authorize")
-async def google_authorize() -> RedirectResponse:
+async def google_authorize(intent: str | None = None) -> RedirectResponse:
     state = secrets.token_urlsafe(32)
     response = RedirectResponse(url=build_google_authorize_url(state), status_code=307)
-    response.set_cookie(
-        key=_GOOGLE_OAUTH_STATE_COOKIE,
-        value=state,
-        max_age=600,
-        httponly=True,
-        secure=not settings.debug,
-        samesite="lax",
-        path="/",
-    )
+    _set_oauth_state_cookies(response, _GOOGLE_OAUTH_STATE_COOKIE, state, intent)
     return response
 
 
@@ -252,6 +278,7 @@ async def google_callback(
     state: str,
     autotiers_google_oauth_state: str | None = Cookie(default=None),
     autotiers_session: str | None = Cookie(default=None),
+    autotiers_oauth_intent: str | None = Cookie(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
     if not autotiers_google_oauth_state or autotiers_google_oauth_state != state:
@@ -273,6 +300,13 @@ async def google_callback(
             state_cookie_name=_GOOGLE_OAUTH_STATE_COOKIE,
         )
 
+    if autotiers_oauth_intent == "link":
+        url = _frontend_url_with_param("linking_error", "session_lost")
+        response = RedirectResponse(url=url, status_code=302)
+        response.delete_cookie(_GOOGLE_OAUTH_STATE_COOKIE, path="/")
+        response.delete_cookie(_OAUTH_INTENT_COOKIE, path="/")
+        return response
+
     # Sign-in flow only — linking flow handled above.
     user = await db.scalar(select(User).where(User.google_subject == google_subject))
     if user is None and google_email_verified and google_email:
@@ -291,6 +325,7 @@ async def google_callback(
 
     response = RedirectResponse(url=settings.frontend_url, status_code=302)
     response.delete_cookie(_GOOGLE_OAUTH_STATE_COOKIE, path="/")
+    response.delete_cookie(_OAUTH_INTENT_COOKIE, path="/")
     set_auth_cookie(response, user.id)
     return response
 

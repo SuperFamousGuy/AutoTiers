@@ -103,6 +103,32 @@ describe("LinkedAccountsDialog", () => {
     expect(await screen.findByText(/last sign-in method/i)).toBeInTheDocument();
   });
 
+  it("Connect Google navigates to the authorize URL with intent=link", async () => {
+    const originalHref = window.location.href;
+    // jsdom's window.location.href is settable; stub via a property descriptor.
+    let assignedHref = "";
+    const hrefSetter = vi.fn((v: string) => { assignedHref = v; });
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: { ...window.location, set href(v: string) { hrefSetter(v); } },
+    });
+    render(
+      <LinkedAccountsDialog
+        open={true}
+        onOpenChange={noop}
+        user={baseUser}
+        onRefresh={noop}
+        initialError={null}
+      />,
+    );
+    const u = userEvent.setup();
+    await u.click(screen.getAllByRole("button", { name: /^connect$/i })[0]);
+    expect(assignedHref).toContain("/api/auth/google/authorize");
+    expect(assignedHref).toContain("intent=link");
+    // Restore (best-effort — jsdom's location is read-only by default).
+    Object.defineProperty(window, "location", { writable: true, value: { href: originalHref } });
+  });
+
   it("renders an initial error when provided", () => {
     render(
       <LinkedAccountsDialog
