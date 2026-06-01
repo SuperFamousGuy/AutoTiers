@@ -140,7 +140,17 @@ export function EspnConnectForm({ profileId, onLinked, onCancel }: Props) {
       )}
       <div className="flex gap-2 justify-end">
         <Button size="sm" variant="ghost" onClick={onCancel}>Cancel</Button>
-        <Button size="sm" disabled={busy} onClick={handleConnect}>
+        <Button
+          size="sm"
+          disabled={
+            busy ||
+            // Need either a league ID or both cookies — otherwise there's
+            // nothing for the backend to link.
+            (leagueId.trim() === "" &&
+              (!isPrivate || swid.trim() === "" || espnS2.trim() === ""))
+          }
+          onClick={handleConnect}
+        >
           Connect
         </Button>
       </div>

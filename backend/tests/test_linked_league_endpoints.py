@@ -147,6 +147,28 @@ async def test_post_sleeper_pre_link_stores_username_with_no_league(async_client
 
 
 @pytest.mark.asyncio
+async def test_post_espn_rejects_empty_body(async_client, test_db):
+    """No league, no cookies → 400. We're not storing an empty row."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    r = await async_client.post(f"/api/profiles/{p.id}/link/espn", json={})
+    assert r.status_code == 400
+    assert "league" in r.json()["detail"].lower() or "cookie" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_post_espn_rejects_swid_without_espn_s2(async_client, test_db):
+    """Half-cookies alone aren't useful for authenticated requests."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    r = await async_client.post(
+        f"/api/profiles/{p.id}/link/espn",
+        json={"swid": "{abc-123}"},
+    )
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
 async def test_post_espn_pre_link_stores_cookies_with_no_league(async_client, test_db):
     """ESPN body with cookies but no league_id → store cookies, skip league fetch."""
     u, p = await _make_user_and_profile(test_db)

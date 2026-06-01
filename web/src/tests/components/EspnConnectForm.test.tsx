@@ -29,6 +29,20 @@ describe("EspnConnectForm", () => {
     await waitFor(() => expect(onLinked).toHaveBeenCalled());
   });
 
+  it("Connect is disabled when neither a league ID nor cookies are filled", () => {
+    render(<EspnConnectForm profileId="p1" onLinked={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.getByRole("button", { name: /^connect$/i })).toBeDisabled();
+  });
+
+  it("Connect becomes enabled with cookies only (no league)", async () => {
+    render(<EspnConnectForm profileId="p1" onLinked={vi.fn()} onCancel={vi.fn()} />);
+    const u = userEvent.setup();
+    await u.click(screen.getByLabelText(/private league/i));
+    await u.type(screen.getByLabelText(/swid/i), "{{abc-123}");
+    await u.type(screen.getByLabelText(/espn_s2/i), "blob");
+    expect(screen.getByRole("button", { name: /^connect$/i })).toBeEnabled();
+  });
+
   it("reveals SWID + espn_s2 fields when Private toggle is on", async () => {
     render(<EspnConnectForm profileId="p1" onLinked={vi.fn()} onCancel={vi.fn()} />);
     const u = userEvent.setup();

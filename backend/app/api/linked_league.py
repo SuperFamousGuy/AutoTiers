@@ -202,6 +202,15 @@ async def post_espn(
     user: User = require_user,
     db: AsyncSession = Depends(get_db),
 ) -> LinkedLeagueResponse:
+    # Either a league_id (public or about to be paired with cookies) or a
+    # full SWID + espn_s2 cookie pair is required. An empty body would
+    # produce a row with nothing useful in it.
+    if not body.league_id and not (body.swid and body.espn_s2):
+        raise HTTPException(
+            status_code=400,
+            detail="Provide a league ID, or paste your ESPN SWID + espn_s2 cookies. Nothing to link without either.",
+        )
+
     profile = await _resolve_profile(profile_id, user, db)
     ll = _upsert_linked_league(profile, db)
     ll.provider = "espn"
