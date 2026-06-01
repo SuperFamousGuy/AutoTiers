@@ -77,8 +77,16 @@ describe("SleeperConnectForm", () => {
     await waitFor(() => expect(screen.getByText(/couldn't find/i)).toBeInTheDocument());
   });
 
-  it("Skip button pre-links the account with no league", async () => {
-    const { connectSleeper } = await import("@/api/linkedLeague");
+  it("upfront username step does NOT show the link-without-league button", async () => {
+    render(<SleeperConnectForm profileId="p1" onLinked={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: /link without a league/i })).not.toBeInTheDocument();
+  });
+
+  it("when zero leagues are found, surfaces a 'Link without a league' button that pre-links", async () => {
+    const { listSleeperLeagues, connectSleeper } = await import("@/api/linkedLeague");
+    (listSleeperLeagues as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
     (connectSleeper as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       linked_league: { profile_id: "p1", provider: "sleeper", league_id: null,
         league_metadata_json: null, keepers_json: null,
@@ -88,23 +96,16 @@ describe("SleeperConnectForm", () => {
     const onLinked = vi.fn();
     render(<SleeperConnectForm profileId="p1" onLinked={onLinked} onCancel={vi.fn()} />);
     const u = userEvent.setup();
-    await u.type(screen.getByLabelText(/sleeper username/i), "alice");
-    await u.click(screen.getByRole("button", { name: /skip — link account only/i }));
-    await waitFor(() => expect(connectSleeper).toHaveBeenCalledWith("p1", { username: "alice" }));
-    await waitFor(() => expect(onLinked).toHaveBeenCalled());
-  });
-
-  it("shows a helpful message when the username exists but has zero leagues", async () => {
-    const { listSleeperLeagues } = await import("@/api/linkedLeague");
-    (listSleeperLeagues as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]);
-    render(<SleeperConnectForm profileId="p1" onLinked={vi.fn()} onCancel={vi.fn()} />);
-    const u = userEvent.setup();
     await u.type(screen.getByLabelText(/sleeper username/i), "leagueless");
     await u.click(screen.getByRole("button", { name: /^continue$/i }));
+    // Error explains no leagues were found
     await waitFor(() =>
-      expect(screen.getAllByText(/skip — link account only/i).length).toBeGreaterThan(0),
+      expect(screen.getByText(/no sleeper leagues found/i)).toBeInTheDocument(),
     );
+    // Inline button appears
+    const linkAnyway = screen.getByRole("button", { name: /link without a league/i });
+    await u.click(linkAnyway);
+    await waitFor(() => expect(connectSleeper).toHaveBeenCalledWith("p1", { username: "leagueless" }));
+    await waitFor(() => expect(onLinked).toHaveBeenCalled());
   });
 });
