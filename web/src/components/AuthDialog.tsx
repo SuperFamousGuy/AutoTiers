@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { yahooAuthorizeUrl, googleAuthorizeUrl } from "@/api/auth";
+import { ApiError } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import type { SettingsState } from "@/components/SettingsPanel";
 import type { Rule } from "@/api/types";
@@ -19,6 +20,27 @@ export function AuthDialog({ open, onOpenChange, initialState }: AuthDialogProps
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  // Try to extract a human-readable error from a backend response. FastAPI
+  // returns JSON like {"detail": "..."} for 4xx; Pydantic 422s return a list
+  // of field errors under "detail" — we surface the first one.
+  function describe(err: unknown, fallback: string): string {
+    if (!(err instanceof ApiError)) return fallback;
+    try {
+      const parsed = JSON.parse(err.message);
+      if (typeof parsed.detail === "string") return parsed.detail;
+      if (Array.isArray(parsed.detail) && parsed.detail.length > 0) {
+        const first = parsed.detail[0];
+        if (typeof first?.msg === "string") {
+          const path = Array.isArray(first.loc) ? first.loc.slice(-1).join("") : "";
+          return path ? `${path}: ${first.msg}` : first.msg;
+        }
+      }
+    } catch {
+      // Not JSON — fall through and use the raw message.
+    }
+    return err.message || fallback;
+  }
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -26,7 +48,7 @@ export function AuthDialog({ open, onOpenChange, initialState }: AuthDialogProps
       await login({ email, password });
       onOpenChange(false);
     } catch (err) {
-      setError("Login failed. Check your email and password.");
+      setError(describe(err, "Login failed. Check your email and password."));
     }
   };
 
@@ -42,7 +64,7 @@ export function AuthDialog({ open, onOpenChange, initialState }: AuthDialogProps
       });
       onOpenChange(false);
     } catch (err) {
-      setError("Signup failed. Email may already be in use, or password may be too short (min 10 chars).");
+      setError(describe(err, "Signup failed. Please try again."));
     }
   };
 

@@ -75,11 +75,11 @@ describe("AuthDialog", () => {
     });
   });
 
-  it("login form shows an error message when the API returns 401", async () => {
+  it("login form surfaces the backend's actual error message on 401", async () => {
     const onOpenChange = vi.fn();
     vi.spyOn(global, "fetch")
       .mockResolvedValueOnce(new Response("", { status: 401 })) // /me on mount
-      .mockResolvedValueOnce(new Response("bad credentials", { status: 401 })); // login
+      .mockResolvedValueOnce(new Response(JSON.stringify({ detail: "Invalid credentials" }), { status: 401 }));
 
     render(
       <AuthProvider>
@@ -92,7 +92,7 @@ describe("AuthDialog", () => {
     await user.type(screen.getByLabelText(/password/i), "wrong-password");
     await user.click(screen.getByRole("button", { name: /^log in$/i }));
 
-    expect(await screen.findByText(/login failed/i)).toBeInTheDocument();
+    expect(await screen.findByText(/invalid credentials/i)).toBeInTheDocument();
     expect(onOpenChange).not.toHaveBeenCalled();
   });
 
@@ -132,11 +132,13 @@ describe("AuthDialog", () => {
     });
   });
 
-  it("sign-up form shows an error message when the API returns 409", async () => {
+  it("sign-up form surfaces the real backend error on 409 (email already in use)", async () => {
     const onOpenChange = vi.fn();
     vi.spyOn(global, "fetch")
-      .mockResolvedValueOnce(new Response("", { status: 401 })) // /me on mount
-      .mockResolvedValueOnce(new Response("Email already in use", { status: 409 })); // signup
+      .mockResolvedValueOnce(new Response("", { status: 401 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ detail: "Email already in use" }), { status: 409 }),
+      );
 
     render(
       <AuthProvider>
@@ -150,7 +152,36 @@ describe("AuthDialog", () => {
     await user.type(screen.getByLabelText(/password/i), "correct horse battery");
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
-    expect(await screen.findByText(/signup failed/i)).toBeInTheDocument();
+    expect(await screen.findByText(/email already in use/i)).toBeInTheDocument();
+    // And we explicitly DO NOT surface the misleading 'password may be too short' text anymore.
+    expect(screen.queryByText(/password may be too short/i)).not.toBeInTheDocument();
     expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("sign-up form surfaces Pydantic field validation errors (422)", async () => {
+    const onOpenChange = vi.fn();
+    // FastAPI 422 returns detail as an array of {loc, msg, type} objects.
+    const validation = {
+      detail: [
+        { loc: ["body", "password"], msg: "String should have at least 10 characters", type: "value_error" },
+      ],
+    };
+    vi.spyOn(global, "fetch")
+      .mockResolvedValueOnce(new Response("", { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(validation), { status: 422 }));
+
+    render(
+      <AuthProvider>
+        <AuthDialog open onOpenChange={onOpenChange} initialState={null} />
+      </AuthProvider>,
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("tab", { name: /sign up/i }));
+    await user.type(screen.getByLabelText(/email/i), "u@example.com");
+    await user.type(screen.getByLabelText(/password/i), "shortpw123");
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+
+    expect(await screen.findByText(/at least 10 characters/i)).toBeInTheDocument();
   });
 });
