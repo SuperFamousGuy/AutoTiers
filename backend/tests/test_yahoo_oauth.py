@@ -63,6 +63,48 @@ async def test_authorize_redirects_to_yahoo_with_state_cookie(async_client):
     assert location.startswith("https://api.login.yahoo.com/oauth2/request_auth")
     assert "state=" in location
     assert "autotiers_oauth_state" in r.cookies
+    # No intent cookie unless explicitly requested.
+    assert "autotiers_oauth_intent" not in r.cookies
+
+
+@pytest.mark.asyncio
+async def test_authorize_with_intent_link_sets_intent_cookie(async_client):
+    r = await async_client.get("/api/auth/yahoo/authorize?intent=link", follow_redirects=False)
+    assert r.status_code == 307
+    assert r.cookies.get("autotiers_oauth_intent") == "link"
+
+
+@pytest.mark.asyncio
+async def test_callback_with_link_intent_but_no_session_redirects_with_error(async_client, test_db):
+    """If the linking flow was initiated but the session cookie didn't survive
+    the round-trip, the callback must NOT silently sign the user in as a new
+    account — it should redirect with a clear linking_error so the user
+    knows their existing account is intact."""
+    import respx
+    from httpx import Response
+    state = "abc123"
+    async_client.cookies.set("autotiers_oauth_state", state)
+    async_client.cookies.set("autotiers_oauth_intent", "link")
+    # Brand-new yahoo subject — without the intent guard we'd create a phantom
+    # user here and orphan the original account.
+    with respx.mock() as router:
+        router.post("https://api.login.yahoo.com/oauth2/get_token").mock(
+            return_value=Response(200, json={"access_token": "tok"}),
+        )
+        router.get("https://api.login.yahoo.com/openid/v1/userinfo").mock(
+            return_value=Response(200, json={"sub": "y-brand-new-sub"}),
+        )
+        r = await async_client.get(
+            f"/api/auth/yahoo/callback?code=the-code&state={state}",
+            follow_redirects=False,
+        )
+    assert r.status_code == 302
+    assert "linking_error=session_lost" in r.headers["location"]
+    # No new user should have been created.
+    from app.models import User
+    from sqlalchemy import select as sql_select
+    users = (await test_db.scalars(sql_select(User).where(User.yahoo_subject == "y-brand-new-sub"))).all()
+    assert users == []
 
 
 @pytest.mark.asyncio
