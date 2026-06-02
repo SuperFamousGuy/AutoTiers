@@ -144,9 +144,9 @@ def test_builtin_rules_is_nonempty_list_of_rules():
         assert rule.conditions
 
 
-def test_builtin_rules_count_is_18():
-    """Adding 'Follow the Money' rule (was 17)."""
-    assert len(BUILTIN_RULES) == 18
+def test_builtin_rules_count_is_20():
+    """Adding Opportunity Over-Producer and Under-Producer rules (was 18)."""
+    assert len(BUILTIN_RULES) == 20
 
 
 def test_all_builtin_rules_have_descriptions():

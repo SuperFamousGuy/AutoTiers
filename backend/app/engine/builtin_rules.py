@@ -75,6 +75,26 @@ BUILTIN_RULES: list[Rule] = [
         description="Penalizes players who scored 3+ more TDs than their red-zone opportunity implied last year - likely to regress. -10% at default weight.",
     ),
     Rule(
+        name="Opportunity Over-Producer",
+        conditions=[RuleCondition(field="opportunity_score_z", operator=">=", value=1.5)],
+        effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.92),
+        description=(
+            "Penalizes players who scored 1.5+ standard deviations above their "
+            "target/carry/red-zone opportunity last season — strong regression "
+            "candidate. -8% at default weight."
+        ),
+    ),
+    Rule(
+        name="Opportunity Under-Producer",
+        conditions=[RuleCondition(field="opportunity_score_z", operator="<=", value=-1.5)],
+        effect=RuleEffect(type=EffectType.MULTIPLIER, value=1.08),
+        description=(
+            "Boosts players who scored 1.5+ standard deviations below their "
+            "target/carry/red-zone opportunity last season — positive regression "
+            "candidate. +8% at default weight."
+        ),
+    ),
+    Rule(
         name="Red Zone Usage Premium",
         conditions=[RuleCondition(field="red_zone_looks", operator=">=", value=25)],
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=1.07),
