@@ -167,3 +167,27 @@ def test_opportunity_score_z_returns_none_when_sigma_missing():
     stat = _StubStat(position="WR", targets=80, receptions=50, rec_yards=600, rec_tds=4,
                      rush_att=0, rush_yards=0, rush_tds=0, red_zone_looks=10, games_played=16)
     assert compute_opportunity_score_z(stat, avg, sigmas, settings) is None
+
+
+def test_opportunity_score_z_returns_none_below_position_threshold():
+    """Player with targets+carries+rz_looks below position minimum → None.
+
+    WR threshold is 50 total opportunity. A player with 49 targets and zero
+    carries/rz_looks should be excluded.
+    """
+    avg = LeagueAverages(pts_per_target={"WR": 1.5}, pts_per_carry={"WR": 0.0}, pts_per_rz_look={"WR": 2.0})
+    sigmas = {"WR": 10.0}
+    settings = _ppr_settings()
+    stat = _StubStat(position="WR", targets=49, receptions=30, rec_yards=500, rec_tds=3,
+                     rush_att=0, rush_yards=0, rush_tds=0, red_zone_looks=0, games_played=16)
+    assert compute_opportunity_score_z(stat, avg, sigmas, settings) is None
+
+
+def test_opportunity_score_z_returns_none_when_sigma_is_zero():
+    """If σ = 0 (all players have identical gap), z cannot be computed."""
+    avg = LeagueAverages(pts_per_target={"WR": 1.5}, pts_per_carry={"WR": 0.0}, pts_per_rz_look={"WR": 2.0})
+    sigmas = {"WR": 0.0}  # zero variance
+    settings = _ppr_settings()
+    stat = _StubStat(position="WR", targets=80, receptions=50, rec_yards=600, rec_tds=4,
+                     rush_att=0, rush_yards=0, rush_tds=0, red_zone_looks=10, games_played=16)
+    assert compute_opportunity_score_z(stat, avg, sigmas, settings) is None
