@@ -147,6 +147,64 @@ async def test_post_sleeper_pre_link_stores_username_with_no_league(async_client
 
 
 @pytest.mark.asyncio
+async def test_pre_linked_sleeper_survives_profile_patch_and_me_refetch(async_client, test_db):
+    """Regression: user reported pre-linking Sleeper, then closing the modal,
+    refreshing, and seeing the link gone. Replays the exact sequence:
+    link → autosave PATCH → fetch /me.
+    """
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+
+    # 1. Pre-link Sleeper (no league).
+    r = await async_client.post(
+        f"/api/profiles/{p.id}/link/sleeper",
+        json={"username": "alice"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["linked_league"]["provider"] == "sleeper"
+
+    # Confirm the LinkedLeague row was actually persisted before any PATCH.
+    rows = (await test_db.scalars(select(LinkedLeague))).all()
+    assert len(rows) == 1, "LinkedLeague row should exist after POST /sleeper"
+
+    # 2. Autosave fires shortly after — the frontend PATCHes the profile with
+    # its current settings + rules (no link-related fields, those are a
+    # separate table).
+    r = await async_client.patch(
+        f"/api/profiles/{p.id}",
+        json={"settings_json": {"scoring_format": "ppr"}, "rules_json": []},
+    )
+    assert r.status_code == 200, r.text
+
+    # 2a. The PATCH response goes straight into the frontend's profiles state
+    # (via `setProfiles(profiles.map((p) => p.id === id ? updated : p))`).
+    # If linked_league isn't on the response, the in-memory state loses it
+    # until the next /me — exactly the symptom the user reported.
+    patch_body = r.json()
+    assert "linked_league" in patch_body, (
+        "PATCH response missing linked_league key — the frontend will overwrite "
+        "its in-memory profile and lose the link until the next /me."
+    )
+    assert patch_body["linked_league"] is not None, (
+        "PATCH response has linked_league=null — the frontend overwrites the in-memory "
+        "linked profile with this null and shows 'unlinked' until /me runs again."
+    )
+    assert patch_body["linked_league"]["provider"] == "sleeper"
+
+    # 2b. Hard check at the DB level: the LinkedLeague row must still exist.
+    rows = (await test_db.scalars(select(LinkedLeague))).all()
+    assert len(rows) == 1, "LinkedLeague row was deleted by the profile PATCH"
+
+    # 3. Page refresh → user calls /me → linked_league must come back.
+    me = (await async_client.get("/api/auth/me")).json()
+    assert len(me["profiles"]) == 1
+    ll = me["profiles"][0]["linked_league"]
+    assert ll is not None, "/me should still return linked_league after PATCH"
+    assert ll["provider"] == "sleeper"
+    assert ll["league_id"] is None  # pre-link, no league selected
+
+
+@pytest.mark.asyncio
 async def test_post_espn_rejects_empty_body(async_client, test_db):
     """No league, no cookies → 400. We're not storing an empty row."""
     u, p = await _make_user_and_profile(test_db)

@@ -3,12 +3,19 @@ import uuid
 from typing import Optional, Any
 from pydantic import BaseModel, Field
 
+from app.schemas.linked_league import LinkedLeagueOut
+
 
 class ProfileOut(BaseModel):
     id: uuid.UUID
     name: str
     settings_json: dict[str, Any]
     rules_json: list[dict[str, Any]]
+    # The frontend stores PATCH/POST responses straight into the in-memory
+    # profiles array (App.tsx `setProfiles(profiles.map(...))`). If we omit
+    # linked_league here, every autosave silently strips the link from state
+    # until the next /me — exactly the symptom users reported.
+    linked_league: Optional[LinkedLeagueOut] = None
 
     model_config = {"from_attributes": True}
 
