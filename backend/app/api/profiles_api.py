@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models import User, Profile
@@ -23,7 +24,10 @@ async def list_profiles(
     db: AsyncSession = Depends(get_db),
 ) -> ProfilesListResponse:
     profiles = (await db.scalars(
-        select(Profile).where(Profile.user_id == user.id).order_by(Profile.updated_at.desc())
+        select(Profile)
+        .where(Profile.user_id == user.id)
+        .options(selectinload(Profile.linked_league))
+        .order_by(Profile.updated_at.desc())
     )).all()
     return ProfilesListResponse(
         profiles=[ProfileOut.model_validate(p) for p in profiles],
@@ -53,7 +57,10 @@ async def create_profile(
     )
     db.add(profile)
     await db.commit()
-    await db.refresh(profile)
+    # Eager-load linked_league before serializing — a freshly-created profile
+    # has none, but ProfileOut still needs the attribute populated (vs. an
+    # async lazy-load) for Pydantic's from_attributes to read it cleanly.
+    await db.refresh(profile, attribute_names=["linked_league"])
     return ProfileOut.model_validate(profile)
 
 
@@ -64,7 +71,16 @@ async def update_profile(
     user: User = require_user,
     db: AsyncSession = Depends(get_db),
 ) -> ProfileOut:
-    profile = await db.get(Profile, profile_id)
+    # selectinload here matters: ProfileOut now includes linked_league, and the
+    # frontend stores PATCH responses straight back into in-memory state. If we
+    # don't eager-load, Pydantic's from_attributes hits an async lazy-load
+    # (MissingGreenlet) at best, or silently emits null at worst — the latter
+    # is the bug users reported as "link disappears after autosave."
+    profile = await db.scalar(
+        select(Profile)
+        .where(Profile.id == profile_id)
+        .options(selectinload(Profile.linked_league))
+    )
     if profile is None:
         raise HTTPException(status_code=404, detail="Profile not found")
     if profile.user_id != user.id:
@@ -78,7 +94,7 @@ async def update_profile(
         profile.rules_json = body.rules_json
 
     await db.commit()
-    await db.refresh(profile)
+    await db.refresh(profile, attribute_names=["linked_league"])
     return ProfileOut.model_validate(profile)
 
 

@@ -2,7 +2,13 @@
 import uuid
 from typing import Optional, Any
 from pydantic import BaseModel, EmailStr, Field
-from app.schemas.linked_league import LinkedLeagueOut
+
+# Re-export ProfileOut from profile.py so /me and /profiles share one schema.
+# Earlier we had two separate ProfileOut classes — and only the /me copy carried
+# linked_league. Every autosave PATCH returned the stripped /profiles copy,
+# overwriting the in-memory linked_league. Single source of truth prevents
+# that drift from happening again.
+from app.schemas.profile import ProfileOut
 
 
 class SignupRequest(BaseModel):
@@ -29,17 +35,9 @@ class UserOut(BaseModel):
 
 class MeResponse(BaseModel):
     user: UserOut
-    profiles: list["ProfileOut"]
+    profiles: list[ProfileOut]
 
 
-class ProfileOut(BaseModel):
-    id: uuid.UUID
-    name: str
-    settings_json: dict[str, Any]
-    rules_json: list[dict[str, Any]]
-    linked_league: Optional[LinkedLeagueOut] = None
-
-    model_config = {"from_attributes": True}
-
-
-MeResponse.model_rebuild()
+__all__ = [
+    "SignupRequest", "LoginRequest", "UserOut", "MeResponse", "ProfileOut",
+]
