@@ -113,3 +113,72 @@ def test_blend_does_not_renormalize_missing_sources():
 def test_blend_all_missing_returns_zero():
     result = blend_scores(None, None, None, settings=_settings())
     assert result == 0.0
+
+
+# Step 1.1: New tests for factored helpers
+
+
+def _ppr_settings() -> LeagueSettings:
+    return LeagueSettings(
+        scoring_format=ScoringFormat.PPR,
+        league_type=LeagueType.STANDARD,
+        league_size=12,
+        qb_td_points=4.0,
+        bonus_100yd_rushing=False,
+        bonus_100yd_receiving=False,
+        bonus_first_downs=False,
+        weight_prior_year=0.2,
+        weight_espn=0.4,
+        weight_consensus=0.4,
+    )
+
+
+def _empty_stats() -> PlayerStats:
+    return PlayerStats(
+        targets=0, receptions=0, rec_yards=0.0, rec_tds=0,
+        rush_att=0, rush_yards=0.0, rush_tds=0,
+        pass_att=0, pass_yards=0.0, pass_tds=0, interceptions=0,
+        games_played=1,
+    )
+
+
+def test_score_receiving_excludes_tds():
+    from app.engine.scoring import _score_receiving
+    s = _empty_stats()
+    s.receptions = 50
+    s.rec_yards = 600.0
+    s.rec_tds = 5
+    # Expect: 50 PPR pts + 60 yards pts; TDs excluded here.
+    assert _score_receiving(s, _ppr_settings()) == 110.0
+
+
+def test_score_rushing_excludes_tds():
+    from app.engine.scoring import _score_rushing
+    s = _empty_stats()
+    s.rush_att = 200
+    s.rush_yards = 1000.0
+    s.rush_tds = 8
+    # Expect: 100 yards pts; TDs excluded; carries don't score directly.
+    assert _score_rushing(s, _ppr_settings()) == 100.0
+
+
+def test_score_tds_only_sums_rec_and_rush():
+    from app.engine.scoring import _score_tds_only
+    s = _empty_stats()
+    s.rec_tds = 4
+    s.rush_tds = 6
+    # Expect: 10 TDs × 6 = 60.
+    assert _score_tds_only(s, _ppr_settings()) == 60.0
+
+
+def test_calculate_fantasy_points_unchanged():
+    """Regression: factoring must not change calculate_fantasy_points output."""
+    s = _empty_stats()
+    s.receptions = 50
+    s.rec_yards = 600.0
+    s.rec_tds = 5
+    s.rush_att = 200
+    s.rush_yards = 1000.0
+    s.rush_tds = 8
+    # 50 + 60 (rec yds + rec) + 30 (5 rec TDs) + 100 (rush yds) + 48 (8 rush TDs) = 288
+    assert calculate_fantasy_points(s, _ppr_settings(), position="RB") == 288.0
