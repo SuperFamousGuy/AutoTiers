@@ -66,11 +66,28 @@ The ESPN tab opens with a **Public / Private** toggle at the top. Default is Pub
 
 **Private league path:**
 - League ID field (same as above)
-- A collapsible credential section labeled "🍪 Private credentials" with a prominent "How to find these ↗" link
+- A credential section labeled "🍪 Private credentials" with a "How to find these ↗" help link
 - SWID and espn_s2 fields inside
 - Connect button
 
-The private credential instructions are being redesigned pending researcher findings on whether a less technical approach exists (bookmarklet, browser extension, or improved cookie-extraction UX). This section is a **placeholder** — the instruction content will be updated once the researcher completes the ESPN auth investigation. The structural gating (public default, private behind a toggle) ships regardless.
+**ESPN private credential UX — researcher findings incorporated:**
+
+The SWID/espn_s2 cookie method is confirmed working at the protocol level (verified through August 2025). The previous instruction copy in `EspnConnectForm` likely referenced "ESPN Cookie Finder" — that extension broke on Chrome 138+ (July 2025, Manifest V2 deprecation) and must not be recommended.
+
+The industry standard across all production fantasy tools (FantasyPros, PFF, GameDayBot, Flock Fantasy) is a browser extension — not DevTools and not a bookmarklet. ESPN's auth cookies are HttpOnly and inaccessible to page-level JavaScript, so a bookmarklet approach will not work.
+
+**Recommended UX for the private credential section:**
+
+Replace the current `<details>` DevTools walkthrough with:
+
+1. A short explanation: "ESPN private leagues require two cookie values from your ESPN account. The easiest way to get them is a free browser extension."
+2. A primary link to **GameDayBot** (MV3, open-source, copy-paste model — most trustworthy) with a secondary mention of the **PFF extension**.
+3. A "Do it manually instead" expandable fallback that retains the existing DevTools instructions for users who can't install extensions — framed as advanced/fallback, not the default path.
+4. The SWID and espn_s2 input fields remain unchanged (the cookies themselves are still the mechanism).
+
+**Do not** name "ESPN Cookie Finder" (Hashtag Fantasy) anywhere — it is non-functional on Chrome 138+.
+
+Note: ESPN session cookies are long-lived (months to a full season) but invalidated on password change or ESPN-forced re-auth. The `EspnAuthRequired` error path should surface a clear "your ESPN credentials have expired — reconnect" prompt rather than a generic error (this is a backend concern, out of scope for this UI redesign but noted for a follow-up).
 
 ### 7. Success / connected state
 
