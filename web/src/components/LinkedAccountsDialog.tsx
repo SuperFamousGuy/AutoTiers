@@ -1,166 +1,255 @@
 import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { googleAuthorizeUrl, yahooAuthorizeUrl, unlinkGoogle, unlinkYahoo } from "@/api/auth";
 import { ApiError } from "@/api/client";
-import { LinkedLeagueSection } from "@/components/LinkedLeagueSection";
 import { SleeperConnectForm } from "@/components/SleeperConnectForm";
 import { EspnConnectForm } from "@/components/EspnConnectForm";
-import { GoogleIcon, YahooIcon } from "@/components/BrandIcons";
-import { FavoritesPanel } from "@/components/FavoritesPanel";
-import { useFavorites } from "@/hooks/useFavorites";
-import { searchPlayers } from "@/api/favorites";
+import {
+  GoogleIcon,
+  YahooIcon,
+  SleeperIcon,
+  EspnIcon,
+  NflFantasyIcon,
+  CbsIcon,
+} from "@/components/BrandIcons";
+import { cn } from "@/lib/utils";
 import type { User, Profile } from "@/api/types";
 
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  user: User | null;
+  user: User;
   onRefresh: () => Promise<void>;
   initialError: string | null;
   activeProfile?: Profile | null;
 }
 
-export function LinkedAccountsDialog({ open, onOpenChange, user, onRefresh, initialError, activeProfile }: Props) {
+type PlatformTab = "sleeper" | "espn" | "yahoo" | "nfl" | "cbs";
+
+const TABS: {
+  id: PlatformTab;
+  label: string;
+  Icon: () => JSX.Element;
+  comingSoon?: boolean;
+}[] = [
+  { id: "sleeper", label: "Sleeper", Icon: SleeperIcon },
+  { id: "espn", label: "ESPN", Icon: EspnIcon },
+  { id: "yahoo", label: "Yahoo", Icon: YahooIcon },
+  { id: "nfl", label: "NFL Fantasy", Icon: NflFantasyIcon, comingSoon: true },
+  { id: "cbs", label: "CBS", Icon: CbsIcon, comingSoon: true },
+];
+
+export function LinkedAccountsDialog({
+  open,
+  onOpenChange,
+  user,
+  onRefresh,
+  initialError,
+  activeProfile,
+}: Props) {
   const [error, setError] = useState<string | null>(initialError);
-  const [busy, setBusy] = useState<"google" | "yahoo" | null>(null);
-  const [activeForm, setActiveForm] = useState<"sleeper" | "espn" | null>(null);
+  const [activeTab, setActiveTab] = useState<PlatformTab>("sleeper");
+  const [googleBusy, setGoogleBusy] = useState(false);
+  const [yahooBusy, setYahooBusy] = useState(false);
 
-  const { favorites, save: saveFavorites } = useFavorites(user !== null);
-
-  // Refresh local error when initialError prop changes (e.g. dialog reopened with new error).
   useEffect(() => {
     setError(initialError);
   }, [initialError]);
 
-  // Reset the connect-form state whenever the dialog closes so it doesn't
-  // come back open mid-form.
   useEffect(() => {
-    if (!open) setActiveForm(null);
+    if (!open) setActiveTab("sleeper");
   }, [open]);
 
-  async function handleDisconnect(provider: "google" | "yahoo") {
+  async function handleGoogleDisconnect() {
     setError(null);
-    setBusy(provider);
+    setGoogleBusy(true);
     try {
-      if (provider === "google") await unlinkGoogle();
-      else await unlinkYahoo();
+      await unlinkGoogle();
       await onRefresh();
     } catch (e) {
-      if (e instanceof ApiError) setError(e.message);
-      else setError("Disconnect failed. Please try again.");
+      setError(e instanceof ApiError ? e.message : "Disconnect failed. Please try again.");
     } finally {
-      setBusy(null);
+      setGoogleBusy(false);
     }
   }
 
-  function handleConnect(provider: "google" | "yahoo") {
-    // Full-page navigation; OAuth callback brings us back. intent=link tells
-    // the backend we're attaching to the current account — if the session
-    // cookie fails to make the round-trip the user gets a clear error
-    // instead of being silently signed in as a brand-new account.
-    const base = provider === "google" ? googleAuthorizeUrl() : yahooAuthorizeUrl();
-    window.location.href = `${base}?intent=link`;
+  async function handleYahooDisconnect() {
+    setError(null);
+    setYahooBusy(true);
+    try {
+      await unlinkYahoo();
+      await onRefresh();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Disconnect failed. Please try again.");
+    } finally {
+      setYahooBusy(false);
+    }
   }
 
-  const linkedAccountsContent = (
-    <>
-      {activeForm === "sleeper" && activeProfile ? (
-        <SleeperConnectForm
-          profileId={activeProfile.id}
-          onLinked={async () => { setActiveForm(null); await onRefresh(); }}
-          onCancel={() => setActiveForm(null)}
-        />
-      ) : activeForm === "espn" && activeProfile ? (
-        <EspnConnectForm
-          profileId={activeProfile.id}
-          onLinked={async () => { setActiveForm(null); await onRefresh(); }}
-          onCancel={() => setActiveForm(null)}
-        />
-      ) : user !== null ? (
-        <>
-          <ul className="space-y-3">
-            <li className="flex items-center justify-between">
-              <span className="flex items-center gap-2 text-sm"><GoogleIcon />Google</span>
-              {user.google_subject ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  aria-label="Disconnect Google"
-                  disabled={busy === "google"}
-                  onClick={() => handleDisconnect("google")}
-                >
-                  Disconnect
-                </Button>
-              ) : (
-                <Button size="sm" onClick={() => handleConnect("google")}>
-                  Connect
-                </Button>
-              )}
-            </li>
-            <li className="flex items-center justify-between">
-              <span className="flex items-center gap-2 text-sm"><YahooIcon />Yahoo</span>
-              {user.yahoo_subject ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  aria-label="Disconnect Yahoo"
-                  disabled={busy === "yahoo"}
-                  onClick={() => handleDisconnect("yahoo")}
-                >
-                  Disconnect
-                </Button>
-              ) : (
-                <Button size="sm" onClick={() => handleConnect("yahoo")}>
-                  Connect
-                </Button>
-              )}
-            </li>
-          </ul>
-          {activeProfile && (
-            <LinkedLeagueSection
-              profile={activeProfile}
-              onChanged={onRefresh}
-              onConnectSleeper={() => setActiveForm("sleeper")}
-              onConnectEspn={() => setActiveForm("espn")}
-            />
-          )}
-          {!activeProfile && (
-            <p className="text-xs text-muted-foreground mt-3">
-              Select a profile to link a fantasy league.
+  function handleGoogleConnect() {
+    window.location.href = `${googleAuthorizeUrl()}?intent=link`;
+  }
+
+  function handleYahooConnect() {
+    window.location.href = `${yahooAuthorizeUrl()}?intent=link`;
+  }
+
+  function renderTabPanel() {
+    // Sleeper and ESPN need an active profile for their API calls.
+    if ((activeTab === "sleeper" || activeTab === "espn") && !activeProfile) {
+      return (
+        <p className="py-4 text-center text-xs text-muted-foreground">
+          Select a profile above to connect a fantasy league.
+        </p>
+      );
+    }
+
+    switch (activeTab) {
+      case "sleeper":
+        return (
+          <SleeperConnectForm
+            profile={activeProfile!}
+            onLinked={() => onRefresh()}
+            onRefresh={onRefresh}
+          />
+        );
+      case "espn":
+        return (
+          <EspnConnectForm
+            profile={activeProfile!}
+            onLinked={() => onRefresh()}
+            onRefresh={onRefresh}
+          />
+        );
+      case "yahoo":
+        if (user.yahoo_subject) {
+          return (
+            <div className="space-y-3">
+              <div className="rounded-lg border-2 border-green-500 bg-green-50/50 p-3">
+                <div className="mb-1 flex items-center gap-2">
+                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-green-500">
+                    <span className="text-[10px] font-bold text-white">&#10003;</span>
+                  </div>
+                  <span className="text-sm font-bold text-green-700">Connected!</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Yahoo account linked · Fantasy league import coming soon
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={yahooBusy}
+                aria-label="Disconnect Yahoo"
+                onClick={handleYahooDisconnect}
+              >
+                Disconnect
+              </Button>
+            </div>
+          );
+        }
+        return (
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              Connect via Yahoo OAuth. We'll find your Yahoo Fantasy leagues automatically after
+              you authorize.
             </p>
-          )}
-        </>
-      ) : null}
-    </>
-  );
+            <Button className="w-full" onClick={handleYahooConnect}>
+              Continue with Yahoo
+            </Button>
+            <p className="text-center text-xs text-muted-foreground">
+              You'll be redirected to Yahoo, then brought back here.
+            </p>
+          </div>
+        );
+      case "nfl":
+      case "cbs": {
+        const name = activeTab === "nfl" ? "NFL Fantasy" : "CBS Sports";
+        return (
+          <div className="space-y-1 py-6 text-center">
+            <p className="text-sm font-medium">{name} — Coming Soon</p>
+            <p className="text-xs text-muted-foreground">
+              We're working on it. Check back next season.
+            </p>
+          </div>
+        );
+      }
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogTitle>Linked Accounts</DialogTitle>
-        {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
-        {user !== null ? (
-          <Tabs defaultValue="accounts">
-            <TabsList>
-              <TabsTrigger value="accounts">Accounts</TabsTrigger>
-              <TabsTrigger value="favorites">Favorites</TabsTrigger>
-            </TabsList>
-            <TabsContent value="accounts">
-              {linkedAccountsContent}
-            </TabsContent>
-            <TabsContent value="favorites">
-              <FavoritesPanel
-                favorites={favorites}
-                onSave={saveFavorites}
-                searchPlayers={searchPlayers}
-              />
-            </TabsContent>
-          </Tabs>
-        ) : (
-          linkedAccountsContent
-        )}
+      <DialogContent className="gap-0 p-0">
+        <div className="px-6 pt-6 pb-4">
+          <DialogTitle>Connect Your League</DialogTitle>
+          {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+        </div>
+
+        {/* Platform tab strip */}
+        <div className="flex overflow-x-auto border-b border-border">
+          {TABS.map(({ id, label, Icon, comingSoon }) => {
+            const isConnected =
+              (id === "yahoo" && !!user.yahoo_subject) ||
+              (activeProfile?.linked_league?.provider === id);
+            return (
+              <button
+                key={id}
+                type="button"
+                aria-label={label}
+                disabled={comingSoon}
+                onClick={() => setActiveTab(id)}
+                className={cn(
+                  "flex items-center gap-1.5 whitespace-nowrap border-b-2 px-4 py-2.5 text-xs font-medium transition-colors",
+                  activeTab === id
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted-foreground hover:text-foreground",
+                  comingSoon && "cursor-not-allowed opacity-40",
+                )}
+              >
+                <Icon />
+                {label}
+                {isConnected && (
+                  <span className="ml-0.5 h-2 w-2 rounded-full bg-green-500" aria-hidden="true" />
+                )}
+                {comingSoon && <span className="ml-0.5 text-[10px] font-normal">(soon)</span>}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Tab panel */}
+        <div className="px-6 py-4">{renderTabPanel()}</div>
+
+        {/* Google footer — sign-in only, no fantasy league */}
+        <div className="flex items-center justify-between border-t border-border px-6 py-3">
+          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <GoogleIcon />
+            Google · Sign-in only, no fantasy league
+          </span>
+          {user.google_subject ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs"
+              disabled={googleBusy}
+              aria-label="Disconnect Google"
+              onClick={handleGoogleDisconnect}
+            >
+              Unlink
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs"
+              aria-label="Link Google"
+              onClick={handleGoogleConnect}
+            >
+              Link
+            </Button>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );

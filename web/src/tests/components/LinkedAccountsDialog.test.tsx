@@ -1,19 +1,8 @@
-import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { setupServer } from "msw/node";
-import { http, HttpResponse } from "msw";
 import { LinkedAccountsDialog } from "@/components/LinkedAccountsDialog";
 import type { User, Profile } from "@/api/types";
-
-// MSW server so useFavorites doesn't hit a real network.
-const server = setupServer(
-  http.get("http://localhost:8000/api/favorites", () =>
-    HttpResponse.json({ favorite_player_ids: [], favorite_teams: [] })
-  ),
-);
-beforeAll(() => server.listen());
-afterAll(() => server.close());
 
 vi.mock("@/api/auth", async () => {
   const actual = await vi.importActual<typeof import("@/api/auth")>("@/api/auth");
@@ -42,6 +31,14 @@ const baseUser: User = {
   last_active_profile_id: null,
 };
 
+const activeProfile: Profile = {
+  id: "p1",
+  name: "My",
+  settings_json: {},
+  rules_json: [],
+  linked_league: null,
+};
+
 const noop = vi.fn();
 
 beforeEach(() => {
@@ -49,44 +46,99 @@ beforeEach(() => {
 });
 
 describe("LinkedAccountsDialog", () => {
-  it("renders email and shows both providers as not connected", () => {
+  it("renders with title 'Connect Your League'", () => {
     render(
-      <LinkedAccountsDialog
-        open={true}
-        onOpenChange={noop}
-        user={baseUser}
-        onRefresh={noop}
-        initialError={null}
-      />,
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} />,
     );
-    expect(screen.getAllByRole("button", { name: /^connect$/i })).toHaveLength(2);
+    expect(screen.getByText("Connect Your League")).toBeInTheDocument();
   });
 
-  it("shows Disconnect when a provider is connected", () => {
+  it("renders a tab strip with all five platforms", () => {
     render(
-      <LinkedAccountsDialog
-        open={true}
-        onOpenChange={noop}
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
+    );
+    expect(screen.getByRole("button", { name: /^sleeper$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^espn$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^yahoo$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^nfl fantasy$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^cbs$/i })).toBeInTheDocument();
+  });
+
+  it("default active tab is Sleeper — Sleeper username field is visible", () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
+    );
+    expect(screen.getByLabelText(/sleeper username/i)).toBeInTheDocument();
+  });
+
+  it("clicking the ESPN tab shows the ESPN League ID field", async () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
+    );
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /^espn$/i }));
+    expect(await screen.findByLabelText(/league id/i)).toBeInTheDocument();
+  });
+
+  it("clicking the Yahoo tab shows the Yahoo OAuth button", async () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
+    );
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /^yahoo$/i }));
+    expect(await screen.findByRole("button", { name: /continue with yahoo/i })).toBeInTheDocument();
+  });
+
+  it("Yahoo tab shows connected state when user.yahoo_subject is set", async () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop}
+        user={{ ...baseUser, yahoo_subject: "y-sub" }}
+        onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
+    );
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /^yahoo$/i }));
+    expect(await screen.findByText(/connected!/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /disconnect yahoo/i })).toBeInTheDocument();
+  });
+
+  it("shows 'Select a profile' when Sleeper tab is active but no activeProfile is provided", () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} />,
+    );
+    expect(screen.getByText(/select a profile/i)).toBeInTheDocument();
+  });
+
+  it("Google footer shows Link button when Google is not connected", () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} />,
+    );
+    expect(screen.getByRole("button", { name: /^link google$/i })).toBeInTheDocument();
+  });
+
+  it("Google footer shows Unlink button when Google is connected", () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop}
         user={{ ...baseUser, google_subject: "g-sub" }}
-        onRefresh={noop}
-        initialError={null}
-      />,
+        onRefresh={noop} initialError={null} />,
     );
     expect(screen.getByRole("button", { name: /disconnect google/i })).toBeInTheDocument();
   });
 
-  it("Disconnect calls unlinkGoogle then refresh", async () => {
+  it("Unlink Google calls unlinkGoogle then onRefresh", async () => {
     const { unlinkGoogle } = await import("@/api/auth");
     (unlinkGoogle as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
     const refresh = vi.fn().mockResolvedValueOnce(undefined);
     render(
-      <LinkedAccountsDialog
-        open={true}
-        onOpenChange={noop}
+      <LinkedAccountsDialog open={true} onOpenChange={noop}
         user={{ ...baseUser, google_subject: "g-sub" }}
-        onRefresh={refresh}
-        initialError={null}
-      />,
+        onRefresh={refresh} initialError={null} />,
     );
     const u = userEvent.setup();
     await u.click(screen.getByRole("button", { name: /disconnect google/i }));
@@ -94,208 +146,67 @@ describe("LinkedAccountsDialog", () => {
     await waitFor(() => expect(refresh).toHaveBeenCalled());
   });
 
-  it("shows the API error message when Disconnect fails", async () => {
+  it("shows the API error message when unlinkGoogle fails", async () => {
     const { unlinkGoogle } = await import("@/api/auth");
     const { ApiError } = await import("@/api/client");
     (unlinkGoogle as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new ApiError(400, "Cannot unlink last sign-in method"),
     );
     render(
-      <LinkedAccountsDialog
-        open={true}
-        onOpenChange={noop}
+      <LinkedAccountsDialog open={true} onOpenChange={noop}
         user={{ ...baseUser, google_subject: "g-sub" }}
-        onRefresh={noop}
-        initialError={null}
-      />,
+        onRefresh={noop} initialError={null} />,
     );
     const u = userEvent.setup();
     await u.click(screen.getByRole("button", { name: /disconnect google/i }));
     expect(await screen.findByText(/last sign-in method/i)).toBeInTheDocument();
   });
 
-  it("Connect Google navigates to the authorize URL with intent=link", async () => {
-    const originalHref = window.location.href;
-    // jsdom's window.location.href is settable; stub via a property descriptor.
+  it("Link Google navigates to the authorize URL with intent=link", async () => {
     let assignedHref = "";
-    const hrefSetter = vi.fn((v: string) => { assignedHref = v; });
     Object.defineProperty(window, "location", {
       writable: true,
-      value: { ...window.location, set href(v: string) { hrefSetter(v); } },
+      value: { ...window.location, set href(v: string) { assignedHref = v; } },
     });
     render(
-      <LinkedAccountsDialog
-        open={true}
-        onOpenChange={noop}
-        user={baseUser}
-        onRefresh={noop}
-        initialError={null}
-      />,
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} />,
     );
     const u = userEvent.setup();
-    await u.click(screen.getAllByRole("button", { name: /^connect$/i })[0]);
+    await u.click(screen.getByRole("button", { name: /^link google$/i }));
     expect(assignedHref).toContain("/api/auth/google/authorize");
     expect(assignedHref).toContain("intent=link");
-    // Restore (best-effort — jsdom's location is read-only by default).
-    Object.defineProperty(window, "location", { writable: true, value: { href: originalHref } });
+    Object.defineProperty(window, "location", { writable: true, value: { href: "" } });
   });
 
   it("renders an initial error when provided", () => {
     render(
-      <LinkedAccountsDialog
-        open={true}
-        onOpenChange={noop}
-        user={baseUser}
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
         onRefresh={noop}
-        initialError="This Google account is already linked to a different AutoTiers account."
-      />,
+        initialError="This Google account is already linked to a different AutoTiers account." />,
     );
     expect(screen.getByText(/already linked/i)).toBeInTheDocument();
   });
 
-  const activeProfile: Profile = {
-    id: "p1",
-    name: "My",
-    settings_json: {},
-    rules_json: [],
-    linked_league: null,
-  };
-
-  it("shows 'Select a profile' fallback when no active profile and no league section", () => {
-    render(
-      <LinkedAccountsDialog
-        open={true}
-        onOpenChange={noop}
-        user={baseUser}
-        onRefresh={noop}
-        initialError={null}
-      />,
-    );
-    expect(screen.getByText(/select a profile/i)).toBeInTheDocument();
-  });
-
-  it("clicking 'Connect Sleeper' hides Google/Yahoo and shows the Sleeper sub-form", async () => {
-    render(
-      <LinkedAccountsDialog
-        open={true}
-        onOpenChange={noop}
-        user={baseUser}
-        onRefresh={vi.fn().mockResolvedValue(undefined)}
-        initialError={null}
-        activeProfile={activeProfile}
-      />,
-    );
-    const u = userEvent.setup();
-    await u.click(screen.getByRole("button", { name: /connect sleeper/i }));
-    // Sub-form input is the only signal it's mounted.
-    expect(await screen.findByLabelText(/sleeper username/i)).toBeInTheDocument();
-    // The Google/Yahoo provider rows are gone while the form is up.
-    expect(screen.queryByText(/^Google$/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/^Yahoo$/)).not.toBeInTheDocument();
-  });
-
-  it("clicking 'Connect ESPN' hides Google/Yahoo and shows the ESPN sub-form", async () => {
-    render(
-      <LinkedAccountsDialog
-        open={true}
-        onOpenChange={noop}
-        user={baseUser}
-        onRefresh={vi.fn().mockResolvedValue(undefined)}
-        initialError={null}
-        activeProfile={activeProfile}
-      />,
-    );
-    const u = userEvent.setup();
-    await u.click(screen.getByRole("button", { name: /connect espn/i }));
-    expect(await screen.findByLabelText(/league id/i)).toBeInTheDocument();
-    expect(screen.queryByText(/^Google$/)).not.toBeInTheDocument();
-  });
-
-  it("Cancel from the Sleeper sub-form returns to the provider list", async () => {
-    render(
-      <LinkedAccountsDialog
-        open={true}
-        onOpenChange={noop}
-        user={baseUser}
-        onRefresh={vi.fn().mockResolvedValue(undefined)}
-        initialError={null}
-        activeProfile={activeProfile}
-      />,
-    );
-    const u = userEvent.setup();
-    await u.click(screen.getByRole("button", { name: /connect sleeper/i }));
-    await u.click(screen.getByRole("button", { name: /^cancel$/i }));
-    // Provider list is back.
-    expect(await screen.findByText(/^Google$/)).toBeInTheDocument();
-  });
-
-  it("closing the dialog resets active sub-form state", async () => {
+  it("closing the dialog resets active tab to Sleeper", async () => {
     const onOpenChange = vi.fn();
     const { rerender } = render(
-      <LinkedAccountsDialog
-        open={true}
-        onOpenChange={onOpenChange}
-        user={baseUser}
-        onRefresh={vi.fn().mockResolvedValue(undefined)}
-        initialError={null}
-        activeProfile={activeProfile}
-      />,
+      <LinkedAccountsDialog open={true} onOpenChange={onOpenChange} user={baseUser}
+        onRefresh={vi.fn()} initialError={null} activeProfile={activeProfile} />,
     );
     const u = userEvent.setup();
-    await u.click(screen.getByRole("button", { name: /connect espn/i }));
+    await u.click(screen.getByRole("button", { name: /^espn$/i }));
     expect(await screen.findByLabelText(/league id/i)).toBeInTheDocument();
 
-    // Close + reopen the dialog
     rerender(
-      <LinkedAccountsDialog
-        open={false}
-        onOpenChange={onOpenChange}
-        user={baseUser}
-        onRefresh={vi.fn().mockResolvedValue(undefined)}
-        initialError={null}
-        activeProfile={activeProfile}
-      />,
+      <LinkedAccountsDialog open={false} onOpenChange={onOpenChange} user={baseUser}
+        onRefresh={vi.fn()} initialError={null} activeProfile={activeProfile} />,
     );
     rerender(
-      <LinkedAccountsDialog
-        open={true}
-        onOpenChange={onOpenChange}
-        user={baseUser}
-        onRefresh={vi.fn().mockResolvedValue(undefined)}
-        initialError={null}
-        activeProfile={activeProfile}
-      />,
+      <LinkedAccountsDialog open={true} onOpenChange={onOpenChange} user={baseUser}
+        onRefresh={vi.fn()} initialError={null} activeProfile={activeProfile} />,
     );
-    // Provider list is showing again, not the ESPN form.
-    expect(await screen.findByText(/^Google$/)).toBeInTheDocument();
+    expect(await screen.findByLabelText(/sleeper username/i)).toBeInTheDocument();
     expect(screen.queryByLabelText(/league id/i)).not.toBeInTheDocument();
-  });
-});
-
-describe("LinkedAccountsDialog — Favorites tab", () => {
-  it("shows the Favorites tab when user is authenticated", () => {
-    render(
-      <LinkedAccountsDialog
-        open={true}
-        onOpenChange={vi.fn()}
-        user={baseUser}
-        onRefresh={vi.fn().mockResolvedValue(undefined)}
-        initialError={null}
-      />,
-    );
-    expect(screen.getByRole("tab", { name: /favorites/i })).toBeInTheDocument();
-  });
-
-  it("does NOT show the Favorites tab when user is anonymous", () => {
-    render(
-      <LinkedAccountsDialog
-        open={true}
-        onOpenChange={vi.fn()}
-        user={null}
-        onRefresh={vi.fn().mockResolvedValue(undefined)}
-        initialError={null}
-      />,
-    );
-    expect(screen.queryByRole("tab", { name: /favorites/i })).not.toBeInTheDocument();
   });
 });
