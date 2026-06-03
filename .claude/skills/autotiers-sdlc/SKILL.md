@@ -246,6 +246,38 @@ FOLLOW-UPS YOU SHOULD KNOW ABOUT: anything I noticed but didn't address, with on
 
 When QA returns NEEDS_CHANGES the Manager loops back to Engineer before reporting; the user sees a final ship or a final block, not the intermediate iterations.
 
+## Stage 4 — Teardown (always runs after merge)
+
+The Manager runs teardown after a branch merges. No exceptions. This is what generates litter when skipped.
+
+### Checklist
+
+```
+[ ] git worktree remove <path>     — for every worktree created during this feature
+[ ] git stash drop                 — drop any epitaxy/WIP stashes on the feature branch
+[ ] git branch -d <feature>        — delete local feature branch
+[ ] git branch -d worktree-<name>  — delete local worktree branch (if created)
+[ ] ls .claude/worktrees/          — verify directory is empty; delete residual dirs if present
+```
+
+### Rules
+
+- Run teardown **after** the merge PR is closed, not before.
+- If `git branch -d` refuses (branch not fully merged), investigate before using `-D`. The unmerged commits may be work that needs saving.
+- The `docs/superpowers/specs/` and `docs/superpowers/plans/` files are **intentionally kept** on the main branch — they are searchable history, not litter.
+- Remote feature branches on `origin` are left for GitHub to prune via the repo's "delete branch on merge" setting. Do not force-delete remote branches manually.
+
+### What counts as litter
+
+| Artifact | Litter? | Action |
+|---|---|---|
+| Local feature branch after merge | Yes | `git branch -d` |
+| Worktree directory under `.claude/worktrees/` | Yes | `git worktree remove` |
+| Epitaxy/WIP stash | Yes | `git stash drop` |
+| Local `worktree-<name>` branch | Yes | `git branch -d` |
+| `docs/superpowers/specs/*.md` files | No | Keep |
+| `docs/superpowers/plans/*.md` files | No | Keep |
+
 ## When SDLC stages may parallelize
 
 Stages run sequentially by default. The Manager may parallelize when:
