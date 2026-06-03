@@ -1,4 +1,4 @@
-"""Tests for GET /api/players?q=<name>.
+"""Tests for GET /api/players/search?q=<name>.
 
 Auth-gated. Returns matching players (id, name, position, team), capped
 at 25 results.
@@ -29,7 +29,7 @@ async def _signup_and_login(async_client) -> None:
 
 @pytest.mark.asyncio
 async def test_search_requires_auth(async_client):
-    r = await async_client.get("/api/players?q=jeff")
+    r = await async_client.get("/api/players/search?q=jeff")
     assert r.status_code == 401
 
 
@@ -37,7 +37,7 @@ async def test_search_requires_auth(async_client):
 async def test_search_basic_match(async_client, test_db):
     await _seed_players(test_db)
     await _signup_and_login(async_client)
-    r = await async_client.get("/api/players?q=jefferson")
+    r = await async_client.get("/api/players/search?q=jefferson")
     assert r.status_code == 200
     names = [p["name"] for p in r.json()]
     assert "Justin Jefferson" in names
@@ -49,7 +49,7 @@ async def test_search_basic_match(async_client, test_db):
 async def test_search_case_insensitive(async_client, test_db):
     await _seed_players(test_db)
     await _signup_and_login(async_client)
-    r = await async_client.get("/api/players?q=BARKLEY")
+    r = await async_client.get("/api/players/search?q=BARKLEY")
     assert r.status_code == 200
     names = [p["name"] for p in r.json()]
     assert "Saquon Barkley" in names
@@ -59,7 +59,7 @@ async def test_search_case_insensitive(async_client, test_db):
 async def test_search_returns_required_fields(async_client, test_db):
     await _seed_players(test_db)
     await _signup_and_login(async_client)
-    r = await async_client.get("/api/players?q=jefferson")
+    r = await async_client.get("/api/players/search?q=jefferson")
     items = r.json()
     assert items, "expected at least one match"
     first = items[0]
@@ -69,7 +69,7 @@ async def test_search_returns_required_fields(async_client, test_db):
 @pytest.mark.asyncio
 async def test_search_empty_q_returns_400(async_client, test_db):
     await _signup_and_login(async_client)
-    r = await async_client.get("/api/players?q=")
+    r = await async_client.get("/api/players/search?q=")
     assert r.status_code in (400, 422)
 
 
@@ -80,6 +80,6 @@ async def test_search_caps_results_at_25(async_client, test_db):
         test_db.add(Player(id=f"p{i}", name=f"Test Player {i}", position="WR", team="KC"))
     await test_db.commit()
     await _signup_and_login(async_client)
-    r = await async_client.get("/api/players?q=Test")
+    r = await async_client.get("/api/players/search?q=Test")
     assert r.status_code == 200
     assert len(r.json()) <= 25
