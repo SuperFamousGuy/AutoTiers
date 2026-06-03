@@ -17,7 +17,7 @@ def _ctx(**overrides) -> PlayerContext:
         is_over_the_hill=None, projection_unavailable=None,
         prior_touches=None, injured_two_years_ago=None,
         bad_offense_team=None, above_market_contract=None,
-        opportunity_score_z=None,
+        opportunity_score_z=None, is_favorite=None,
     )
     defaults.update(overrides)
     return PlayerContext(**defaults)
@@ -33,7 +33,7 @@ def make_ctx(**overrides) -> PlayerContext:
         red_zone_looks=None, is_over_the_hill=None, projection_unavailable=None,
         prior_touches=None, injured_two_years_ago=None,
         bad_offense_team=None, above_market_contract=None,
-        opportunity_score_z=None,
+        opportunity_score_z=None, is_favorite=None,
     )
     defaults.update(overrides)
     return PlayerContext(**defaults)
@@ -144,9 +144,9 @@ def test_builtin_rules_is_nonempty_list_of_rules():
         assert rule.conditions
 
 
-def test_builtin_rules_count_is_20():
-    """Adding Opportunity Over-Producer and Under-Producer rules (was 18)."""
-    assert len(BUILTIN_RULES) == 20
+def test_builtin_rules_count_is_21():
+    """Adding Favorites rule (was 20)."""
+    assert len(BUILTIN_RULES) == 21
 
 
 def test_opportunity_rules_categorized_as_regression():

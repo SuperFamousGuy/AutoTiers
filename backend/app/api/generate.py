@@ -13,7 +13,8 @@ from app.database import get_db
 from app.models.player import Player, PlayerStat
 from app.models.projection import Projection
 from app.models.adp import ADPData
-from app.models import TeamSeason, PlayerContract
+from app.models import TeamSeason, PlayerContract, UserFavorites, User
+from app.auth.dependencies import _get_current_user_impl
 from app.engine.scoring import LeagueSettings, PlayerStats, calculate_fantasy_points, blend_scores, _score_receiving, _score_rushing, _score_tds_only
 from app.engine.rules import Rule, RuleCondition, RuleEffect, PlayerContext, apply_rules
 from app.engine.builtin_rules import BUILTIN_RULES, OVER_THE_HILL_AGE
@@ -172,7 +173,7 @@ class _StatWithPosition:
         return getattr(self.stat, name)
 
 
-async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPlayer]:
+async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Optional[User] = None) -> list[TieredPlayer]:
     settings = _build_league_settings(req)
     scoring_fmt = req.scoring_format.value
 
@@ -264,6 +265,19 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
     position_sigmas = compute_per_position_sigmas(gaps_by_position)
     # ------------------------------------------------------------------------
 
+    # Server-side favorites lookup. Anonymous calls: empty sets, is_favorite
+    # is None per player, the Favorites rule silently no-ops.
+    favorite_pids_set: set[str] = set()
+    favorite_teams_set: set[str] = set()
+    if current_user is not None:
+        fav_row = (await db.scalars(
+            select(UserFavorites).where(UserFavorites.user_id == current_user.id)
+        )).one_or_none()
+        if fav_row is not None:
+            favorite_pids_set = set(fav_row.favorite_player_ids or [])
+            favorite_teams_set = set(fav_row.favorite_teams or [])
+    has_any_favorites = bool(favorite_pids_set or favorite_teams_set)
+
     tiered: list[TieredPlayer] = []
     for player in players:
         if keepers_normalized and normalize_name(player.name) in keepers_normalized:
@@ -340,6 +354,14 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
             sp_for_z = _StatWithPosition(stat=stat, position=player.position)
             opportunity_score_z = compute_opportunity_score_z(sp_for_z, league_avg, position_sigmas, settings)
 
+        if has_any_favorites:
+            is_favorite = (
+                player.id in favorite_pids_set
+                or (player.team is not None and player.team in favorite_teams_set)
+            )
+        else:
+            is_favorite = None
+
         ctx = PlayerContext(
             player_id=player.id,
             position=player.position,
@@ -368,6 +390,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
             bad_offense_team=bad_offense_team,
             above_market_contract=above_market_contract,
             opportunity_score_z=opportunity_score_z,
+            is_favorite=is_favorite,
         )
 
         rule_result = apply_rules(blended, ctx, rules)
@@ -444,8 +467,12 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
 
 
 @router.post("/generate", response_model=GenerateResponse)
-async def generate_tiers(req: GenerateRequest, db: AsyncSession = Depends(get_db)) -> GenerateResponse:
-    ranked = await _run_generate(req, db)
+async def generate_tiers(
+    req: GenerateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(_get_current_user_impl),
+) -> GenerateResponse:
+    ranked = await _run_generate(req, db, current_user)
     data_as_of = await _compute_data_as_of(db)
     league_adp_normalized: dict[str, float] = (
         {normalize_name(k): v for k, v in req.league_adp.items()} if req.league_adp else {}
@@ -465,8 +492,12 @@ async def generate_tiers(req: GenerateRequest, db: AsyncSession = Depends(get_db
 
 
 @router.post("/generate/csv", response_class=Response)
-async def generate_csv(req: GenerateRequest, db: AsyncSession = Depends(get_db)) -> Response:
-    tiered_players = await _run_generate(req, db)
+async def generate_csv(
+    req: GenerateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(_get_current_user_impl),
+) -> Response:
+    tiered_players = await _run_generate(req, db, current_user)
 
     output = io.StringIO()
     writer = csv.writer(output)

@@ -138,3 +138,17 @@ export interface ProfilesListResponse {
   profiles: Profile[];
   active_profile_id: string | null;
 }
+
+export interface FavoritesOut {
+  favorite_player_ids: string[];
+  favorite_teams: string[];
+}
+
+export type FavoritesUpdate = FavoritesOut;  // same shape
+
+export interface PlayerSearchResult {
+  id: string;
+  name: string;
+  position: string;
+  team: string | null;
+}

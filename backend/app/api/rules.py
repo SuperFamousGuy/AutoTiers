@@ -1,6 +1,9 @@
-from fastapi import APIRouter
+from typing import Optional
+from fastapi import APIRouter, Depends
 from app.schemas.rules import RuleSchema, RuleConditionSchema, RuleEffectSchema
 from app.engine.builtin_rules import BUILTIN_RULES
+from app.models import User
+from app.auth.dependencies import _get_current_user_impl
 
 router = APIRouter()
 
@@ -24,6 +27,7 @@ _CATEGORIES = {
     "Year After": "Regression",
     "Handcuff": "Flag",
     "Availability Risk": "Flag",
+    "Favorites": "Personal",
 }
 
 
@@ -35,9 +39,14 @@ def _categorize(name: str) -> str:
 
 
 @router.get("/rules", response_model=list[RuleSchema])
-async def list_rules() -> list[RuleSchema]:
-    return [
-        RuleSchema(
+async def list_rules(
+    current_user: Optional[User] = Depends(_get_current_user_impl),
+) -> list[RuleSchema]:
+    out: list[RuleSchema] = []
+    for rule in BUILTIN_RULES:
+        if rule.name == "Favorites" and current_user is None:
+            continue
+        out.append(RuleSchema(
             name=rule.name,
             conditions=[
                 RuleConditionSchema(field=c.field, operator=c.operator, value=c.value)
@@ -49,6 +58,5 @@ async def list_rules() -> list[RuleSchema]:
             is_builtin=True,
             category=_categorize(rule.name),
             description=rule.description,
-        )
-        for rule in BUILTIN_RULES
-    ]
+        ))
+    return out

@@ -1,8 +1,19 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { setupServer } from "msw/node";
+import { http, HttpResponse } from "msw";
 import { LinkedAccountsDialog } from "@/components/LinkedAccountsDialog";
 import type { User, Profile } from "@/api/types";
+
+// MSW server so useFavorites doesn't hit a real network.
+const server = setupServer(
+  http.get("http://localhost:8000/api/favorites", () =>
+    HttpResponse.json({ favorite_player_ids: [], favorite_teams: [] })
+  ),
+);
+beforeAll(() => server.listen());
+afterAll(() => server.close());
 
 vi.mock("@/api/auth", async () => {
   const actual = await vi.importActual<typeof import("@/api/auth")>("@/api/auth");
@@ -258,5 +269,33 @@ describe("LinkedAccountsDialog", () => {
     // Provider list is showing again, not the ESPN form.
     expect(await screen.findByText(/^Google$/)).toBeInTheDocument();
     expect(screen.queryByLabelText(/league id/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("LinkedAccountsDialog — Favorites tab", () => {
+  it("shows the Favorites tab when user is authenticated", () => {
+    render(
+      <LinkedAccountsDialog
+        open={true}
+        onOpenChange={vi.fn()}
+        user={baseUser}
+        onRefresh={vi.fn().mockResolvedValue(undefined)}
+        initialError={null}
+      />,
+    );
+    expect(screen.getByRole("tab", { name: /favorites/i })).toBeInTheDocument();
+  });
+
+  it("does NOT show the Favorites tab when user is anonymous", () => {
+    render(
+      <LinkedAccountsDialog
+        open={true}
+        onOpenChange={vi.fn()}
+        user={null}
+        onRefresh={vi.fn().mockResolvedValue(undefined)}
+        initialError={null}
+      />,
+    );
+    expect(screen.queryByRole("tab", { name: /favorites/i })).not.toBeInTheDocument();
   });
 });
