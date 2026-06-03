@@ -272,8 +272,8 @@ describe("App (authenticated integration)", () => {
     const user = userEvent.setup();
     await waitFor(() => expect(screen.getByLabelText(/menu/i)).toBeInTheDocument());
     await user.click(screen.getByLabelText(/menu/i));
-    await user.click(screen.getByRole("menuitem", { name: /linked accounts/i }));
-    expect(await screen.findByText(/^linked accounts$/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("menuitem", { name: /connect your league/i }));
+    expect(await screen.findByText(/^connect your league$/i)).toBeInTheDocument();
   });
 
   it("includes keepers and league_adp in the generate request when active profile is linked", async () => {

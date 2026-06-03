@@ -3,6 +3,7 @@ import { useState } from "react";
 import { DataFreshness } from "./DataFreshness";
 import { GenerateButton } from "./GenerateButton";
 import { AuthDialog } from "./AuthDialog";
+import { FavoritesDialog } from "./FavoritesDialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
@@ -17,6 +18,7 @@ interface HamburgerProps {
 function HamburgerMenu({ currentState, onOpenLinkedAccounts }: HamburgerProps) {
   const { user, logout } = useAuth();
   const [authOpen, setAuthOpen] = useState(false);
+  const [favoritesOpen, setFavoritesOpen] = useState(false);
 
   return (
     <>
@@ -34,8 +36,9 @@ function HamburgerMenu({ currentState, onOpenLinkedAccounts }: HamburgerProps) {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => onOpenLinkedAccounts?.()}>
-                Linked Accounts
+                Connect Your League
               </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setFavoritesOpen(true)}>Favorites</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => logout()}>Log Out</DropdownMenuItem>
             </>
           ) : (
@@ -44,6 +47,7 @@ function HamburgerMenu({ currentState, onOpenLinkedAccounts }: HamburgerProps) {
         </DropdownMenuContent>
       </DropdownMenu>
       <AuthDialog open={authOpen} onOpenChange={setAuthOpen} initialState={currentState} />
+      <FavoritesDialog open={favoritesOpen} onOpenChange={setFavoritesOpen} isLoggedIn={!!user} />
     </>
   );
 }
