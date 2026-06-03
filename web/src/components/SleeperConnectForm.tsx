@@ -1,23 +1,143 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { listSleeperLeagues, connectSleeper, type LinkedLeagueResponse } from "@/api/linkedLeague";
+import {
+  listSleeperLeagues,
+  connectSleeper,
+  refreshLink,
+  disconnectLink,
+  type LinkedLeagueResponse,
+} from "@/api/linkedLeague";
 import { ApiError } from "@/api/client";
-import type { SleeperLeagueSummary } from "@/api/types";
+import type { SleeperLeagueSummary, Profile } from "@/api/types";
 import { currentSeason } from "@/lib/season";
+import { cn } from "@/lib/utils";
 
 interface Props {
-  profileId: string;
+  profile: Profile;
   onLinked: (result: LinkedLeagueResponse) => void;
-  onCancel: () => void;
+  onRefresh: () => Promise<void>;
 }
 
-export function SleeperConnectForm({ profileId, onLinked, onCancel }: Props) {
+function StepIndicator({ step }: { step: "username" | "league" }) {
+  const atLeague = step === "league";
+  return (
+    <div className="flex items-center gap-1.5 mb-3 text-xs" aria-label="Connection steps">
+      <div
+        className={cn(
+          "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold",
+          atLeague ? "bg-green-500 text-white" : "bg-primary text-primary-foreground",
+        )}
+      >
+        {atLeague ? "✓" : "1"}
+      </div>
+      <span className={cn("text-xs font-medium", atLeague && "text-green-600")}>
+        Find your account
+      </span>
+      <div className={cn("h-px flex-1", atLeague ? "bg-primary" : "bg-border")} />
+      <div
+        className={cn(
+          "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold",
+          atLeague
+            ? "bg-primary text-primary-foreground"
+            : "border-2 border-border text-muted-foreground",
+        )}
+      >
+        2
+      </div>
+      <span className={cn("text-xs", atLeague ? "font-medium" : "text-muted-foreground")}>
+        Pick league
+      </span>
+    </div>
+  );
+}
+
+interface ConnectedStateProps {
+  linked: NonNullable<Profile["linked_league"]>;
+  profileId: string;
+  onRefresh: () => Promise<void>;
+}
+
+function SleeperConnectedState({ linked, profileId, onRefresh }: ConnectedStateProps) {
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function handleRefresh() {
+    setError(null);
+    setBusy(true);
+    try {
+      await refreshLink(profileId);
+      await onRefresh();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Refresh failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDisconnect() {
+    setError(null);
+    setBusy(true);
+    try {
+      await disconnectLink(profileId);
+      await onRefresh();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Disconnect failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      {error && <p className="text-xs text-red-600">{error}</p>}
+      <div className="rounded-lg border-2 border-green-500 bg-green-50/50 p-3">
+        <div className="mb-1 flex items-center gap-2">
+          <div className="flex h-5 w-5 items-center justify-center rounded-full bg-green-500">
+            <span className="text-[10px] font-bold text-white">✓</span>
+          </div>
+          <span className="text-sm font-bold text-green-700">Connected!</span>
+        </div>
+        <p className="text-sm font-medium">
+          {linked.league_metadata_json?.name ?? "Account linked (no league)"}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Sleeper{linked.league_metadata_json ? ` · ${linked.league_metadata_json.season}` : ""}
+        </p>
+      </div>
+      <div className="flex gap-2">
+        {linked.league_id && (
+          <Button size="sm" variant="outline" disabled={busy} onClick={handleRefresh}>
+            Refresh
+          </Button>
+        )}
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy}
+          aria-label="Disconnect Sleeper"
+          onClick={handleDisconnect}
+        >
+          Disconnect
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+export function SleeperConnectForm({ profile, onLinked, onRefresh }: Props) {
   const [step, setStep] = useState<"username" | "league">("username");
   const [username, setUsername] = useState("");
   const [leagues, setLeagues] = useState<SleeperLeagueSummary[]>([]);
   const [chosenLeague, setChosenLeague] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const linked = profile.linked_league;
+  if (linked?.provider === "sleeper") {
+    return (
+      <SleeperConnectedState linked={linked} profileId={profile.id} onRefresh={onRefresh} />
+    );
+  }
 
   async function handleContinue() {
     setError(null);
@@ -33,12 +153,9 @@ export function SleeperConnectForm({ profileId, onLinked, onCancel }: Props) {
       const settled = await Promise.all(
         seasons.map(async (season) => {
           try {
-            const leagues = await listSleeperLeagues(profileId, username_trimmed, season);
-            return leagues;
+            return await listSleeperLeagues(profile.id, username_trimmed, season);
           } catch (e) {
-            if (e instanceof ApiError && e.status === 404) {
-              userNotFound = true;
-            }
+            if (e instanceof ApiError && e.status === 404) userNotFound = true;
             return [];
           }
         }),
@@ -76,7 +193,7 @@ export function SleeperConnectForm({ profileId, onLinked, onCancel }: Props) {
     setBusy(true);
     try {
       const chosen = leagues.find((l) => l.id === chosenLeague);
-      const result = await connectSleeper(profileId, {
+      const result = await connectSleeper(profile.id, {
         username: username.trim(),
         league_id: chosenLeague,
         season: chosen?.season ?? currentSeason(),
@@ -93,7 +210,7 @@ export function SleeperConnectForm({ profileId, onLinked, onCancel }: Props) {
     setError(null);
     setBusy(true);
     try {
-      const result = await connectSleeper(profileId, { username: username.trim() });
+      const result = await connectSleeper(profile.id, { username: username.trim() });
       onLinked(result);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Connect failed. Please try again.");
@@ -109,6 +226,7 @@ export function SleeperConnectForm({ profileId, onLinked, onCancel }: Props) {
 
   return (
     <div className="space-y-3">
+      <StepIndicator step={step} />
       {error && (
         <div className="space-y-2">
           <p className="text-xs text-red-600">{error}</p>
@@ -135,8 +253,7 @@ export function SleeperConnectForm({ profileId, onLinked, onCancel }: Props) {
               aria-label="Sleeper username"
             />
           </label>
-          <div className="flex gap-2 justify-end">
-            <Button size="sm" variant="ghost" onClick={onCancel}>Cancel</Button>
+          <div className="flex justify-end gap-2">
             <Button size="sm" disabled={busy || !username.trim()} onClick={handleContinue}>
               Continue
             </Button>
@@ -159,9 +276,16 @@ export function SleeperConnectForm({ profileId, onLinked, onCancel }: Props) {
               ))}
             </select>
           </label>
-          <div className="flex gap-2 justify-end">
-            <Button size="sm" variant="ghost" onClick={() => setStep("username")}>Back</Button>
-            <Button size="sm" disabled={busy} onClick={handleConnect}>Connect</Button>
+          <div className="flex items-center justify-between gap-2">
+            <button
+              className="text-xs text-muted-foreground hover:underline"
+              onClick={() => setStep("username")}
+            >
+              ← Wrong username?
+            </button>
+            <Button size="sm" disabled={busy} onClick={handleConnect}>
+              Connect
+            </Button>
           </div>
         </>
       )}
