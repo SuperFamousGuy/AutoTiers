@@ -141,4 +141,14 @@ BUILTIN_RULES: list[Rule] = [
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=1.05),
         description="Boosts QB/RB/WR/TE players paid above-market contracts (cap hit > 1.5x position median). Position gating happens upstream in the generate endpoint. Coaches prioritize touches/snaps for big-money players to justify the investment. +5% at default weight.",
     ),
+    Rule(
+        name="Favorites",
+        conditions=[RuleCondition(field="is_favorite", operator="==", value=True)],
+        effect=RuleEffect(type=EffectType.MULTIPLIER, value=1.05),
+        description=(
+            "Boosts players you've marked as favorites — either directly by player "
+            "or by team. +5% at default weight. This is a personalization layer, "
+            "not a statistical claim."
+        ),
+    ),
 ]

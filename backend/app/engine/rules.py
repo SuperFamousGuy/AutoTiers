@@ -59,6 +59,7 @@ class PlayerContext:
     bad_offense_team: Optional[bool] = None
     above_market_contract: Optional[bool] = None
     opportunity_score_z: Optional[float] = None
+    is_favorite: Optional[bool] = None
 
 
 @dataclass
