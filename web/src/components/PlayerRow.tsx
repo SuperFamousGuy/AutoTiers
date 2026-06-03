@@ -3,6 +3,16 @@ import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TieredPlayer } from "@/api/types";
 
+const POSITION_BADGE_CLASSES: Record<string, string> = {
+  QB: "bg-blue-100 text-blue-700",
+  RB: "bg-orange-100 text-orange-700",
+  WR: "bg-green-100 text-green-700",
+  TE: "bg-amber-100 text-amber-700",
+  K: "bg-slate-100 text-slate-600",
+  DST: "bg-purple-100 text-purple-700",
+  DEF: "bg-purple-100 text-purple-700",
+};
+
 interface PlayerRowProps {
   player: TieredPlayer;
 }
@@ -21,6 +31,14 @@ export function PlayerRow({ player }: PlayerRowProps) {
       >
         <span className="w-8 text-right font-mono text-muted-foreground">{player.overall_rank}</span>
         <span className="flex-1 truncate font-medium">{player.name}</span>
+        <span
+          className={cn(
+            "px-1.5 py-0.5 rounded text-[10px] font-bold uppercase",
+            POSITION_BADGE_CLASSES[player.position] ?? "bg-gray-100 text-gray-600"
+          )}
+        >
+          {player.position}
+        </span>
         <span className="w-12 text-xs text-muted-foreground">{player.team ?? "—"}</span>
         <span className="w-12 text-right font-mono">{player.vbd_score.toFixed(1)}</span>
         <ChevronDown

@@ -3,16 +3,23 @@ import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
 import { PositionFilter, type PositionFilterValue } from "./PositionFilter";
 import { TierGroup } from "./TierGroup";
-import type { GenerateResponse } from "@/api/types";
+import type { GenerateResponse, ScoringFormat } from "@/api/types";
+
+const SCORING_FORMAT_LABELS: Record<ScoringFormat, string> = {
+  standard: "Standard",
+  half_ppr: "Half PPR",
+  ppr: "PPR",
+};
 
 interface TiersPanelProps {
   result: GenerateResponse | null;
   isPending: boolean;
   onDownloadCsv: () => void;
   keepers?: Array<{ player_name: string; position: string; team: string }>;
+  scoringFormat?: ScoringFormat;
 }
 
-export function TiersPanel({ result, isPending, onDownloadCsv, keepers }: TiersPanelProps) {
+export function TiersPanel({ result, isPending, onDownloadCsv, keepers, scoringFormat }: TiersPanelProps) {
   const [filter, setFilter] = useState<PositionFilterValue>("ALL");
 
   const groupedByTier = useMemo(() => {
@@ -81,7 +88,12 @@ export function TiersPanel({ result, isPending, onDownloadCsv, keepers }: TiersP
         </div>
       )}
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
-        <h2 className="text-lg font-semibold">Tiers</h2>
+        <div>
+          <h2 className="text-lg font-semibold">Tiers</h2>
+          <p className="text-xs text-muted-foreground">
+            {scoringFormat ? SCORING_FORMAT_LABELS[scoringFormat] : "Standard"} · {result.total ?? result.players.length} players
+          </p>
+        </div>
         <PositionFilter value={filter} onChange={setFilter} />
         <div className="space-y-4">
           {groupedByTier.map((group) => (
