@@ -36,6 +36,8 @@ from app.engine.xfp import (
     compute_per_position_sigmas,
     compute_opportunity_score_z,
     compute_xfp,
+    _MIN_GAMES_PLAYED,
+    _MIN_OPPORTUNITY_BY_POSITION,
 )
 
 
@@ -134,6 +136,11 @@ def calibrate(years: list[int]) -> dict:
         gaps_by_pos: dict[str, list[float]] = {}
         per_player: list[tuple[_CalibrationStat, float, float]] = []
         for s in stats_y:
+            if (s.games_played or 0) < _MIN_GAMES_PLAYED:
+                continue
+            opportunity = (s.targets or 0) + (s.rush_att or 0) + (s.red_zone_looks or 0)
+            if opportunity < _MIN_OPPORTUNITY_BY_POSITION.get(s.position, 50):
+                continue
             xfp = compute_xfp(s, avg)
             if xfp is None:
                 continue

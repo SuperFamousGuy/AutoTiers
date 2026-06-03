@@ -149,6 +149,13 @@ def test_builtin_rules_count_is_20():
     assert len(BUILTIN_RULES) == 20
 
 
+def test_opportunity_rules_categorized_as_regression():
+    """Opportunity Over-Producer and Under-Producer must group with TD Regression."""
+    from app.api.rules import _categorize
+    assert _categorize("Opportunity Over-Producer") == "Regression"
+    assert _categorize("Opportunity Under-Producer") == "Regression"
+
+
 def test_all_builtin_rules_have_descriptions():
     for rule in BUILTIN_RULES:
         assert rule.description, f"Rule '{rule.name}' is missing a description"

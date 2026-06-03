@@ -22,6 +22,8 @@ from app.engine.xfp import (
     compute_per_position_sigmas,
     compute_opportunity_score_z,
     compute_xfp,
+    _MIN_GAMES_PLAYED,
+    _MIN_OPPORTUNITY_BY_POSITION,
 )
 from app.engine.tiers import TieredPlayer, assign_tiers
 from app.schemas.generate import GenerateRequest, GenerateResponse, TieredPlayerOut, RuleApplicationOut
@@ -236,6 +238,15 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
     # Build (FP - xFP) gap distribution per position to derive σ.
     gaps_by_position: dict[str, list[float]] = {}
     for sp in prior_stats_with_pos:
+        # Mirror the filters used in compute_league_averages and compute_opportunity_score_z
+        # so the σ_gap distribution is built from the same population the z-score uses.
+        # Without these, injury-truncated and zero-opportunity players inflate σ,
+        # compressing z-scores toward zero and suppressing rule firings.
+        if (sp.stat.games_played or 0) < _MIN_GAMES_PLAYED:
+            continue
+        opportunity = (sp.stat.targets or 0) + (sp.stat.rush_att or 0) + (sp.stat.red_zone_looks or 0)
+        if opportunity < _MIN_OPPORTUNITY_BY_POSITION.get(sp.position, 50):
+            continue
         xfp_val = compute_xfp(sp, league_avg)
         if xfp_val is None:
             continue

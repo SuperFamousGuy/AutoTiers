@@ -17,6 +17,7 @@ _CATEGORIES = {
     "Follow the Money": "Situation",
     "Injury History": "Regression",
     "TD Regression": "Regression",
+    "Opportunity": "Regression",
     "Red Zone": "Regression",
     "Projection Unavailable": "Regression",
     "370 Touches": "Regression",
