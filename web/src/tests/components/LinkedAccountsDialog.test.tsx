@@ -106,6 +106,22 @@ describe("LinkedAccountsDialog", () => {
     expect(screen.getByRole("button", { name: /disconnect yahoo/i })).toBeInTheDocument();
   });
 
+  it("Disconnect Yahoo calls unlinkYahoo then onRefresh", async () => {
+    const { unlinkYahoo } = await import("@/api/auth");
+    (unlinkYahoo as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
+    const refresh = vi.fn().mockResolvedValueOnce(undefined);
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop}
+        user={{ ...baseUser, yahoo_subject: "y-sub" }}
+        onRefresh={refresh} initialError={null} activeProfile={activeProfile} />,
+    );
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /^yahoo$/i }));
+    await u.click(await screen.findByRole("button", { name: /disconnect yahoo/i }));
+    await waitFor(() => expect(unlinkYahoo).toHaveBeenCalled());
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+  });
+
   it("shows 'Select a profile' when Sleeper tab is active but no activeProfile is provided", () => {
     render(
       <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
