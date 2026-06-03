@@ -34,7 +34,7 @@ function HamburgerMenu({ currentState, onOpenLinkedAccounts }: HamburgerProps) {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => onOpenLinkedAccounts?.()}>
-                Linked Accounts
+                Connect Your League
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => logout()}>Log Out</DropdownMenuItem>
             </>
