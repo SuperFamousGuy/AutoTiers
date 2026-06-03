@@ -15,6 +15,9 @@ def _ctx(**overrides) -> PlayerContext:
         actual_tds=8, expected_tds=7.0,
         actual_tds_above_expected=None, red_zone_looks=None,
         is_over_the_hill=None, projection_unavailable=None,
+        prior_touches=None, injured_two_years_ago=None,
+        bad_offense_team=None, above_market_contract=None,
+        opportunity_score_z=None,
     )
     defaults.update(overrides)
     return PlayerContext(**defaults)
@@ -28,6 +31,9 @@ def make_ctx(**overrides) -> PlayerContext:
         projected_score=100.0, new_team=False, new_coach=False,
         actual_tds=None, expected_tds=None, actual_tds_above_expected=None,
         red_zone_looks=None, is_over_the_hill=None, projection_unavailable=None,
+        prior_touches=None, injured_two_years_ago=None,
+        bad_offense_team=None, above_market_contract=None,
+        opportunity_score_z=None,
     )
     defaults.update(overrides)
     return PlayerContext(**defaults)
@@ -138,9 +144,16 @@ def test_builtin_rules_is_nonempty_list_of_rules():
         assert rule.conditions
 
 
-def test_builtin_rules_count_is_18():
-    """Adding 'Follow the Money' rule (was 17)."""
-    assert len(BUILTIN_RULES) == 18
+def test_builtin_rules_count_is_20():
+    """Adding Opportunity Over-Producer and Under-Producer rules (was 18)."""
+    assert len(BUILTIN_RULES) == 20
+
+
+def test_opportunity_rules_categorized_as_regression():
+    """Opportunity Over-Producer and Under-Producer must group with TD Regression."""
+    from app.api.rules import _categorize
+    assert _categorize("Opportunity Over-Producer") == "Regression"
+    assert _categorize("Opportunity Under-Producer") == "Regression"
 
 
 def test_all_builtin_rules_have_descriptions():

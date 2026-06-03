@@ -45,34 +45,50 @@ class PlayerStats:
     games_played: int
 
 
-def calculate_fantasy_points(stats: PlayerStats, settings: LeagueSettings, position: str = "") -> float:
-    pts = 0.0
-
-    # Passing
-    pts += stats.pass_yards * 0.04
-    pts += stats.pass_tds * settings.qb_td_points
-    pts -= stats.interceptions * 2.0
-
-    # Rushing
-    pts += stats.rush_yards * 0.1
-    pts += stats.rush_tds * 6.0
-    if settings.bonus_100yd_rushing and stats.rush_yards >= 100:
-        pts += 3.0
-
-    # Receiving — reception points depend on format
+def _score_receiving(stats: PlayerStats, settings: LeagueSettings) -> float:
+    """Receiving points EXCLUDING TDs (yards + reception bonus + 100yd bonus)."""
     if settings.scoring_format == ScoringFormat.PPR:
         rec_pts = 1.0
     elif settings.scoring_format == ScoringFormat.HALF_PPR:
         rec_pts = 0.5
     else:
         rec_pts = 0.0
-
-    pts += stats.receptions * rec_pts
-    pts += stats.rec_yards * 0.1
-    pts += stats.rec_tds * 6.0
+    pts = stats.receptions * rec_pts + stats.rec_yards * 0.1
     if settings.bonus_100yd_receiving and stats.rec_yards >= 100:
         pts += 3.0
+    return pts
 
+
+def _score_rushing(stats: PlayerStats, settings: LeagueSettings) -> float:
+    """Rushing points EXCLUDING TDs (yards + 100yd bonus)."""
+    pts = stats.rush_yards * 0.1
+    if settings.bonus_100yd_rushing and stats.rush_yards >= 100:
+        pts += 3.0
+    return pts
+
+
+def _score_tds_only(stats: PlayerStats, settings: LeagueSettings) -> float:
+    """Total TD points (rushing + receiving). Passing TDs excluded — those are QB-only."""
+    return (stats.rec_tds + stats.rush_tds) * 6.0
+
+
+def _score_passing(stats: PlayerStats, settings: LeagueSettings) -> float:
+    """Passing points (QB-only). Includes pass yards, pass TDs, INTs."""
+    return (
+        stats.pass_yards * 0.04
+        + stats.pass_tds * settings.qb_td_points
+        - stats.interceptions * 2.0
+    )
+
+
+def calculate_fantasy_points(stats: PlayerStats, settings: LeagueSettings, position: str = "") -> float:
+    """Total fantasy points across all categories. Behavior unchanged — this is now a sum of the component helpers."""
+    pts = (
+        _score_passing(stats, settings)
+        + _score_rushing(stats, settings)
+        + _score_tds_only(stats, settings)
+        + _score_receiving(stats, settings)
+    )
     return round(pts, 2)
 
 

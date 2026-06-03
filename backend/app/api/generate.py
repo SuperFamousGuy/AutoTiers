@@ -14,9 +14,17 @@ from app.models.player import Player, PlayerStat
 from app.models.projection import Projection
 from app.models.adp import ADPData
 from app.models import TeamSeason, PlayerContract
-from app.engine.scoring import LeagueSettings, PlayerStats, calculate_fantasy_points, blend_scores
+from app.engine.scoring import LeagueSettings, PlayerStats, calculate_fantasy_points, blend_scores, _score_receiving, _score_rushing, _score_tds_only
 from app.engine.rules import Rule, RuleCondition, RuleEffect, PlayerContext, apply_rules
 from app.engine.builtin_rules import BUILTIN_RULES, OVER_THE_HILL_AGE
+from app.engine.xfp import (
+    compute_league_averages,
+    compute_per_position_sigmas,
+    compute_opportunity_score_z,
+    compute_xfp,
+    _MIN_GAMES_PLAYED,
+    _MIN_OPPORTUNITY_BY_POSITION,
+)
 from app.engine.tiers import TieredPlayer, assign_tiers
 from app.schemas.generate import GenerateRequest, GenerateResponse, TieredPlayerOut, RuleApplicationOut
 from app.data.matching import normalize_name
@@ -148,6 +156,22 @@ async def _compute_above_market_pids(
     }
 
 
+@dataclasses.dataclass
+class _StatWithPosition:
+    """Pairs a PlayerStat with its parent player's position, so xfp.* sees both.
+
+    The xfp module reads `.position` plus the PlayerStat numeric attributes.
+    The ORM PlayerStat itself doesn't carry the position (it's on the parent
+    Player). __getattr__ delegates everything except `position` to the wrapped
+    stat so xfp sees a uniform interface.
+    """
+    stat: object  # PlayerStat at runtime; using object to avoid forward-ref cycles
+    position: str
+
+    def __getattr__(self, name):
+        return getattr(self.stat, name)
+
+
 async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPlayer]:
     settings = _build_league_settings(req)
     scoring_fmt = req.scoring_format.value
@@ -196,6 +220,49 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
     players = result.scalars().all()
 
     above_market_pids = await _compute_above_market_pids(db, current_year, players)
+
+    # ---- Opportunity-score (xFP) pre-pass ----------------------------------
+    # Compute per-position league averages of pts/target, pts/carry, pts/RZ
+    # using the SAME settings that determine each player's actual FP. Then
+    # compute per-position σ_gap from (FP - xFP) distributions. Both feed
+    # into per-player z-scores below.
+    prior_stats_with_pos = []
+    for p in players:
+        s = _get_stat(p.stats)
+        if s is None:
+            continue
+        prior_stats_with_pos.append(_StatWithPosition(stat=s, position=p.position))
+
+    league_avg = compute_league_averages(prior_stats_with_pos, settings)
+
+    # Build (FP - xFP) gap distribution per position to derive σ.
+    gaps_by_position: dict[str, list[float]] = {}
+    for sp in prior_stats_with_pos:
+        # Mirror the filters used in compute_league_averages and compute_opportunity_score_z
+        # so the σ_gap distribution is built from the same population the z-score uses.
+        # Without these, injury-truncated and zero-opportunity players inflate σ,
+        # compressing z-scores toward zero and suppressing rule firings.
+        if (sp.stat.games_played or 0) < _MIN_GAMES_PLAYED:
+            continue
+        opportunity = (sp.stat.targets or 0) + (sp.stat.rush_att or 0) + (sp.stat.red_zone_looks or 0)
+        if opportunity < _MIN_OPPORTUNITY_BY_POSITION.get(sp.position, 50):
+            continue
+        xfp_val = compute_xfp(sp, league_avg)
+        if xfp_val is None:
+            continue
+        ps_for_gap = PlayerStats(
+            targets=sp.stat.targets or 0, receptions=sp.stat.receptions or 0,
+            rec_yards=sp.stat.rec_yards or 0.0, rec_tds=sp.stat.rec_tds or 0,
+            rush_att=sp.stat.rush_att or 0, rush_yards=sp.stat.rush_yards or 0.0,
+            rush_tds=sp.stat.rush_tds or 0,
+            pass_att=0, pass_yards=0.0, pass_tds=0, interceptions=0,
+            games_played=sp.stat.games_played or 1,
+        )
+        fp = _score_receiving(ps_for_gap, settings) + _score_rushing(ps_for_gap, settings) + _score_tds_only(ps_for_gap, settings)
+        gaps_by_position.setdefault(sp.position, []).append(fp - xfp_val)
+
+    position_sigmas = compute_per_position_sigmas(gaps_by_position)
+    # ------------------------------------------------------------------------
 
     tiered: list[TieredPlayer] = []
     for player in players:
@@ -268,6 +335,11 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
             if two_yrs_ago_stat is not None:
                 injured_two_years_ago = (two_yrs_ago_stat.games_played or 0) < 12
 
+        opportunity_score_z: Optional[float] = None
+        if stat is not None:
+            sp_for_z = _StatWithPosition(stat=stat, position=player.position)
+            opportunity_score_z = compute_opportunity_score_z(sp_for_z, league_avg, position_sigmas, settings)
+
         ctx = PlayerContext(
             player_id=player.id,
             position=player.position,
@@ -295,6 +367,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPl
             injured_two_years_ago=injured_two_years_ago,
             bad_offense_team=bad_offense_team,
             above_market_contract=above_market_contract,
+            opportunity_score_z=opportunity_score_z,
         )
 
         rule_result = apply_rules(blended, ctx, rules)
