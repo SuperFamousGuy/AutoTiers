@@ -8,5 +8,6 @@ from app.models.data_source_status import DataSourceStatus
 from app.models.user import User
 from app.models.profile import Profile
 from app.models.linked_league import LinkedLeague
+from app.models.user_favorites import UserFavorites
 
-__all__ = ["Player", "PlayerStat", "Projection", "ADPData", "TeamContext", "TeamSeason", "PlayerContract", "DataSourceStatus", "User", "Profile", "LinkedLeague"]
+__all__ = ["Player", "PlayerStat", "Projection", "ADPData", "TeamContext", "TeamSeason", "PlayerContract", "DataSourceStatus", "User", "Profile", "LinkedLeague", "UserFavorites"]
