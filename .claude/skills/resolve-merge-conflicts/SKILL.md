@@ -27,7 +27,7 @@ Group files by type so you can apply the right resolution strategy to each:
 
 | Group | Files |
 |-------|-------|
-| **lockfiles** | `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Pipfile.lock`, `poetry.lock` |
+| **lockfiles** | `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Pipfile.lock`, `poetry.lock` — regenerate, never hand-resolve |
 | **package manifests** | `package.json`, `pyproject.toml`, `Pipfile`, `requirements.txt` |
 | **config** | `.json`, `.yaml`, `.yml`, `.toml`, `.env.*`, `.rc` files |
 | **source** | `.ts`, `.tsx`, `.js`, `.jsx`, `.py`, `.go`, etc. |
@@ -53,6 +53,12 @@ rm yarn.lock && yarn install
 
 # pnpm
 rm pnpm-lock.yaml && pnpm install
+
+# pipenv (Python)
+rm Pipfile.lock && pipenv install
+
+# poetry (Python)
+rm poetry.lock && poetry lock
 ```
 
 If the lockfile is in a subdirectory (e.g., `web/package-lock.json`), run the install command from that directory.
@@ -95,8 +101,14 @@ You'll use this for the final report.
 ## Step 4: Verify — no conflict markers remain
 
 ```bash
-# This should return nothing
-grep -rn "<<<<<<\|=======\|>>>>>>>" --include="*.ts" --include="*.tsx" --include="*.js" --include="*.json" --include="*.py" --include="*.yaml" --include="*.yml" . | grep -v node_modules | grep -v ".git"
+# This should return nothing — repo-wide search, excluding generated/vendor dirs
+grep -rn "<<<<<<\|=======\|>>>>>>>" . \
+  --exclude-dir=node_modules \
+  --exclude-dir=.git \
+  --exclude-dir=.venv \
+  --exclude-dir=__pycache__ \
+  --exclude-dir=dist \
+  --exclude-dir=build
 ```
 
 If any markers remain, go back and resolve them before continuing.
@@ -113,8 +125,12 @@ npm run typecheck 2>/dev/null || true
 ## Step 5: Stage and commit
 
 ```bash
-git add -A
-git status  # confirm only conflict-resolved files are staged
+# Stage only the files you resolved — not everything in the working tree.
+# git merge auto-stages files it resolved cleanly; you only need to add
+# the ones you fixed manually (the formerly-conflicted paths).
+# Use the list from Step 1 to be explicit:
+git add <file1> <file2> ...   # the paths that were conflicted
+git status                     # confirm staged set is what you expect
 ```
 
 If this is a merge (not a rebase):
