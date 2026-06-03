@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Trash2 } from "lucide-react";
 import type { Profile } from "@/api/types";
 
@@ -52,10 +53,10 @@ export function ManageProfilesDialog({ open, onOpenChange, profiles, onRename, o
               <li key={p.id} className="flex items-center justify-between gap-2 rounded border px-3 py-2">
                 {editingId === p.id ? (
                   <>
-                    <input
+                    <Input
                       value={draftName}
                       onChange={(e) => setDraftName(e.target.value)}
-                      className="flex-1 rounded border px-2 py-1 text-sm"
+                      className="flex-1"
                       autoFocus
                     />
                     <Button size="sm" onClick={() => handleRename(p.id)}>Save</Button>
