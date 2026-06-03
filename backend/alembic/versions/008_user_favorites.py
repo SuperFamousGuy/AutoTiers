@@ -25,13 +25,11 @@ def upgrade() -> None:
             "favorite_player_ids",
             JSONB().with_variant(sa.JSON(), "sqlite"),
             nullable=False,
-            server_default=sa.text("'[]'::jsonb"),
         ),
         sa.Column(
             "favorite_teams",
             JSONB().with_variant(sa.JSON(), "sqlite"),
             nullable=False,
-            server_default=sa.text("'[]'::jsonb"),
         ),
     )
 
