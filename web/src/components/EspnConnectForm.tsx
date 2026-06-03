@@ -1,16 +1,95 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { connectEspn, type LinkedLeagueResponse } from "@/api/linkedLeague";
+import {
+  connectEspn,
+  refreshLink,
+  disconnectLink,
+  type LinkedLeagueResponse,
+} from "@/api/linkedLeague";
 import { ApiError } from "@/api/client";
 import { currentSeason } from "@/lib/season";
+import type { Profile } from "@/api/types";
 
 interface Props {
-  profileId: string;
+  profile: Profile;
   onLinked: (result: LinkedLeagueResponse) => void;
-  onCancel: () => void;
+  onRefresh: () => Promise<void>;
 }
 
-export function EspnConnectForm({ profileId, onLinked, onCancel }: Props) {
+interface ConnectedStateProps {
+  linked: NonNullable<Profile["linked_league"]>;
+  profileId: string;
+  onRefresh: () => Promise<void>;
+}
+
+function EspnConnectedState({ linked, profileId, onRefresh }: ConnectedStateProps) {
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function handleRefresh() {
+    setError(null);
+    setBusy(true);
+    try {
+      await refreshLink(profileId);
+      await onRefresh();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Refresh failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDisconnect() {
+    setError(null);
+    setBusy(true);
+    try {
+      await disconnectLink(profileId);
+      await onRefresh();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Disconnect failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      {error && <p className="text-xs text-red-600">{error}</p>}
+      <div className="rounded-lg border-2 border-green-500 bg-green-50/50 p-3">
+        <div className="mb-1 flex items-center gap-2">
+          <div className="flex h-5 w-5 items-center justify-center rounded-full bg-green-500">
+            <span className="text-[10px] font-bold text-white">✓</span>
+          </div>
+          <span className="text-sm font-bold text-green-700">Connected!</span>
+        </div>
+        <p className="text-sm font-medium">
+          {linked.league_metadata_json?.name ?? "Account linked (no league)"}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          ESPN{linked.league_metadata_json ? ` · ${linked.league_metadata_json.season}` : ""}
+        </p>
+      </div>
+      <div className="flex gap-2">
+        {linked.league_id && (
+          <Button size="sm" variant="outline" disabled={busy} onClick={handleRefresh}>
+            Refresh
+          </Button>
+        )}
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy}
+          aria-label="Disconnect ESPN"
+          onClick={handleDisconnect}
+        >
+          Disconnect
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+export function EspnConnectForm({ profile, onLinked, onRefresh }: Props) {
   const [leagueId, setLeagueId] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
   const [swid, setSwid] = useState("");
@@ -18,15 +97,19 @@ export function EspnConnectForm({ profileId, onLinked, onCancel }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const linked = profile.linked_league;
+  if (linked?.provider === "espn") {
+    return (
+      <EspnConnectedState linked={linked} profileId={profile.id} onRefresh={onRefresh} />
+    );
+  }
+
   async function handleConnect() {
     setError(null);
     setBusy(true);
     try {
       const trimmedLeague = leagueId.trim();
-      const result = await connectEspn(profileId, {
-        // Send league_id + season only when the user filled in a league.
-        // Otherwise we're pre-linking the ESPN account (cookies only) so the
-        // backend skips the league fetch and just stores the credentials.
+      const result = await connectEspn(profile.id, {
         league_id: trimmedLeague || undefined,
         season: trimmedLeague ? currentSeason() : undefined,
         swid: isPrivate ? swid.trim() : undefined,
@@ -40,81 +123,97 @@ export function EspnConnectForm({ profileId, onLinked, onCancel }: Props) {
     }
   }
 
+  // Public: must have leagueId.
+  // Private: leagueId OR (both cookies filled) — allows pre-linking with cookies only.
+  const connectDisabled =
+    busy ||
+    (!isPrivate && leagueId.trim() === "") ||
+    (isPrivate && leagueId.trim() === "" && (swid.trim() === "" || espnS2.trim() === ""));
+
   return (
     <div className="space-y-3">
       {error && <p className="text-xs text-red-600">{error}</p>}
+
+      {/* Public / Private toggle */}
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          variant={isPrivate ? "outline" : "default"}
+          aria-label="Public league"
+          onClick={() => setIsPrivate(false)}
+        >
+          Public league
+        </Button>
+        <Button
+          size="sm"
+          variant={isPrivate ? "default" : "outline"}
+          aria-label="Private league"
+          onClick={() => setIsPrivate(true)}
+        >
+          Private league
+        </Button>
+      </div>
+
+      {/* League ID */}
       <label className="block text-sm">
-        <span>League ID <span className="text-xs text-muted-foreground">(optional)</span></span>
+        <span>
+          League ID{" "}
+          {isPrivate && (
+            <span className="text-xs text-muted-foreground">(optional if using cookies only)</span>
+          )}
+        </span>
         <input
           className="mt-1 block w-full rounded border px-2 py-1 text-sm"
           value={leagueId}
           onChange={(e) => setLeagueId(e.target.value)}
           aria-label="League ID"
-          placeholder="Leave blank to link your ESPN account without a league"
+          placeholder="e.g. 336041"
         />
       </label>
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={isPrivate}
-          onChange={(e) => setIsPrivate(e.target.checked)}
-          aria-label="Private league"
-        />
-        <span>Private League</span>
-      </label>
+      {!isPrivate && (
+        <p className="text-xs text-muted-foreground">
+          Find it in your ESPN league URL:{" "}
+          /fantasy/football/leagues/<strong>{leagueId || "336041"}</strong>
+        </p>
+      )}
+
+      {/* Private credentials */}
       {isPrivate && (
-        <>
-          <details className="rounded border bg-muted/40 p-2 text-xs open:pb-3">
-            <summary className="cursor-pointer select-none font-medium">
-              How to find SWID and espn_s2
-            </summary>
-            <ol className="mt-2 list-decimal space-y-2 pl-4 text-muted-foreground">
-              <li>
-                Sign in to{" "}
-                <a
-                  href="https://fantasy.espn.com"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="underline"
-                >
-                  fantasy.espn.com
-                </a>{" "}
-                in another browser tab.
-              </li>
-              <li>
-                Open DevTools — <kbd className="rounded border px-1">F12</kbd> on
-                Windows/Linux,{" "}
-                <kbd className="rounded border px-1">⌥ ⌘ I</kbd> on macOS — and
-                switch to the <strong>Application</strong> tab (Chrome / Edge)
-                or <strong>Storage</strong> tab (Firefox).
-              </li>
-              <li>
-                In the left sidebar, expand <strong>Cookies</strong> and click{" "}
-                <code className="rounded bg-foreground/10 px-1">
-                  https://fantasy.espn.com
-                </code>
-                .
-              </li>
-              <li>
-                Copy the <strong>Value</strong> column for the row named{" "}
-                <code className="rounded bg-foreground/10 px-1">SWID</code> and
-                paste it below. Repeat for{" "}
-                <code className="rounded bg-foreground/10 px-1">espn_s2</code>.
-              </li>
-            </ol>
-            <p className="mt-2">
-              Prefer video?{" "}
-              <a
-                href="https://www.youtube.com/results?search_query=espn+fantasy+swid+espn_s2+cookies+devtools"
-                target="_blank"
-                rel="noreferrer"
-                className="underline"
-              >
-                Show me how (YouTube)
-              </a>
-            </p>
-          </details>
-          <label className="block text-sm">
+        <div className="space-y-2 rounded border bg-muted/40 p-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium">🍪 Private credentials</span>
+            <a
+              href="https://chromewebstore.google.com/detail/gameday-bot/nkplmhgeegmlfpkiiakfjpmhbinibojc"
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs underline"
+            >
+              How to find these ↗
+            </a>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Use the{" "}
+            <a
+              href="https://chromewebstore.google.com/detail/gameday-bot/nkplmhgeegmlfpkiiakfjpmhbinibojc"
+              target="_blank"
+              rel="noreferrer"
+              className="underline"
+            >
+              GameDayBot
+            </a>{" "}
+            or{" "}
+            <a
+              href="https://www.pff.com/fantasy"
+              target="_blank"
+              rel="noreferrer"
+              className="underline"
+            >
+              PFF
+            </a>{" "}
+            browser extension to copy these values automatically, or find them manually via
+            DevTools → Application → Cookies → fantasy.espn.com.
+          </p>
+          <label className="block text-xs">
             <span>SWID</span>
             <input
               type="password"
@@ -125,7 +224,7 @@ export function EspnConnectForm({ profileId, onLinked, onCancel }: Props) {
               placeholder="{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}"
             />
           </label>
-          <label className="block text-sm">
+          <label className="block text-xs">
             <span>espn_s2</span>
             <input
               type="password"
@@ -136,21 +235,11 @@ export function EspnConnectForm({ profileId, onLinked, onCancel }: Props) {
               placeholder="long opaque string"
             />
           </label>
-        </>
+        </div>
       )}
-      <div className="flex gap-2 justify-end">
-        <Button size="sm" variant="ghost" onClick={onCancel}>Cancel</Button>
-        <Button
-          size="sm"
-          disabled={
-            busy ||
-            // Need either a league ID or both cookies — otherwise there's
-            // nothing for the backend to link.
-            (leagueId.trim() === "" &&
-              (!isPrivate || swid.trim() === "" || espnS2.trim() === ""))
-          }
-          onClick={handleConnect}
-        >
+
+      <div className="flex justify-end">
+        <Button size="sm" disabled={connectDisabled} onClick={handleConnect}>
           Connect
         </Button>
       </div>
