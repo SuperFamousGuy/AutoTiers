@@ -278,6 +278,7 @@ export function SleeperConnectForm({ profile, onLinked, onRefresh }: Props) {
           </label>
           <div className="flex items-center justify-between gap-2">
             <button
+              type="button"
               className="text-xs text-muted-foreground hover:underline"
               onClick={() => setStep("username")}
             >
