@@ -52,10 +52,15 @@ One check run can cover multiple categories — read the logs to be sure.
 # Get the head SHA for the PR
 HEAD_SHA=$(gh pr view <PR_NUMBER> --json headRefOid -q .headRefOid)
 
-# List recent workflow runs for that SHA
-gh run list --branch $(gh pr view <PR_NUMBER> --json headRefName -q .headRefName) \
-  --json databaseId,name,conclusion,status --limit 20 \
-  | python3 -c "import json,sys; [print(r['databaseId'], r['name'], r['conclusion']) for r in json.load(sys.stdin) if r['conclusion']=='failure']"
+# List recent workflow runs for that SHA (filter by headSha to avoid stale runs from the same branch)
+gh run list --json databaseId,name,conclusion,status,headSha --limit 50 \
+  | python3 -c "
+import json, sys
+runs = json.load(sys.stdin)
+head = '$HEAD_SHA'
+[print(r['databaseId'], r['name'], r['conclusion'])
+ for r in runs if r['headSha'] == head and r['conclusion'] == 'failure']
+"
 
 # Get failed step logs for a specific run
 gh run view <RUN_ID> --log-failed
@@ -122,7 +127,7 @@ Verify after each batch of changes:
 ```bash
 npx tsc --noEmit          # TypeScript
 python -m mypy .          # Python (mypy)
-python -m pyright .       # Python (pyright)
+npx pyright . 2>/dev/null || pyright .  # Python (pyright — installed via npm in most projects)
 ```
 
 ### Test failures
@@ -161,7 +166,8 @@ Before pushing, run the same checks locally to confirm the fix works:
 
 ```bash
 # Run whatever the CI runs — check the workflow YAML for the exact commands
-cat .github/workflows/*.yml | grep -A2 "run:" | grep -v "^--$"
+shopt -s nullglob; for f in .github/workflows/*.yml .github/workflows/*.yaml; do cat "$f"; done \
+  | grep -A2 "run:" | grep -v "^--$"
 ```
 
 Replicate the failing step's `run:` command locally. If it passes locally, proceed.
