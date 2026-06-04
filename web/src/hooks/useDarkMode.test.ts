@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useDarkMode } from "./useDarkMode";
 
@@ -86,5 +86,21 @@ describe("useDarkMode", () => {
   it("persists 'dark' to localStorage on mount when defaulting to dark", () => {
     renderHook(() => useDarkMode());
     expect(localStorage.getItem("theme")).toBe("dark");
+  });
+
+  it("defaults to dark when localStorage throws SecurityError", () => {
+    const spy = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new DOMException("SecurityError");
+    });
+    const { result } = renderHook(() => useDarkMode());
+    expect(result.current[0]).toBe(true);
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    spy.mockRestore();
+  });
+
+  it("defaults to dark when localStorage has an unrecognized value", () => {
+    localStorage.setItem("theme", "Dark"); // capital D — not a valid stored value
+    const { result } = renderHook(() => useDarkMode());
+    expect(result.current[0]).toBe(true);
   });
 });

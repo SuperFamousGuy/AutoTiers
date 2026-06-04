@@ -1,19 +1,26 @@
-import { useState, useEffect } from "react";
+import { useState, useLayoutEffect } from "react";
+
+function getStoredTheme(): boolean {
+  try {
+    const stored = localStorage.getItem("theme");
+    if (stored === "dark") return true;
+    if (stored === "light") return false;
+    return true; // default dark
+  } catch {
+    return true; // storage blocked — default dark
+  }
+}
 
 export function useDarkMode() {
-  const [isDark, setIsDark] = useState<boolean>(() => {
-    const stored = localStorage.getItem("theme");
-    return stored ? stored === "dark" : true; // default dark
-  });
+  const [isDark, setIsDark] = useState<boolean>(getStoredTheme);
 
-  useEffect(() => {
-    const root = document.documentElement;
-    if (isDark) {
-      root.classList.add("dark");
-    } else {
-      root.classList.remove("dark");
+  useLayoutEffect(() => {
+    document.documentElement.classList.toggle("dark", isDark);
+    try {
+      localStorage.setItem("theme", isDark ? "dark" : "light");
+    } catch {
+      // storage blocked — preference not persisted
     }
-    localStorage.setItem("theme", isDark ? "dark" : "light");
   }, [isDark]);
 
   return [isDark, () => setIsDark((d) => !d)] as const;
