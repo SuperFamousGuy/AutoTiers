@@ -255,7 +255,7 @@ WHAT YOU ASKED FOR: one-sentence echo
 
 WHAT I DELIVERED: one-sentence outcome
 
-STAGES RUN: design | impl | qa  (and which were skipped with one-line justification each)
+STAGES RUN: design | impl | qa | pr-open  (and which were skipped with one-line justification each)
 
 ADVISORS CONSULTED: mathematician | researcher | claude-code-author  (and one line per consult)
 
