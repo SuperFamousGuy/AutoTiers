@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
 import { PositionFilter, type PositionFilterValue } from "./PositionFilter";
 import { TierGroup } from "./TierGroup";
+import { getTierLabel } from "@/lib/tiers";
 import type { GenerateResponse, ScoringFormat } from "@/api/types";
 
 const SCORING_FORMAT_LABELS: Record<ScoringFormat, string> = {
@@ -23,7 +24,7 @@ export function TiersPanel({ result, isPending, onDownloadCsv, keepers, scoringF
   const [filter, setFilter] = useState<PositionFilterValue>("ALL");
 
   const groupedByTier = useMemo(() => {
-    if (!result) return [] as { label: string; players: GenerateResponse["players"] }[];
+    if (!result) return [] as { label: string; descriptiveLabel?: string; players: GenerateResponse["players"] }[];
     const filtered = filter === "ALL"
       ? result.players
       : result.players.filter((p) => p.position === filter);
@@ -37,9 +38,14 @@ export function TiersPanel({ result, isPending, onDownloadCsv, keepers, scoringF
       }
       return [...m.entries()]
         .sort(([a], [b]) => a - b)
-        .map(([tier, players]) => ({ label: `Tier ${tier}`, players }));
+        .map(([tier, players]) => ({
+          label: `Tier ${tier}`,
+          descriptiveLabel: getTierLabel(tier),
+          players,
+        }));
     } else {
       // Group by positional_tier (e.g., "WR1", "WR2"). Sort by the numeric suffix.
+      // No descriptiveLabel for position-filtered views — the tier name (e.g. "WR1") already conveys meaning.
       const m = new Map<string, typeof filtered>();
       for (const p of filtered) {
         if (!m.has(p.positional_tier)) m.set(p.positional_tier, []);
@@ -97,7 +103,12 @@ export function TiersPanel({ result, isPending, onDownloadCsv, keepers, scoringF
         <PositionFilter value={filter} onChange={setFilter} />
         <div className="space-y-4">
           {groupedByTier.map((group) => (
-            <TierGroup key={group.label} label={group.label} players={group.players} />
+            <TierGroup
+              key={group.label}
+              label={group.label}
+              descriptiveLabel={group.descriptiveLabel}
+              players={group.players}
+            />
           ))}
         </div>
       </div>
