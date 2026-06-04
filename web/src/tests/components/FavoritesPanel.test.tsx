@@ -11,9 +11,11 @@ const makeFav = (overrides: Partial<FavoritesOut> = {}): FavoritesOut => ({
 });
 
 const sampleSearchResults: PlayerSearchResult[] = [
-  { id: "1", name: "Saquon Barkley", position: "RB", team: "PHI" },
-  { id: "2", name: "Christian McCaffrey", position: "RB", team: "SF" },
+  { id: "1", name: "Saquon Barkley", position: "RB", team: "PHI", espn_id: "3054211" },
+  { id: "2", name: "Christian McCaffrey", position: "RB", team: "SF", espn_id: "3054212" },
 ];
+
+const defaultBatch = vi.fn(async () => []);
 
 describe("FavoritesPanel", () => {
   it("renders empty state for both sections", () => {
@@ -22,6 +24,7 @@ describe("FavoritesPanel", () => {
         favorites={makeFav()}
         onSave={vi.fn()}
         searchPlayers={vi.fn(async () => [])}
+        batchPlayers={defaultBatch}
       />
     );
     expect(screen.getByText(/no favorite players yet/i)).toBeInTheDocument();
@@ -34,6 +37,7 @@ describe("FavoritesPanel", () => {
         favorites={makeFav({ favorite_player_ids: ["1"], favorite_teams: ["KC", "BUF"] })}
         onSave={vi.fn()}
         searchPlayers={vi.fn(async () => [])}
+        batchPlayers={defaultBatch}
       />
     );
     expect(screen.getByText("1 / 20")).toBeInTheDocument();
@@ -47,6 +51,7 @@ describe("FavoritesPanel", () => {
         loading
         onSave={vi.fn()}
         searchPlayers={vi.fn(async () => [])}
+        batchPlayers={defaultBatch}
       />
     );
     expect(screen.getByText(/loading favorites/i)).toBeInTheDocument();
@@ -62,6 +67,7 @@ describe("FavoritesPanel", () => {
         onRetry={onRetry}
         onSave={vi.fn()}
         searchPlayers={vi.fn(async () => [])}
+        batchPlayers={defaultBatch}
       />
     );
     expect(screen.getByText(/failed to load favorites/i)).toBeInTheDocument();
@@ -69,27 +75,106 @@ describe("FavoritesPanel", () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
-  it("shows favorite players as persistent chips independent of search", () => {
+  it("shows favorite players as persistent cards independent of search", async () => {
+    const batch = vi.fn(async () => [
+      { id: "1", name: "Saquon Barkley", position: "RB", team: "PHI", espn_id: "3054211" },
+    ]);
     render(
       <FavoritesPanel
         favorites={makeFav({ favorite_player_ids: ["1"] })}
         onSave={vi.fn()}
         searchPlayers={vi.fn(async () => [])}
+        batchPlayers={batch}
       />
     );
-    expect(screen.getByRole("button", { name: /remove 1/i })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /remove saquon barkley/i })).toBeInTheDocument()
+    );
   });
 
-  it("removing a chip calls onSave without that player", async () => {
+  it("panel calls batchPlayers with unresolved ids on mount", async () => {
+    const batch = vi.fn(async () => []);
+    render(
+      <FavoritesPanel
+        favorites={makeFav({ favorite_player_ids: ["42", "99"] })}
+        onSave={vi.fn()}
+        searchPlayers={vi.fn(async () => [])}
+        batchPlayers={batch}
+      />
+    );
+    await waitFor(() => expect(batch).toHaveBeenCalledWith(["42", "99"]));
+  });
+
+  it("skeleton cards render while batchLoading is true", async () => {
+    let resolveBatch!: (v: PlayerSearchResult[]) => void;
+    const batch = vi.fn(
+      () => new Promise<PlayerSearchResult[]>((res) => { resolveBatch = res; })
+    );
+    render(
+      <FavoritesPanel
+        favorites={makeFav({ favorite_player_ids: ["1"] })}
+        onSave={vi.fn()}
+        searchPlayers={vi.fn(async () => [])}
+        batchPlayers={batch}
+      />
+    );
+    // While the promise is pending, an animate-pulse skeleton should be in the DOM
+    await waitFor(() =>
+      expect(document.querySelector(".animate-pulse")).toBeInTheDocument()
+    );
+    resolveBatch([]);
+  });
+
+  it("after batch resolves, player names appear in cards", async () => {
+    const batch = vi.fn(async () => [
+      { id: "1", name: "Saquon Barkley", position: "RB", team: "PHI", espn_id: "3054211" },
+    ]);
+    render(
+      <FavoritesPanel
+        favorites={makeFav({ favorite_player_ids: ["1"] })}
+        onSave={vi.fn()}
+        searchPlayers={vi.fn(async () => [])}
+        batchPlayers={batch}
+      />
+    );
+    await waitFor(() =>
+      expect(screen.getByText("Saquon Barkley")).toBeInTheDocument()
+    );
+  });
+
+  it("unresolved ids fall back to showing raw id", async () => {
+    const batch = vi.fn(async () => []);
+    render(
+      <FavoritesPanel
+        favorites={makeFav({ favorite_player_ids: ["unknown-id"] })}
+        onSave={vi.fn()}
+        searchPlayers={vi.fn(async () => [])}
+        batchPlayers={batch}
+      />
+    );
+    await waitFor(() =>
+      expect(screen.getByText("unknown-id")).toBeInTheDocument()
+    );
+  });
+
+  it("removing a card calls onSave without that player", async () => {
     const onSave = vi.fn(async () => {});
+    const batch = vi.fn(async () => [
+      { id: "1", name: "Saquon Barkley", position: "RB", team: "PHI", espn_id: null },
+      { id: "2", name: "Christian McCaffrey", position: "RB", team: "SF", espn_id: null },
+    ]);
     render(
       <FavoritesPanel
         favorites={makeFav({ favorite_player_ids: ["1", "2"] })}
         onSave={onSave}
         searchPlayers={vi.fn(async () => [])}
+        batchPlayers={batch}
       />
     );
-    await userEvent.click(screen.getByRole("button", { name: /remove 1/i }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /remove saquon barkley/i })).toBeInTheDocument()
+    );
+    await userEvent.click(screen.getByRole("button", { name: /remove saquon barkley/i }));
     expect(onSave).toHaveBeenCalledWith({
       favorite_player_ids: ["2"],
       favorite_teams: [],
@@ -99,7 +184,12 @@ describe("FavoritesPanel", () => {
   it("debounced search input triggers searchPlayers callback", async () => {
     const search = vi.fn(async () => sampleSearchResults);
     render(
-      <FavoritesPanel favorites={makeFav()} onSave={vi.fn()} searchPlayers={search} />
+      <FavoritesPanel
+        favorites={makeFav()}
+        onSave={vi.fn()}
+        searchPlayers={search}
+        batchPlayers={defaultBatch}
+      />
     );
     const input = screen.getByPlaceholderText(/search players/i);
     await userEvent.type(input, "barkley");
@@ -109,7 +199,12 @@ describe("FavoritesPanel", () => {
   it("debounce coalesces rapid keystrokes into fewer calls", async () => {
     const search = vi.fn(async () => sampleSearchResults);
     render(
-      <FavoritesPanel favorites={makeFav()} onSave={vi.fn()} searchPlayers={search} />
+      <FavoritesPanel
+        favorites={makeFav()}
+        onSave={vi.fn()}
+        searchPlayers={search}
+        batchPlayers={defaultBatch}
+      />
     );
     const input = screen.getByPlaceholderText(/search players/i);
     await userEvent.type(input, "barkley");
@@ -120,7 +215,12 @@ describe("FavoritesPanel", () => {
   it("shows a no-match empty state for a query with zero results", async () => {
     const search = vi.fn(async () => []);
     render(
-      <FavoritesPanel favorites={makeFav()} onSave={vi.fn()} searchPlayers={search} />
+      <FavoritesPanel
+        favorites={makeFav()}
+        onSave={vi.fn()}
+        searchPlayers={search}
+        batchPlayers={defaultBatch}
+      />
     );
     await userEvent.type(screen.getByPlaceholderText(/search players/i), "zzz");
     expect(await screen.findByText(/no players match "zzz"/i)).toBeInTheDocument();
@@ -130,7 +230,12 @@ describe("FavoritesPanel", () => {
     const onSave = vi.fn(async () => {});
     const search = vi.fn(async () => sampleSearchResults);
     render(
-      <FavoritesPanel favorites={makeFav()} onSave={onSave} searchPlayers={search} />
+      <FavoritesPanel
+        favorites={makeFav()}
+        onSave={onSave}
+        searchPlayers={search}
+        batchPlayers={defaultBatch}
+      />
     );
     const input = screen.getByPlaceholderText(/search players/i);
     await userEvent.type(input, "barkley");
@@ -148,7 +253,12 @@ describe("FavoritesPanel", () => {
     });
     const search = vi.fn(async () => sampleSearchResults);
     render(
-      <FavoritesPanel favorites={makeFav()} onSave={onSave} searchPlayers={search} />
+      <FavoritesPanel
+        favorites={makeFav()}
+        onSave={onSave}
+        searchPlayers={search}
+        batchPlayers={defaultBatch}
+      />
     );
     await userEvent.type(screen.getByPlaceholderText(/search players/i), "barkley");
     const addButton = await screen.findByRole("button", { name: /add saquon barkley/i });
@@ -164,6 +274,7 @@ describe("FavoritesPanel", () => {
         favorites={makeFav({ favorite_player_ids: tooManyPlayers })}
         onSave={vi.fn()}
         searchPlayers={search}
+        batchPlayers={defaultBatch}
       />
     );
     expect(screen.getByText("20 / 20")).toBeInTheDocument();
@@ -175,7 +286,12 @@ describe("FavoritesPanel", () => {
 
   it("team grid renders 32 teams with full-name aria-labels grouped by division", () => {
     render(
-      <FavoritesPanel favorites={makeFav()} onSave={vi.fn()} searchPlayers={vi.fn(async () => [])} />
+      <FavoritesPanel
+        favorites={makeFav()}
+        onSave={vi.fn()}
+        searchPlayers={vi.fn(async () => [])}
+        batchPlayers={defaultBatch}
+      />
     );
     expect(screen.getByRole("button", { name: "Kansas City Chiefs" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Buffalo Bills" })).toBeInTheDocument();
@@ -188,7 +304,12 @@ describe("FavoritesPanel", () => {
   it("toggling a team calls onSave with the team added", async () => {
     const onSave = vi.fn(async () => {});
     render(
-      <FavoritesPanel favorites={makeFav()} onSave={onSave} searchPlayers={vi.fn(async () => [])} />
+      <FavoritesPanel
+        favorites={makeFav()}
+        onSave={onSave}
+        searchPlayers={vi.fn(async () => [])}
+        batchPlayers={defaultBatch}
+      />
     );
     const kc = screen.getByRole("button", { name: "Kansas City Chiefs" });
     await userEvent.click(kc);
@@ -204,6 +325,7 @@ describe("FavoritesPanel", () => {
         favorites={makeFav({ favorite_teams: ["KC", "BUF", "PHI", "SF"] })}
         onSave={vi.fn()}
         searchPlayers={vi.fn(async () => [])}
+        batchPlayers={defaultBatch}
       />
     );
     expect(screen.getByRole("button", { name: "Dallas Cowboys" })).toBeDisabled();

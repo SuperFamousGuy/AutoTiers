@@ -31,6 +31,7 @@ describe("FavoritesDialog", () => {
       save: vi.fn(),
     });
     vi.spyOn(favoritesApi, "searchPlayers").mockResolvedValue([]);
+    vi.spyOn(favoritesApi, "batchPlayers").mockResolvedValue([]);
 
     render(<FavoritesDialog open={true} onOpenChange={vi.fn()} isLoggedIn={true} />);
 
@@ -47,6 +48,7 @@ describe("FavoritesDialog", () => {
       save: vi.fn(),
     });
     vi.spyOn(favoritesApi, "searchPlayers").mockResolvedValue([]);
+    vi.spyOn(favoritesApi, "batchPlayers").mockResolvedValue([]);
 
     render(<FavoritesDialog open={true} onOpenChange={vi.fn()} isLoggedIn={true} />);
 
@@ -61,6 +63,7 @@ describe("FavoritesDialog", () => {
       save: vi.fn(),
     });
     vi.spyOn(favoritesApi, "searchPlayers").mockResolvedValue([]);
+    vi.spyOn(favoritesApi, "batchPlayers").mockResolvedValue([]);
 
     render(<FavoritesDialog open={true} onOpenChange={vi.fn()} isLoggedIn={false} />);
 
@@ -75,6 +78,7 @@ describe("FavoritesDialog", () => {
       save: vi.fn(),
     });
     vi.spyOn(favoritesApi, "searchPlayers").mockResolvedValue([]);
+    vi.spyOn(favoritesApi, "batchPlayers").mockResolvedValue([]);
 
     const onOpenChange = vi.fn();
     render(<FavoritesDialog open={true} onOpenChange={onOpenChange} isLoggedIn={false} />);
