@@ -83,3 +83,94 @@ async def test_search_caps_results_at_25(async_client, test_db):
     r = await async_client.get("/api/players/search?q=Test")
     assert r.status_code == 200
     assert len(r.json()) <= 25
+
+
+# ── /batch tests ────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_batch_requires_auth(async_client):
+    r = await async_client.get("/api/players/batch?ids=1,2")
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_batch_returns_players_with_espn_id(async_client, test_db):
+    test_db.add(Player(id="b1", name="Batch Player One", position="QB", team="KC", espn_id="99001"))
+    test_db.add(Player(id="b2", name="Batch Player Two", position="WR", team="BUF", espn_id=None))
+    await test_db.commit()
+    await _signup_and_login(async_client)
+    r = await async_client.get("/api/players/batch?ids=b1,b2")
+    assert r.status_code == 200
+    items = r.json()
+    assert len(items) == 2
+    by_id = {p["id"]: p for p in items}
+    assert by_id["b1"]["espn_id"] == "99001"
+    assert by_id["b2"]["espn_id"] is None
+    # espn_id field must be present on all items
+    for item in items:
+        assert "espn_id" in item
+
+
+@pytest.mark.asyncio
+async def test_batch_preserves_request_order(async_client, test_db):
+    test_db.add(Player(id="ord1", name="Order One", position="RB", team="SF"))
+    test_db.add(Player(id="ord2", name="Order Two", position="TE", team="NO"))
+    await test_db.commit()
+    await _signup_and_login(async_client)
+    r = await async_client.get("/api/players/batch?ids=ord2,ord1")
+    assert r.status_code == 200
+    items = r.json()
+    assert items[0]["id"] == "ord2"
+    assert items[1]["id"] == "ord1"
+
+
+@pytest.mark.asyncio
+async def test_batch_empty_ids_returns_422(async_client):
+    """Empty string violates min_length=1."""
+    await _signup_and_login(async_client)
+    r = await async_client.get("/api/players/batch?ids=")
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_batch_too_many_ids_returns_400(async_client):
+    await _signup_and_login(async_client)
+    many_ids = ",".join(str(i) for i in range(21))
+    r = await async_client.get(f"/api/players/batch?ids={many_ids}")
+    assert r.status_code == 400
+    assert r.json()["detail"] == "Too many IDs (max 20)."
+
+
+@pytest.mark.asyncio
+async def test_batch_unknown_ids_silently_omitted(async_client, test_db):
+    test_db.add(Player(id="known1", name="Known Player", position="WR", team="PHI"))
+    await test_db.commit()
+    await _signup_and_login(async_client)
+    r = await async_client.get("/api/players/batch?ids=known1,unknown999")
+    assert r.status_code == 200
+    items = r.json()
+    assert len(items) == 1
+    assert items[0]["id"] == "known1"
+
+
+@pytest.mark.asyncio
+async def test_batch_all_unknown_returns_empty(async_client):
+    await _signup_and_login(async_client)
+    r = await async_client.get("/api/players/batch?ids=ghost1,ghost2")
+    assert r.status_code == 200
+    assert r.json() == []
+
+
+# ── espn_id in /search results ──────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_search_includes_espn_id_field(async_client, test_db):
+    """Existing search endpoint must include espn_id (may be null)."""
+    test_db.add(Player(id="s_espn", name="ESPN Player", position="WR", team="MIN", espn_id="12345"))
+    await test_db.commit()
+    await _signup_and_login(async_client)
+    r = await async_client.get("/api/players/search?q=ESPN")
+    assert r.status_code == 200
+    items = r.json()
+    assert items, "expected at least one match"
+    assert items[0]["espn_id"] == "12345"

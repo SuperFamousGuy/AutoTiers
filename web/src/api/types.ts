@@ -151,4 +151,5 @@ export interface PlayerSearchResult {
   name: string;
   position: string;
   team: string | null;
+  espn_id: string | null;
 }

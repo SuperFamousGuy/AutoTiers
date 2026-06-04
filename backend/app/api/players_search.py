@@ -24,8 +24,25 @@ class PlayerSearchResult(BaseModel):
     name: str
     position: str
     team: str | None
+    espn_id: str | None
 
     model_config = {"from_attributes": True}
+
+
+@router.get("/batch", response_model=list[PlayerSearchResult])
+async def batch_players(
+    ids: Annotated[str, Query(min_length=1, max_length=400)],
+    user: User = require_user,
+    db: AsyncSession = Depends(get_db),
+) -> list[PlayerSearchResult]:
+    id_list = [x.strip() for x in ids.split(",") if x.strip()]
+    if len(id_list) > 20:
+        raise HTTPException(status_code=400, detail="Too many IDs (max 20).")
+    rows = (await db.scalars(
+        select(Player).where(Player.id.in_(id_list))
+    )).all()
+    by_id = {r.id: r for r in rows}
+    return [PlayerSearchResult.model_validate(by_id[i]) for i in id_list if i in by_id]
 
 
 @router.get("/search", response_model=list[PlayerSearchResult])

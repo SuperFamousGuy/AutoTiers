@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { FavoritesPanel } from "@/components/FavoritesPanel";
 import { useFavorites } from "@/hooks/useFavorites";
-import { searchPlayers } from "@/api/favorites";
+import { searchPlayers, batchPlayers } from "@/api/favorites";
 
 interface Props {
   open: boolean;
@@ -20,6 +20,7 @@ function FavoritesBody({ isLoggedIn, onRetry }: { isLoggedIn: boolean; onRetry: 
       onRetry={onRetry}
       onSave={saveFavorites}
       searchPlayers={searchPlayers}
+      batchPlayers={batchPlayers}
     />
   );
 }
@@ -28,7 +29,7 @@ export function FavoritesDialog({ open, onOpenChange, isLoggedIn }: Props) {
   const [reloadKey, setReloadKey] = useState(0);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogTitle>Favorites</DialogTitle>
         <FavoritesBody
           key={reloadKey}

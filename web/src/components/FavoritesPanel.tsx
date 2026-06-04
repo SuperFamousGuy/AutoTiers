@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { PlayerHeadshot } from "@/components/PlayerHeadshot";
+import { TeamLogo } from "@/components/TeamLogo";
 import type { FavoritesOut, FavoritesUpdate, PlayerSearchResult } from "@/api/types";
 
 const NFL_DIVISIONS: { division: string; teams: { code: string; name: string }[] }[] = [
@@ -54,6 +56,7 @@ interface FavoritesPanelProps {
   onRetry?: () => void;
   onSave: (next: FavoritesUpdate) => Promise<void>;
   searchPlayers: (q: string) => Promise<PlayerSearchResult[]>;
+  batchPlayers: (ids: string[]) => Promise<PlayerSearchResult[]>;
 }
 
 export function FavoritesPanel({
@@ -63,13 +66,15 @@ export function FavoritesPanel({
   onRetry,
   onSave,
   searchPlayers,
+  batchPlayers,
 }: FavoritesPanelProps) {
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [results, setResults] = useState<PlayerSearchResult[]>([]);
   const [searched, setSearched] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const playerNames = useRef<Record<string, string>>({});
+  const [batchLoading, setBatchLoading] = useState(false);
+  const resolvedPlayers = useRef<Record<string, PlayerSearchResult>>({});
 
   useEffect(() => {
     const handle = setTimeout(() => setDebouncedQuery(query.trim()), SEARCH_DEBOUNCE_MS);
@@ -86,7 +91,7 @@ export function FavoritesPanel({
     searchPlayers(debouncedQuery)
       .then((r) => {
         if (cancelled) return;
-        for (const p of r) playerNames.current[p.id] = p.name;
+        for (const p of r) resolvedPlayers.current[p.id] = p;
         setResults(r);
         setSearched(true);
       })
@@ -100,6 +105,25 @@ export function FavoritesPanel({
     };
   }, [debouncedQuery, searchPlayers]);
 
+  useEffect(() => {
+    const unresolved = favorites.favorite_player_ids.filter(
+      (id) => !(id in resolvedPlayers.current)
+    );
+    if (unresolved.length === 0) return;
+    let cancelled = false;
+    setBatchLoading(true);
+    batchPlayers(unresolved)
+      .then((results) => {
+        if (cancelled) return;
+        for (const p of results) resolvedPlayers.current[p.id] = p;
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setBatchLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [favorites.favorite_player_ids, batchPlayers]);
+
   const playersAtCap = favorites.favorite_player_ids.length >= PLAYER_CAP;
   const teamsAtCap = favorites.favorite_teams.length >= TEAM_CAP;
 
@@ -110,7 +134,8 @@ export function FavoritesPanel({
     });
   };
 
-  const playerLabel = (id: string) => playerNames.current[id] ?? id;
+  const resolvedPlayer = (id: string): PlayerSearchResult | undefined =>
+    resolvedPlayers.current[id];
 
   const addPlayer = (id: string) => {
     if (favorites.favorite_player_ids.includes(id) || playersAtCap) return;
@@ -184,25 +209,54 @@ export function FavoritesPanel({
           <p className="text-sm text-muted-foreground mb-3">
             No favorite players yet. Search below to add one.
           </p>
-        ) : (
-          <ul className="flex flex-wrap gap-2 mb-3">
+        ) : batchLoading ? (
+          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 mb-3">
             {favorites.favorite_player_ids.map((id) => (
-              <li key={id}>
-                <span className="inline-flex items-center gap-1 rounded-full border bg-secondary px-3 py-1 text-xs">
-                  {playerLabel(id)}
+              <li key={id} className="flex items-center gap-3 rounded-lg border bg-card p-3 animate-pulse">
+                <div className="h-12 w-12 shrink-0 rounded-md bg-muted" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-3 w-3/4 rounded bg-muted" />
+                  <div className="h-3 w-1/2 rounded bg-muted" />
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 mb-3">
+            {favorites.favorite_player_ids.map((id) => {
+              const player = resolvedPlayer(id);
+              return (
+                <li
+                  key={id}
+                  className="relative flex items-center gap-3 rounded-lg border bg-card p-3"
+                >
+                  <PlayerHeadshot espnId={player?.espn_id ?? null} name={player?.name ?? id} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{player?.name ?? id}</p>
+                    <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <span>{player?.position ?? "—"}</span>
+                      {player?.team && (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <TeamLogo code={player.team} size={16} />
+                          <span>{player.team}</span>
+                        </>
+                      )}
+                    </p>
+                  </div>
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
                     onClick={() => removePlayer(id)}
-                    aria-label={`Remove ${playerLabel(id)}`}
-                    className="h-4 w-4 p-0 leading-none"
+                    aria-label={`Remove ${player?.name ?? id}`}
+                    className="absolute right-1 top-1 h-6 w-6 p-0"
                   >
-                    ×
+                    <X className="h-3 w-3" aria-hidden="true" />
                   </Button>
-                </span>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
         )}
 
@@ -278,8 +332,10 @@ export function FavoritesPanel({
                       disabled={!isFav && teamsAtCap}
                       aria-label={team.name}
                       aria-pressed={isFav}
+                      className="flex flex-col items-center gap-0.5 h-auto py-1.5"
                     >
-                      {team.code}
+                      <TeamLogo code={team.code} size={24} />
+                      <span className="text-[10px] leading-none">{team.code}</span>
                     </Button>
                   );
                 })}
