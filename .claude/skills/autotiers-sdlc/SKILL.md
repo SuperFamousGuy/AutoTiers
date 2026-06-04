@@ -54,6 +54,11 @@ User request
    │                       ▼
    │                   QA Verdict (handoff format below)
    │
+   ├─[PR — always when code changed]──▶  Manager opens PR via `gh pr create`
+   │                                         │
+   │                                         ▼
+   │                                     PR URL (included in final report)
+   │
    ▼
 autotiers-manager reports back to user
 ```
@@ -108,6 +113,21 @@ The Manager decides per-request. The defaults below are advisory; the Manager de
 - Internal-only tooling change (e.g., a script under `backend/scripts/`).
 
 When in doubt, run QA. The cost of a missed regression has shipped to users multiple times (see `autotiers-bug-classes`); the cost of an extra QA pass is minutes.
+
+### Stage 3.5 — PR Opening (always runs when code changed)
+
+After QA approves (or when QA is skipped), the Manager opens a pull request. No exceptions. The user must never have to ask.
+
+**Rules:**
+- Target branch is always `main`.
+- Title: conventional-commit style, under 70 characters.
+- Body: 3-bullet summary + test plan checklist + `🤖 Generated with Claude Code` footer.
+- If a PR for this branch already exists, link it — do not open a duplicate.
+- PR URL is always included in the Manager's final report to the user.
+
+**Skip only when:**
+- The branch has no commits beyond `main` (nothing to PR).
+- The user explicitly says "don't open a PR."
 
 ## Advisory consultations — when to invoke whom
 
@@ -239,7 +259,7 @@ STAGES RUN: design | impl | qa  (and which were skipped with one-line justificat
 
 ADVISORS CONSULTED: mathematician | researcher | claude-code-author  (and one line per consult)
 
-PRs / COMMITS / FILES: list
+PR: <url> (always present when code changed — Manager opens before reporting)
 
 FOLLOW-UPS YOU SHOULD KNOW ABOUT: anything I noticed but didn't address, with one line on why
 ```
