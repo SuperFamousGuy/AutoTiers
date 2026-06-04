@@ -1,6 +1,7 @@
 import { HelpCircle, Menu, Moon, Sun } from "lucide-react";
 import { useState } from "react";
 import { DataFreshness } from "./DataFreshness";
+import { Logo } from "./Logo";
 import { GenerateButton } from "./GenerateButton";
 import { AuthDialog } from "./AuthDialog";
 import { FavoritesDialog } from "./FavoritesDialog";
@@ -69,8 +70,10 @@ export function Header({
 }: HeaderProps) {
   return (
     <header className="flex items-center justify-between border-b bg-card px-6 py-4">
-      <div className="flex items-baseline gap-6">
-        <h1 className="text-2xl font-bold text-foreground">AutoTiers</h1>
+      <div className="flex items-center gap-6">
+        <h1 className="flex h-8 items-center text-2xl text-foreground">
+          <Logo className="h-full" />
+        </h1>
         <DataFreshness />
       </div>
       <div className="flex items-center gap-3">
