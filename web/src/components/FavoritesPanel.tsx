@@ -5,45 +5,7 @@ import { Button } from "@/components/ui/button";
 import { PlayerHeadshot } from "@/components/PlayerHeadshot";
 import { TeamLogo } from "@/components/TeamLogo";
 import type { FavoritesOut, FavoritesUpdate, PlayerSearchResult } from "@/api/types";
-
-const NFL_DIVISIONS: { division: string; teams: { code: string; name: string }[] }[] = [
-  { division: "AFC East", teams: [
-    { code: "BUF", name: "Buffalo Bills" }, { code: "MIA", name: "Miami Dolphins" },
-    { code: "NE", name: "New England Patriots" }, { code: "NYJ", name: "New York Jets" },
-  ] },
-  { division: "AFC North", teams: [
-    { code: "BAL", name: "Baltimore Ravens" }, { code: "CIN", name: "Cincinnati Bengals" },
-    { code: "CLE", name: "Cleveland Browns" }, { code: "PIT", name: "Pittsburgh Steelers" },
-  ] },
-  { division: "AFC South", teams: [
-    { code: "HOU", name: "Houston Texans" }, { code: "IND", name: "Indianapolis Colts" },
-    { code: "JAX", name: "Jacksonville Jaguars" }, { code: "TEN", name: "Tennessee Titans" },
-  ] },
-  { division: "AFC West", teams: [
-    { code: "DEN", name: "Denver Broncos" }, { code: "KC", name: "Kansas City Chiefs" },
-    { code: "LV", name: "Las Vegas Raiders" }, { code: "LAC", name: "Los Angeles Chargers" },
-  ] },
-  { division: "NFC East", teams: [
-    { code: "DAL", name: "Dallas Cowboys" }, { code: "NYG", name: "New York Giants" },
-    { code: "PHI", name: "Philadelphia Eagles" }, { code: "WAS", name: "Washington Commanders" },
-  ] },
-  { division: "NFC North", teams: [
-    { code: "CHI", name: "Chicago Bears" }, { code: "DET", name: "Detroit Lions" },
-    { code: "GB", name: "Green Bay Packers" }, { code: "MIN", name: "Minnesota Vikings" },
-  ] },
-  { division: "NFC South", teams: [
-    { code: "ATL", name: "Atlanta Falcons" }, { code: "CAR", name: "Carolina Panthers" },
-    { code: "NO", name: "New Orleans Saints" }, { code: "TB", name: "Tampa Bay Buccaneers" },
-  ] },
-  { division: "NFC West", teams: [
-    { code: "ARI", name: "Arizona Cardinals" }, { code: "LAR", name: "Los Angeles Rams" },
-    { code: "SF", name: "San Francisco 49ers" }, { code: "SEA", name: "Seattle Seahawks" },
-  ] },
-];
-
-const TEAM_NAME: Record<string, string> = Object.fromEntries(
-  NFL_DIVISIONS.flatMap((d) => d.teams.map((t) => [t.code, t.name])),
-);
+import { NFL_CONFERENCES } from "@/lib/teams";
 
 const PLAYER_CAP = 20;
 const TEAM_CAP = 4;
@@ -315,30 +277,37 @@ export function FavoritesPanel({
             No favorite teams yet. Select up to {TEAM_CAP} teams.
           </p>
         )}
-        <div className="space-y-3">
-          {NFL_DIVISIONS.map((group) => (
-            <div key={group.division}>
-              <h4 className="mb-1 text-xs font-semibold text-muted-foreground">{group.division}</h4>
-              <div className="grid grid-cols-4 gap-2">
-                {group.teams.map((team) => {
-                  const isFav = favorites.favorite_teams.includes(team.code);
-                  return (
-                    <Button
-                      key={team.code}
-                      type="button"
-                      variant={isFav ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => toggleTeam(team.code)}
-                      disabled={!isFav && teamsAtCap}
-                      aria-label={team.name}
-                      aria-pressed={isFav}
-                      className="flex flex-col items-center gap-0.5 h-auto py-1.5"
-                    >
-                      <TeamLogo code={team.code} size={24} />
-                      <span className="text-[10px] leading-none">{team.code}</span>
-                    </Button>
-                  );
-                })}
+        <div className="space-y-5">
+          {NFL_CONFERENCES.map((conf) => (
+            <div key={conf.conference}>
+              <h4 className="mb-2 text-sm font-bold text-foreground">{conf.conference}</h4>
+              <div className="space-y-3">
+                {conf.divisions.map((div) => (
+                  <div key={div.division}>
+                    <h5 className="mb-1 text-xs font-semibold text-muted-foreground">{div.division}</h5>
+                    <div className="grid grid-cols-4 gap-2">
+                      {div.teams.map((team) => {
+                        const isFav = favorites.favorite_teams.includes(team.code);
+                        return (
+                          <Button
+                            key={team.code}
+                            type="button"
+                            variant={isFav ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => toggleTeam(team.code)}
+                            disabled={!isFav && teamsAtCap}
+                            aria-label={team.name}
+                            aria-pressed={isFav}
+                            className="flex flex-col items-center gap-0.5 h-auto py-1.5"
+                          >
+                            <TeamLogo code={team.code} size={24} />
+                            <span className="text-[10px] leading-none">{team.code}</span>
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           ))}
@@ -347,5 +316,3 @@ export function FavoritesPanel({
     </div>
   );
 }
-
-export { TEAM_NAME };

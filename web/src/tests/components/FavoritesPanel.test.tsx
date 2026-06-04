@@ -284,7 +284,7 @@ describe("FavoritesPanel", () => {
     expect(addButton).toBeDisabled();
   });
 
-  it("team grid renders 32 teams with full-name aria-labels grouped by division", () => {
+  it("team grid renders 32 teams with full-name aria-labels grouped by conference and division", () => {
     render(
       <FavoritesPanel
         favorites={makeFav()}
@@ -295,8 +295,12 @@ describe("FavoritesPanel", () => {
     );
     expect(screen.getByRole("button", { name: "Kansas City Chiefs" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Buffalo Bills" })).toBeInTheDocument();
-    expect(screen.getByText("AFC East")).toBeInTheDocument();
-    expect(screen.getByText("NFC West")).toBeInTheDocument();
+    // Conference headings
+    expect(screen.getByText("AFC")).toBeInTheDocument();
+    expect(screen.getByText("NFC")).toBeInTheDocument();
+    // Division subheadings appear once per conference (2×4 = 8 total)
+    expect(screen.getAllByText("East").length).toBe(2);
+    expect(screen.getAllByText("West").length).toBe(2);
     const teamButtons = screen.getAllByRole("button", { pressed: false });
     expect(teamButtons.length).toBeGreaterThanOrEqual(32);
   });
