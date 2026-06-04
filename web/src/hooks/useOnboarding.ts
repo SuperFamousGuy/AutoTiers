@@ -5,7 +5,7 @@ const STORAGE_KEY = "onboarding_seen";
 // True when the user has already dismissed the first-run guidance. Reads from
 // localStorage so the nudge never reappears on later visits. Mirrors the
 // graceful-degradation pattern in useDarkMode: if storage is blocked we treat
-// the user as a first-timer (show once) rather than crashing.
+// the user as a first-timer (shows on every visit) rather than crashing.
 function hasSeenOnboarding(): boolean {
   try {
     return localStorage.getItem(STORAGE_KEY) === "1";
