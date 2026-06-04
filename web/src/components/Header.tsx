@@ -1,4 +1,4 @@
-import { Menu } from "lucide-react";
+import { Menu, Moon, Sun } from "lucide-react";
 import { useState } from "react";
 import { DataFreshness } from "./DataFreshness";
 import { GenerateButton } from "./GenerateButton";
@@ -59,10 +59,12 @@ interface HeaderProps {
   currentState: { settings: SettingsState; rules: Rule[] } | null;
   profilePicker?: React.ReactNode;
   onOpenLinkedAccounts?: () => void;
+  isDark: boolean;
+  onToggleDark: () => void;
 }
 
 export function Header({
-  generateDisabled, generateIsPending, onGenerate, currentState, profilePicker, onOpenLinkedAccounts,
+  generateDisabled, generateIsPending, onGenerate, currentState, profilePicker, onOpenLinkedAccounts, isDark, onToggleDark,
 }: HeaderProps) {
   return (
     <header className="flex items-center justify-between border-b bg-card px-6 py-4">
@@ -77,6 +79,9 @@ export function Header({
           isPending={generateIsPending}
           onClick={onGenerate}
         />
+        <Button variant="ghost" size="icon" aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"} onClick={onToggleDark}>
+          {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+        </Button>
         <HamburgerMenu currentState={currentState} onOpenLinkedAccounts={onOpenLinkedAccounts} />
       </div>
     </header>

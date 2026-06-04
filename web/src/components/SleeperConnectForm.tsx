@@ -90,12 +90,12 @@ function SleeperConnectedState({ linked, profileId, onRefresh }: ConnectedStateP
   return (
     <div className="space-y-3">
       {error && <p className="text-xs text-red-600">{error}</p>}
-      <div className="rounded-lg border-2 border-green-500 bg-green-50/50 p-3">
+      <div className="rounded-lg border-2 border-green-500 bg-green-50/50 dark:bg-green-900/30 p-3">
         <div className="mb-1 flex items-center gap-2">
           <div className="flex h-5 w-5 items-center justify-center rounded-full bg-green-500">
             <span className="text-[10px] font-bold text-white">✓</span>
           </div>
-          <span className="text-sm font-bold text-green-700">Connected!</span>
+          <span className="text-sm font-bold text-green-700 dark:text-green-400">Connected!</span>
         </div>
         <p className="text-sm font-medium">
           {linked.league_metadata_json?.name ?? "Account linked (no league)"}
