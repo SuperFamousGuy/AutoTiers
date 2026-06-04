@@ -47,7 +47,7 @@ export function PlayerCard({ player }: PlayerCardProps) {
   return (
     <div
       className="rounded-lg border border-l-4 transition-colors"
-      style={{ borderLeftColor: posColor, ...cardStyle }}
+      style={{ ...cardStyle, borderLeftColor: posColor }}
     >
       <button
         type="button"

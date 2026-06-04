@@ -111,4 +111,20 @@ describe("PlayerCard", () => {
     render(<PlayerCard player={{ ...basePlayer, team: null }} />);
     expect(screen.getByText("—")).toBeInTheDocument();
   });
+
+  it("applies team color background tint when is_favorite_team is true", () => {
+    const { container } = render(
+      <PlayerCard player={{ ...basePlayer, is_favorite_team: true }} />
+    );
+    const card = container.firstChild as HTMLElement;
+    expect(card.style.backgroundColor).not.toBe("");
+  });
+
+  it("renders no team logo images when team is null even with is_favorite_team true", () => {
+    render(
+      <PlayerCard player={{ ...basePlayer, team: null, is_favorite_team: true }} />
+    );
+    // fullTeamName is "—" when team is null; no logo img should render with that alt
+    expect(screen.queryByAltText("—")).toBeNull();
+  });
 });
