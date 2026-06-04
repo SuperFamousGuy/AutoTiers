@@ -1,4 +1,4 @@
-export const TIER_LABELS: Record<number, string> = {
+export const TIER_LABELS: Readonly<Partial<Record<number, string>>> = {
   1: "Elite",
   2: "Strong Starter",
   3: "Starter",

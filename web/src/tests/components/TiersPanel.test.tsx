@@ -31,14 +31,18 @@ describe("TiersPanel", () => {
     expect(screen.getByText(/tier 2/i)).toBeInTheDocument();
   });
 
-  it("shows descriptive label 'Elite' next to Tier 1 in ALL mode", () => {
+  it("shows descriptive label 'Elite' in the Tier 1 header span", () => {
     render(<TiersPanel result={response} isPending={false} onDownloadCsv={() => {}} />);
-    expect(screen.getByText("Elite")).toBeInTheDocument();
+    // Verify "Elite" is co-located with "Tier 1" in the same header span, not elsewhere in the DOM.
+    // eliteEl.parentElement is the outer bold <span> that also contains the tier number text node.
+    const eliteEl = screen.getByText("Elite");
+    expect(eliteEl.parentElement).toHaveTextContent(/Tier 1/);
   });
 
-  it("shows descriptive label 'Strong Starter' next to Tier 2 in ALL mode", () => {
+  it("shows descriptive label 'Strong Starter' in the Tier 2 header span", () => {
     render(<TiersPanel result={response} isPending={false} onDownloadCsv={() => {}} />);
-    expect(screen.getByText("Strong Starter")).toBeInTheDocument();
+    const starterEl = screen.getByText("Strong Starter");
+    expect(starterEl.parentElement).toHaveTextContent(/Tier 2/);
   });
 
   it("does not show descriptive labels when position filter is active", async () => {
