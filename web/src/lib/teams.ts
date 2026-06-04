@@ -75,11 +75,12 @@ export const TEAM_PRIMARY_COLORS: Record<string, string> = {
   HOU: "#03202F", IND: "#002C5F", JAX: "#006778", KC:  "#E31837",
   LAC: "#0080C6", LAR: "#003594", LV:  "#A5ACAF", MIA: "#008E97",
   MIN: "#4F2683", NE:  "#002244", NO:  "#D3BC8D", NYG: "#0B2265",
-  NYJ: "#125740", PHI: "#004C54", PIT: "#FFB612", SEA: "#002244",
+  NYJ: "#125740", PHI: "#004C54", PIT: "#FFB612", SEA: "#69BE28",
   SF:  "#AA0000", TB:  "#D50A0A", TEN: "#4B92DB", WAS: "#5A1414",
 };
 
 export function hexToRgb(hex: string): string {
+  if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) return "0, 0, 0";
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
