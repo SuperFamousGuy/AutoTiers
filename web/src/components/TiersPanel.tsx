@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
 import { PositionFilter, type PositionFilterValue } from "./PositionFilter";
 import { TierGroup } from "./TierGroup";
-import { getTierLabel } from "@/lib/tiers";
+import { getTierLabel, getPositionalTierLabel } from "@/lib/tiers";
 import type { GenerateResponse, ScoringFormat } from "@/api/types";
 
 const SCORING_FORMAT_LABELS: Record<ScoringFormat, string> = {
@@ -45,7 +45,6 @@ export function TiersPanel({ result, isPending, onDownloadCsv, keepers, scoringF
         }));
     } else {
       // Group by positional_tier (e.g., "WR1", "WR2"). Sort by the numeric suffix.
-      // No descriptiveLabel for position-filtered views — the tier name (e.g. "WR1") already conveys meaning.
       const m = new Map<string, typeof filtered>();
       for (const p of filtered) {
         if (!m.has(p.positional_tier)) m.set(p.positional_tier, []);
@@ -57,7 +56,11 @@ export function TiersPanel({ result, isPending, onDownloadCsv, keepers, scoringF
           const nb = parseInt(b.replace(/^[A-Za-z]+/, ""), 10) || 0;
           return na - nb;
         })
-        .map(([tier, players]) => ({ label: tier, players }));
+        .map(([tier, players]) => ({
+          label: tier,
+          descriptiveLabel: getPositionalTierLabel(tier),
+          players,
+        }));
     }
   }, [result, filter]);
 

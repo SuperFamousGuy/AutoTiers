@@ -17,3 +17,27 @@ const FALLBACK_LABEL = "Late Round";
 export function getTierLabel(tier: number): string {
   return TIER_LABELS[tier] ?? FALLBACK_LABEL;
 }
+
+/**
+ * Descriptive labels for notable positional tiers only. Positions and tiers
+ * that are self-explanatory (RB, K, DST) have no entries.
+ */
+export const POSITIONAL_TIER_LABELS: Readonly<
+  Partial<Record<string, Readonly<Partial<Record<number, string>>>>>
+> = {
+  QB: { 1: "Elite QB" },
+  WR: { 4: "Flex WR" },
+  TE: { 1: "Elite TE" },
+};
+
+/**
+ * Returns the descriptive label for a positional tier string such as "QB1" or
+ * "WR4", or undefined if no notable label exists for that tier.
+ */
+export function getPositionalTierLabel(positionalTierStr: string): string | undefined {
+  const match = positionalTierStr.match(/^([A-Za-z]+)(\d+)$/);
+  if (!match) return undefined;
+  const position = match[1];
+  const tierNum = parseInt(match[2], 10);
+  return POSITIONAL_TIER_LABELS[position]?.[tierNum];
+}
