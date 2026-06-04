@@ -36,6 +36,8 @@ async def batch_players(
     db: AsyncSession = Depends(get_db),
 ) -> list[PlayerSearchResult]:
     id_list = [x.strip() for x in ids.split(",") if x.strip()]
+    if not id_list:
+        raise HTTPException(status_code=400, detail="No valid IDs provided.")
     if len(id_list) > 20:
         raise HTTPException(status_code=400, detail="Too many IDs (max 20).")
     rows = (await db.scalars(

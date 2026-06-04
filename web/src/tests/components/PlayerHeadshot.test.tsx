@@ -22,12 +22,11 @@ describe("PlayerHeadshot", () => {
   });
 
   it("swaps to silhouette div when image fires onError", () => {
-    render(<PlayerHeadshot espnId="bad-id" name="Bad Player" />);
+    const { container } = render(<PlayerHeadshot espnId="bad-id" name="Bad Player" />);
     const img = screen.getByRole("img", { name: "Bad Player" });
     fireEvent.error(img);
-    // After error the img should no longer be in the DOM
+    // After error: img gone, silhouette div appears — both asserted on the same render instance
     expect(screen.queryByRole("img", { name: "Bad Player" })).not.toBeInTheDocument();
-    const { container } = render(<PlayerHeadshot espnId={null} name="Bad Player" />);
     expect(container.querySelector("[aria-hidden='true']")).toBeInTheDocument();
   });
 });

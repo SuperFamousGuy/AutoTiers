@@ -133,6 +133,15 @@ async def test_batch_empty_ids_returns_422(async_client):
 
 
 @pytest.mark.asyncio
+async def test_batch_commas_only_returns_400(async_client):
+    """ids=',,' passes min_length=1 but produces no valid tokens — should 400."""
+    await _signup_and_login(async_client)
+    r = await async_client.get("/api/players/batch?ids=,,,")
+    assert r.status_code == 400
+    assert r.json()["detail"] == "No valid IDs provided."
+
+
+@pytest.mark.asyncio
 async def test_batch_too_many_ids_returns_400(async_client):
     await _signup_and_login(async_client)
     many_ids = ",".join(str(i) for i in range(21))

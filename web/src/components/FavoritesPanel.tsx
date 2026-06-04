@@ -121,7 +121,7 @@ export function FavoritesPanel({
       .finally(() => {
         if (!cancelled) setBatchLoading(false);
       });
-    return () => { cancelled = true; };
+    return () => { cancelled = true; setBatchLoading(false); };
   }, [favorites.favorite_player_ids, batchPlayers]);
 
   const playersAtCap = favorites.favorite_player_ids.length >= PLAYER_CAP;
