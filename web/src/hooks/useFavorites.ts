@@ -50,14 +50,12 @@ export function useFavorites(authenticated: boolean): UseFavoritesResult {
   const save = useCallback(async (next: FavoritesUpdate) => {
     const prev = favorites;
     setFavorites(next);            // optimistic
-    setError(null);
     try {
       const persisted = await putFavorites(next);
       setFavorites(persisted);     // accept server's normalized version (dedup, etc.)
     } catch (e) {
       setFavorites(prev);          // revert
-      setError(e instanceof Error ? e.message : String(e));
-      throw e;
+      throw e;                     // caller (FavoritesPanel.commit) handles save-error UI
     }
   }, [favorites]);
 
