@@ -1,6 +1,8 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { Header } from "@/components/Header";
 import { useDarkMode } from "@/hooks/useDarkMode";
+import { useOnboarding } from "@/hooks/useOnboarding";
+import { OnboardingCard } from "@/components/OnboardingCard";
 import { SettingsPanel, type SettingsState } from "@/components/SettingsPanel";
 import { RulesPanel } from "@/components/RulesPanel";
 import { TiersPanel } from "@/components/TiersPanel";
@@ -28,6 +30,7 @@ const DEFAULT_SETTINGS: SettingsState = {
 
 export default function App() {
   const [isDark, toggleDark] = useDarkMode();
+  const { showOnboarding, dismiss: dismissOnboarding, reopen: reopenOnboarding } = useOnboarding();
   const { user, profiles, setProfiles, refresh } = useAuth();
   const [settings, setSettings] = useState<SettingsState>(DEFAULT_SETTINGS);
   const [rules, setRules] = useState<Rule[]>([]);
@@ -236,6 +239,7 @@ export default function App() {
         currentState={{ settings, rules }}
         isDark={isDark}
         onToggleDark={toggleDark}
+        onShowOnboarding={reopenOnboarding}
         onOpenLinkedAccounts={user ? () => { setLinkingError(null); setLinkedOpen(true); } : undefined}
         profilePicker={user ? (
           <div className="flex items-center gap-2">
@@ -255,6 +259,7 @@ export default function App() {
           </div>
         ) : null}
       />
+      {showOnboarding && <OnboardingCard onDismiss={dismissOnboarding} />}
       <main className="flex-1 grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_minmax(0,1.5fr)] lg:grid-rows-1 overflow-hidden">
         <SettingsPanel
           value={settings}
