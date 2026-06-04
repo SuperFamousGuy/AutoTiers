@@ -31,6 +31,24 @@ describe("TiersPanel", () => {
     expect(screen.getByText(/tier 2/i)).toBeInTheDocument();
   });
 
+  it("shows descriptive label 'Elite' next to Tier 1 in ALL mode", () => {
+    render(<TiersPanel result={response} isPending={false} onDownloadCsv={() => {}} />);
+    expect(screen.getByText("Elite")).toBeInTheDocument();
+  });
+
+  it("shows descriptive label 'Strong Starter' next to Tier 2 in ALL mode", () => {
+    render(<TiersPanel result={response} isPending={false} onDownloadCsv={() => {}} />);
+    expect(screen.getByText("Strong Starter")).toBeInTheDocument();
+  });
+
+  it("does not show descriptive labels when position filter is active", async () => {
+    render(<TiersPanel result={response} isPending={false} onDownloadCsv={() => {}} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^wr$/i }));
+    expect(screen.queryByText("Elite")).not.toBeInTheDocument();
+    expect(screen.queryByText("Strong Starter")).not.toBeInTheDocument();
+  });
+
   it("filters by position when a position chip is clicked", async () => {
     render(<TiersPanel result={response} isPending={false} onDownloadCsv={() => {}} />);
     const user = userEvent.setup();
