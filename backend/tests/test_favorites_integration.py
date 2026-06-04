@@ -57,6 +57,9 @@ async def test_favorited_player_gets_rule_applied_in_generate(async_client, test
     assert "Favorites" in by_id["FAV"]["rules_applied"]
     assert "Favorites" not in by_id["UNFAV"]["rules_applied"]
     assert by_id["FAV"]["adjusted_score"] > by_id["UNFAV"]["adjusted_score"]
+    assert by_id["FAV"]["is_favorite_player"] == True
+    assert by_id["FAV"]["is_favorite_team"] == False
+    assert by_id["UNFAV"]["is_favorite_player"] == False
 
 
 @pytest.mark.asyncio
@@ -82,6 +85,8 @@ async def test_favorite_team_boosts_all_team_players(async_client, test_db):
     by_id = {p["player_id"]: p for p in r.json()["players"]}
     assert "Favorites" in by_id["FAV"]["rules_applied"]
     assert "Favorites" in by_id["UNFAV"]["rules_applied"]
+    assert by_id["FAV"]["is_favorite_team"] == True
+    assert by_id["FAV"]["is_favorite_player"] == False
 
 
 @pytest.mark.asyncio
