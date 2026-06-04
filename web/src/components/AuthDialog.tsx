@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { yahooAuthorizeUrl, googleAuthorizeUrl } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -82,11 +83,11 @@ export function AuthDialog({ open, onOpenChange, initialState }: AuthDialogProps
             <form onSubmit={handleLogin} className="space-y-3">
               <div>
                 <label htmlFor="login-email" className="text-sm">Email</label>
-                <input id="login-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded border px-2 py-1" />
+                <Input id="login-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="mt-1" />
               </div>
               <div>
                 <label htmlFor="login-password" className="text-sm">Password</label>
-                <input id="login-password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded border px-2 py-1" />
+                <Input id="login-password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="mt-1" />
               </div>
               {error && <p className="text-xs text-red-600">{error}</p>}
               <Button type="submit" className="w-full">Log In</Button>
@@ -97,11 +98,11 @@ export function AuthDialog({ open, onOpenChange, initialState }: AuthDialogProps
             <form onSubmit={handleSignup} className="space-y-3">
               <div>
                 <label htmlFor="signup-email" className="text-sm">Email</label>
-                <input id="signup-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded border px-2 py-1" />
+                <Input id="signup-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="mt-1" />
               </div>
               <div>
                 <label htmlFor="signup-password" className="text-sm">Password (min 10 chars)</label>
-                <input id="signup-password" type="password" required minLength={10} value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded border px-2 py-1" />
+                <Input id="signup-password" type="password" required minLength={10} value={password} onChange={(e) => setPassword(e.target.value)} className="mt-1" />
               </div>
               {error && <p className="text-xs text-red-600">{error}</p>}
               <Button type="submit" className="w-full">Create account</Button>

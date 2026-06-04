@@ -9,8 +9,11 @@ interface TierGroupProps {
 export function TierGroup({ label, players }: TierGroupProps) {
   return (
     <div className="space-y-1">
-      <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-1">
-        ── {label} ──
+      <div className="flex items-center justify-between bg-muted/60 rounded px-3 py-1.5 my-1">
+        <span className="text-sm font-bold text-foreground">{label}</span>
+        <span className="text-xs bg-background rounded px-1.5 py-0.5 text-muted-foreground">
+          {players.length} {players.length === 1 ? "player" : "players"}
+        </span>
       </div>
       {players.map((p) => (
         <PlayerRow key={p.player_id} player={p} />
