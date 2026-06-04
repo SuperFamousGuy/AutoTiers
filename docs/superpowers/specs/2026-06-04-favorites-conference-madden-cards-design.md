@@ -65,7 +65,7 @@ NFC
 
 ### What is NOT changed
 
-- `TEAM_NAME` export (still derived from the same team list)
+- `TEAM_NAME` export removed from `FavoritesPanel` — replaced by `TEAM_FULL_NAME` exported from `web/src/lib/teams.ts`
 - `TEAM_CAP`, cap enforcement, at-cap messaging
 - `toggleTeam` handler
 - Any other behavior in `FavoritesPanel`

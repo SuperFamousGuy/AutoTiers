@@ -127,4 +127,112 @@ describe("PlayerCard", () => {
     // fullTeamName is "—" when team is null; no logo img should render with that alt
     expect(screen.queryByAltText("—")).toBeNull();
   });
+
+  it("omits score-breakdown rows whose values are null", async () => {
+    const player: TieredPlayer = {
+      ...basePlayer,
+      prior_year_actual: null,
+      espn_projection: null,
+      fantasypros_projection: null,
+      avg_projection: null,
+    };
+    render(<PlayerCard player={player} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByLabelText(/toggle details/i));
+
+    expect(screen.queryByText("Prior year actual")).not.toBeInTheDocument();
+    expect(screen.queryByText("ESPN projection")).not.toBeInTheDocument();
+    expect(screen.queryByText("FantasyPros consensus")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Avg projection/)).not.toBeInTheDocument();
+    expect(screen.getByText("Blended raw")).toBeInTheDocument();
+  });
+
+  it("filters flag-type rules out of Rule adjustments", async () => {
+    render(<PlayerCard player={basePlayer} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByLabelText(/toggle details/i));
+
+    const ruleSection = screen.getByText("Rule adjustments").parentElement!;
+    expect(within(ruleSection).getByText("Red Zone Usage Premium")).toBeInTheDocument();
+  });
+
+  it("shows 'No score adjustments' when only flag rules fired", async () => {
+    const player: TieredPlayer = {
+      ...basePlayer,
+      rule_applications: [
+        { name: "Handcuff", effect_type: "flag", before_score: 100, after_score: 100, delta: 0 },
+      ],
+    };
+    render(<PlayerCard player={player} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByLabelText(/toggle details/i));
+
+    expect(screen.getByText(/No score adjustments/i)).toBeInTheDocument();
+    expect(screen.queryByText("Rule adjustments")).not.toBeInTheDocument();
+  });
+
+  it("shows 'No score adjustments' when no rules fired", async () => {
+    const player: TieredPlayer = { ...basePlayer, rule_applications: [], flags: [] };
+    render(<PlayerCard player={player} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByLabelText(/toggle details/i));
+
+    expect(screen.getByText(/No score adjustments/i)).toBeInTheDocument();
+  });
+
+  it("color-codes positive and negative deltas", async () => {
+    const player: TieredPlayer = {
+      ...basePlayer,
+      rule_applications: [
+        { name: "Boost", effect_type: "multiplier", before_score: 234.82, after_score: 251.26, delta: 16.44 },
+        { name: "Penalty", effect_type: "multiplier", before_score: 251.26, after_score: 213.57, delta: -37.69 },
+      ],
+    };
+    render(<PlayerCard player={player} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByLabelText(/toggle details/i));
+
+    const positiveDelta = screen.getByText(/\+16\.4/);
+    expect(positiveDelta.className).toContain("text-green");
+
+    const negativeDelta = screen.getByText(/-37\.7/);
+    expect(negativeDelta.className).toContain("text-red");
+  });
+
+  it("hides the Flags section when there are no flags", async () => {
+    const player: TieredPlayer = { ...basePlayer, flags: [] };
+    render(<PlayerCard player={player} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByLabelText(/toggle details/i));
+
+    expect(screen.queryByText("Flags")).not.toBeInTheDocument();
+  });
+
+  it("renders all three ADP variants in the Reference grid", async () => {
+    render(<PlayerCard player={basePlayer} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByLabelText(/toggle details/i));
+
+    expect(screen.getByText("ADP (standard)")).toBeInTheDocument();
+    expect(screen.getByText("18")).toBeInTheDocument();
+    expect(screen.getByText("ADP (PPR)")).toBeInTheDocument();
+    expect(screen.getByText("16")).toBeInTheDocument();
+    expect(screen.getByText("ADP (dynasty)")).toBeInTheDocument();
+    expect(screen.getByText("22")).toBeInTheDocument();
+  });
+
+  it("renders em-dash for missing ADPs", async () => {
+    const player: TieredPlayer = {
+      ...basePlayer,
+      age: null,
+      adp_standard: null,
+      adp_ppr: null,
+      adp_dynasty: null,
+    };
+    render(<PlayerCard player={player} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByLabelText(/toggle details/i));
+
+    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(4);
+  });
 });
