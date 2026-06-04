@@ -77,6 +77,8 @@ export interface TieredPlayer {
   flags: string[];
   rules_applied: string[];
   rule_applications: RuleApplication[];
+  is_favorite_player: boolean | null;
+  is_favorite_team: boolean | null;
 }
 
 export interface GenerateResponse {

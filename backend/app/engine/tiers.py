@@ -45,6 +45,8 @@ class TieredPlayer:
     vbd_score: float = 0.0
     position_replacement: float = 0.0
     rule_applications: list[RuleApplication] = field(default_factory=list)
+    is_favorite_player: Optional[bool] = None
+    is_favorite_team: Optional[bool] = None
 
 
 def _jenks_interior_breaks(scores: list[float], max_classes: int) -> list[float]:

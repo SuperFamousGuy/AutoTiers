@@ -81,6 +81,8 @@ class TieredPlayerOut(BaseModel):
     flags: list[str]
     rules_applied: list[str]
     rule_applications: list[RuleApplicationOut]
+    is_favorite_player: Optional[bool] = None
+    is_favorite_team: Optional[bool] = None
 
     model_config = {"from_attributes": True}
 

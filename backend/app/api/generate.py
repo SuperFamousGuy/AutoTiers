@@ -355,12 +355,11 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
             opportunity_score_z = compute_opportunity_score_z(sp_for_z, league_avg, position_sigmas, settings)
 
         if has_any_favorites:
-            is_favorite = (
-                player.id in favorite_pids_set
-                or (player.team is not None and player.team in favorite_teams_set)
-            )
+            is_favorite_player = player.id in favorite_pids_set
+            is_favorite_team = player.team is not None and player.team in favorite_teams_set
         else:
-            is_favorite = None
+            is_favorite_player = None
+            is_favorite_team = None
 
         ctx = PlayerContext(
             player_id=player.id,
@@ -390,7 +389,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
             bad_offense_team=bad_offense_team,
             above_market_contract=above_market_contract,
             opportunity_score_z=opportunity_score_z,
-            is_favorite=is_favorite,
+            is_favorite=is_favorite_player or is_favorite_team,
         )
 
         rule_result = apply_rules(blended, ctx, rules)
@@ -414,6 +413,8 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
             flags=rule_result.flags,
             rules_applied=rule_result.rules_applied,
             rule_applications=rule_result.applications,
+            is_favorite_player=is_favorite_player,
+            is_favorite_team=is_favorite_team,
             overall_rank=0,
             overall_tier=0,
             positional_tier="",

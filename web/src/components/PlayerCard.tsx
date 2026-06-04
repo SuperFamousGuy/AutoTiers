@@ -1,50 +1,140 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { TEAM_FULL_NAME, TEAM_PRIMARY_COLORS, hexToRgb } from "@/lib/teams";
 import type { TieredPlayer } from "@/api/types";
 
-const POSITION_BADGE_CLASSES: Record<string, string> = {
-  QB: "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300",
-  RB: "bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300",
-  WR: "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300",
-  TE: "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300",
-  K: "bg-slate-100 text-slate-600 dark:bg-slate-800/60 dark:text-slate-300",
-  DST: "bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300",
-  DEF: "bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300",
+const POSITION_COLORS: Record<string, string> = {
+  QB:  "#60a5fa",
+  RB:  "#fb923c",
+  WR:  "#4ade80",
+  TE:  "#fbbf24",
+  K:   "#94a3b8",
+  DST: "#c084fc",
+  DEF: "#c084fc",
 };
 
-interface PlayerRowProps {
+function positionColor(position: string): string {
+  return POSITION_COLORS[position] ?? "#94a3b8";
+}
+
+interface PlayerCardProps {
   player: TieredPlayer;
 }
 
-export function PlayerRow({ player }: PlayerRowProps) {
+export function PlayerCard({ player }: PlayerCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const [imgError, setImgError] = useState(false);
+
+  const posColor = positionColor(player.position);
+  const teamPrimary = player.team ? TEAM_PRIMARY_COLORS[player.team] : null;
+  const teamRgb = teamPrimary ? hexToRgb(teamPrimary) : null;
+  const fullTeamName = player.team ? (TEAM_FULL_NAME[player.team] ?? player.team) : "—";
+
+  const isFavPlayer = player.is_favorite_player === true;
+  const isFavTeam = player.is_favorite_team === true;
+
+  const cardStyle: React.CSSProperties =
+    isFavTeam && teamRgb
+      ? {
+          backgroundColor: `rgba(${teamRgb}, 0.10)`,
+          borderColor: `rgba(${teamRgb}, 0.35)`,
+        }
+      : {};
+
+  const posRgb = hexToRgb(posColor);
 
   return (
-    <div className="rounded-md hover:bg-muted/50 transition-colors">
+    <div
+      className="rounded-lg border border-l-4 transition-colors"
+      style={{ ...cardStyle, borderLeftColor: posColor }}
+    >
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-3 px-3 py-2 text-sm text-left"
+        className="flex w-full items-center gap-3 px-3 py-2.5 text-sm text-left"
         aria-expanded={expanded}
         aria-label={`Toggle details for ${player.name}`}
       >
-        <span className="w-8 text-right font-mono text-muted-foreground">{player.overall_rank}</span>
-        <span className="flex-1 truncate font-medium">{player.name}</span>
+        {/* Rank */}
         <span
-          className={cn(
-            "px-1.5 py-0.5 rounded text-[10px] font-bold uppercase",
-            POSITION_BADGE_CLASSES[player.position] ?? "bg-gray-100 text-gray-600 dark:bg-gray-800/60 dark:text-gray-300"
-          )}
+          className="w-6 text-right font-bold shrink-0"
+          style={{ color: posColor }}
         >
-          {player.position}
+          {player.overall_rank}
         </span>
-        <span className="w-12 text-xs text-muted-foreground">{player.team ?? "—"}</span>
-        <span className="w-12 text-right font-mono">{player.vbd_score.toFixed(1)}</span>
+
+        {/* Headshot */}
+        {!imgError ? (
+          <img
+            src={`https://sleepercdn.com/content/nfl/players/thumb/${player.player_id}.jpg`}
+            onError={() => setImgError(true)}
+            alt={player.name}
+            className="w-11 h-11 rounded-full object-cover object-top shrink-0"
+            style={{ border: `2px solid ${posColor}` }}
+          />
+        ) : (
+          <div
+            className="w-11 h-11 rounded-full shrink-0 flex items-center justify-center text-[11px] font-bold"
+            style={{
+              border: `2px solid ${posColor}`,
+              color: posColor,
+              backgroundColor: `rgba(${posRgb}, 0.12)`,
+            }}
+          >
+            {player.position}
+          </div>
+        )}
+
+        {/* Name + subtitle */}
+        <div className="flex-1 min-w-0">
+          <div className="font-bold text-sm flex items-center gap-1 flex-wrap">
+            <span className="truncate">{player.name}</span>
+            {isFavPlayer && <span className="shrink-0">⭐</span>}
+            {isFavTeam && player.team && (
+              <img
+                src={`https://sleepercdn.com/images/team_logos/nfl/${player.team.toLowerCase()}.jpg`}
+                alt={fullTeamName}
+                className="w-[17px] h-[17px] rounded-sm object-contain shrink-0 opacity-90"
+              />
+            )}
+          </div>
+          <div className="text-xs text-muted-foreground mt-0.5">
+            {player.position} · <span>{fullTeamName}</span>
+          </div>
+        </div>
+
+        {/* Team logo + VBD */}
+        <div className="flex items-center gap-2.5 shrink-0">
+          {player.team && (
+            <img
+              src={`https://sleepercdn.com/images/team_logos/nfl/${player.team.toLowerCase()}.jpg`}
+              alt={fullTeamName}
+              aria-hidden="true"
+              className="w-7 h-7 rounded object-contain"
+            />
+          )}
+          <div className="text-right">
+            <div
+              className="text-lg font-black leading-none"
+              style={{ color: posColor }}
+            >
+              {player.vbd_score.toFixed(1)}
+            </div>
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wide">VBD</div>
+          </div>
+        </div>
+
+        {/* Chevron */}
         <ChevronDown
-          className={cn("h-4 w-4 text-muted-foreground transition-transform", expanded && "rotate-180")}
+          className={cn(
+            "h-4 w-4 text-muted-foreground transition-transform shrink-0",
+            expanded && "rotate-180"
+          )}
         />
       </button>
+
+      {/* Expanded detail panel */}
       {expanded && (
         <div className="px-3 pb-3 pt-1 space-y-3 text-xs border-t bg-muted/20">
           {/* Score breakdown */}
@@ -84,12 +174,16 @@ export function PlayerRow({ player }: PlayerRowProps) {
             </div>
           </div>
 
-          {/* Rule adjustments — score-modifying rules only */}
+          {/* Rule adjustments */}
           {(() => {
-            const scoringApps = player.rule_applications.filter((a) => a.effect_type !== "flag");
+            const scoringApps = player.rule_applications.filter(
+              (a) => a.effect_type !== "flag"
+            );
             if (scoringApps.length === 0) {
               return (
-                <div className="text-muted-foreground italic">No score adjustments (adjusted = blended)</div>
+                <div className="text-muted-foreground italic">
+                  No score adjustments (adjusted = blended)
+                </div>
               );
             }
             return (
@@ -101,12 +195,16 @@ export function PlayerRow({ player }: PlayerRowProps) {
                   {scoringApps.map((app, i) => (
                     <div key={i} className="flex justify-between">
                       <span className="truncate pr-2">{app.name}</span>
-                      <span className={cn(
-                        app.delta > 0 && "text-green-700 dark:text-green-400",
-                        app.delta < 0 && "text-red-700 dark:text-red-400",
-                      )}>
+                      <span
+                        className={cn(
+                          app.delta > 0 && "text-green-700 dark:text-green-400",
+                          app.delta < 0 && "text-red-700 dark:text-red-400"
+                        )}
+                      >
                         {`${app.delta > 0 ? "+" : ""}${app.delta.toFixed(1)}`}
-                        <span className="text-muted-foreground ml-2">→ {app.after_score.toFixed(1)}</span>
+                        <span className="text-muted-foreground ml-2">
+                          → {app.after_score.toFixed(1)}
+                        </span>
                       </span>
                     </div>
                   ))}
@@ -140,7 +238,7 @@ export function PlayerRow({ player }: PlayerRowProps) {
             </div>
           </div>
 
-          {/* Flags — non-scoring signals (handcuffs, injury designations, rookies, etc.) */}
+          {/* Flags */}
           {player.flags.length > 0 && (
             <div>
               <div className="text-muted-foreground mb-1 font-semibold uppercase tracking-wider text-[10px]">
@@ -148,7 +246,12 @@ export function PlayerRow({ player }: PlayerRowProps) {
               </div>
               <div className="flex flex-wrap gap-1">
                 {player.flags.map((f) => (
-                  <span key={f} className="rounded bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300 px-1.5 py-0.5">{f}</span>
+                  <span
+                    key={f}
+                    className="rounded bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300 px-1.5 py-0.5"
+                  >
+                    {f}
+                  </span>
                 ))}
               </div>
             </div>
@@ -162,7 +265,9 @@ export function PlayerRow({ player }: PlayerRowProps) {
             <div className="flex gap-4">
               <div>
                 <div className="text-muted-foreground">Overall</div>
-                <div className="font-medium">Tier {player.overall_tier} · #{player.overall_rank}</div>
+                <div className="font-medium">
+                  Tier {player.overall_tier} · #{player.overall_rank}
+                </div>
               </div>
               <div>
                 <div className="text-muted-foreground">Positional</div>
@@ -171,7 +276,7 @@ export function PlayerRow({ player }: PlayerRowProps) {
             </div>
           </div>
 
-          {/* Metadata: position, age, ADPs */}
+          {/* Reference */}
           <div>
             <div className="text-muted-foreground mb-1 font-semibold uppercase tracking-wider text-[10px]">
               Reference

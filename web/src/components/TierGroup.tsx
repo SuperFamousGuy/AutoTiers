@@ -1,4 +1,4 @@
-import { PlayerRow } from "./PlayerRow";
+import { PlayerCard } from "./PlayerCard";
 import type { TieredPlayer } from "@/api/types";
 
 interface TierGroupProps {
@@ -25,7 +25,7 @@ export function TierGroup({ label, descriptiveLabel, players }: TierGroupProps) 
         </span>
       </div>
       {players.map((p) => (
-        <PlayerRow key={p.player_id} player={p} />
+        <PlayerCard key={p.player_id} player={p} />
       ))}
     </div>
   );
