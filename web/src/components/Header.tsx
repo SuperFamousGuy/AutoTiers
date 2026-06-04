@@ -79,7 +79,7 @@ export function Header({
           isPending={generateIsPending}
           onClick={onGenerate}
         />
-        <Button variant="ghost" size="icon" aria-label="Toggle dark mode" onClick={onToggleDark}>
+        <Button variant="ghost" size="icon" aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"} onClick={onToggleDark}>
           {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
         </Button>
         <HamburgerMenu currentState={currentState} onOpenLinkedAccounts={onOpenLinkedAccounts} />

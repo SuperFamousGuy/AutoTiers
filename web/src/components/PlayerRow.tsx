@@ -4,13 +4,13 @@ import { cn } from "@/lib/utils";
 import type { TieredPlayer } from "@/api/types";
 
 const POSITION_BADGE_CLASSES: Record<string, string> = {
-  QB: "bg-blue-100 text-blue-700",
-  RB: "bg-orange-100 text-orange-700",
-  WR: "bg-green-100 text-green-700",
-  TE: "bg-amber-100 text-amber-700",
-  K: "bg-slate-100 text-slate-600",
-  DST: "bg-purple-100 text-purple-700",
-  DEF: "bg-purple-100 text-purple-700",
+  QB: "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300",
+  RB: "bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300",
+  WR: "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300",
+  TE: "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300",
+  K: "bg-slate-100 text-slate-600 dark:bg-slate-800/60 dark:text-slate-300",
+  DST: "bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300",
+  DEF: "bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300",
 };
 
 interface PlayerRowProps {
@@ -34,7 +34,7 @@ export function PlayerRow({ player }: PlayerRowProps) {
         <span
           className={cn(
             "px-1.5 py-0.5 rounded text-[10px] font-bold uppercase",
-            POSITION_BADGE_CLASSES[player.position] ?? "bg-gray-100 text-gray-600"
+            POSITION_BADGE_CLASSES[player.position] ?? "bg-gray-100 text-gray-600 dark:bg-gray-800/60 dark:text-gray-300"
           )}
         >
           {player.position}
@@ -102,8 +102,8 @@ export function PlayerRow({ player }: PlayerRowProps) {
                     <div key={i} className="flex justify-between">
                       <span className="truncate pr-2">{app.name}</span>
                       <span className={cn(
-                        app.delta > 0 && "text-green-700",
-                        app.delta < 0 && "text-red-700",
+                        app.delta > 0 && "text-green-700 dark:text-green-400",
+                        app.delta < 0 && "text-red-700 dark:text-red-400",
                       )}>
                         {`${app.delta > 0 ? "+" : ""}${app.delta.toFixed(1)}`}
                         <span className="text-muted-foreground ml-2">→ {app.after_score.toFixed(1)}</span>
@@ -148,7 +148,7 @@ export function PlayerRow({ player }: PlayerRowProps) {
               </div>
               <div className="flex flex-wrap gap-1">
                 {player.flags.map((f) => (
-                  <span key={f} className="rounded bg-yellow-100 text-yellow-800 px-1.5 py-0.5">{f}</span>
+                  <span key={f} className="rounded bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300 px-1.5 py-0.5">{f}</span>
                 ))}
               </div>
             </div>
