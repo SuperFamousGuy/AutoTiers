@@ -58,6 +58,8 @@ services:
       - ./web/index.html:/app/index.html
       - ./web/tailwind.config.ts:/app/tailwind.config.ts
       - ./web/components.json:/app/components.json
+      - ./web/vite.config.ts:/app/vite.config.ts
+      - ./web/postcss.config.js:/app/postcss.config.js
 
 volumes:
   autotiers_pgdata:
