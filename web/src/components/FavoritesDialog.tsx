@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { FavoritesPanel } from "@/components/FavoritesPanel";
 import { useFavorites } from "@/hooks/useFavorites";
@@ -9,16 +10,30 @@ interface Props {
   isLoggedIn: boolean;
 }
 
+function FavoritesBody({ isLoggedIn, onRetry }: { isLoggedIn: boolean; onRetry: () => void }) {
+  const { favorites, loading, error, save: saveFavorites } = useFavorites(isLoggedIn);
+  return (
+    <FavoritesPanel
+      favorites={favorites}
+      loading={loading}
+      error={error}
+      onRetry={onRetry}
+      onSave={saveFavorites}
+      searchPlayers={searchPlayers}
+    />
+  );
+}
+
 export function FavoritesDialog({ open, onOpenChange, isLoggedIn }: Props) {
-  const { favorites, save: saveFavorites } = useFavorites(isLoggedIn);
+  const [reloadKey, setReloadKey] = useState(0);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogTitle>Favorites</DialogTitle>
-        <FavoritesPanel
-          favorites={favorites}
-          onSave={saveFavorites}
-          searchPlayers={searchPlayers}
+        <FavoritesBody
+          key={reloadKey}
+          isLoggedIn={isLoggedIn}
+          onRetry={() => setReloadKey((k) => k + 1)}
         />
       </DialogContent>
     </Dialog>

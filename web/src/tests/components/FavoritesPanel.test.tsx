@@ -40,7 +40,63 @@ describe("FavoritesPanel", () => {
     expect(screen.getByText("2 / 4")).toBeInTheDocument();
   });
 
-  it("search input triggers searchPlayers callback", async () => {
+  it("renders a loading spinner while loading", () => {
+    render(
+      <FavoritesPanel
+        favorites={makeFav()}
+        loading
+        onSave={vi.fn()}
+        searchPlayers={vi.fn(async () => [])}
+      />
+    );
+    expect(screen.getByText(/loading favorites/i)).toBeInTheDocument();
+    expect(screen.queryByText(/favorite players/i)).not.toBeInTheDocument();
+  });
+
+  it("renders an inline error with a working retry button", async () => {
+    const onRetry = vi.fn();
+    render(
+      <FavoritesPanel
+        favorites={makeFav()}
+        error="Failed to load favorites"
+        onRetry={onRetry}
+        onSave={vi.fn()}
+        searchPlayers={vi.fn(async () => [])}
+      />
+    );
+    expect(screen.getByText(/failed to load favorites/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /retry/i }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows favorite players as persistent chips independent of search", () => {
+    render(
+      <FavoritesPanel
+        favorites={makeFav({ favorite_player_ids: ["1"] })}
+        onSave={vi.fn()}
+        searchPlayers={vi.fn(async () => [])}
+      />
+    );
+    expect(screen.getByRole("button", { name: /remove 1/i })).toBeInTheDocument();
+  });
+
+  it("removing a chip calls onSave without that player", async () => {
+    const onSave = vi.fn(async () => {});
+    render(
+      <FavoritesPanel
+        favorites={makeFav({ favorite_player_ids: ["1", "2"] })}
+        onSave={onSave}
+        searchPlayers={vi.fn(async () => [])}
+      />
+    );
+    await userEvent.click(screen.getByRole("button", { name: /remove 1/i }));
+    expect(onSave).toHaveBeenCalledWith({
+      favorite_player_ids: ["2"],
+      favorite_teams: [],
+    });
+  });
+
+  it("debounced search input triggers searchPlayers callback", async () => {
     const search = vi.fn(async () => sampleSearchResults);
     render(
       <FavoritesPanel favorites={makeFav()} onSave={vi.fn()} searchPlayers={search} />
@@ -48,6 +104,26 @@ describe("FavoritesPanel", () => {
     const input = screen.getByPlaceholderText(/search players/i);
     await userEvent.type(input, "barkley");
     await waitFor(() => expect(search).toHaveBeenCalledWith("barkley"));
+  });
+
+  it("debounce coalesces rapid keystrokes into fewer calls", async () => {
+    const search = vi.fn(async () => sampleSearchResults);
+    render(
+      <FavoritesPanel favorites={makeFav()} onSave={vi.fn()} searchPlayers={search} />
+    );
+    const input = screen.getByPlaceholderText(/search players/i);
+    await userEvent.type(input, "barkley");
+    await waitFor(() => expect(search).toHaveBeenCalled());
+    expect(search.mock.calls.length).toBeLessThan("barkley".length);
+  });
+
+  it("shows a no-match empty state for a query with zero results", async () => {
+    const search = vi.fn(async () => []);
+    render(
+      <FavoritesPanel favorites={makeFav()} onSave={vi.fn()} searchPlayers={search} />
+    );
+    await userEvent.type(screen.getByPlaceholderText(/search players/i), "zzz");
+    expect(await screen.findByText(/no players match "zzz"/i)).toBeInTheDocument();
   });
 
   it("clicking Add invokes onSave with the new player ID", async () => {
@@ -66,24 +142,47 @@ describe("FavoritesPanel", () => {
     });
   });
 
-  it("at-cap disables Add and shows tooltip text", () => {
-    const tooManyPlayers = Array.from({ length: 20 }, (_, i) => String(i));
+  it("shows a save-revert message when onSave rejects", async () => {
+    const onSave = vi.fn(async () => {
+      throw new Error("server down");
+    });
+    const search = vi.fn(async () => sampleSearchResults);
+    render(
+      <FavoritesPanel favorites={makeFav()} onSave={onSave} searchPlayers={search} />
+    );
+    await userEvent.type(screen.getByPlaceholderText(/search players/i), "barkley");
+    const addButton = await screen.findByRole("button", { name: /add saquon barkley/i });
+    await userEvent.click(addButton);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/reverted/i);
+  });
+
+  it("at-cap disables Add and shows tooltip text", async () => {
+    const tooManyPlayers = Array.from({ length: 20 }, (_, i) => `p${i}`);
+    const search = vi.fn(async () => sampleSearchResults);
     render(
       <FavoritesPanel
         favorites={makeFav({ favorite_player_ids: tooManyPlayers })}
         onSave={vi.fn()}
-        searchPlayers={vi.fn(async () => sampleSearchResults)}
+        searchPlayers={search}
       />
     );
     expect(screen.getByText("20 / 20")).toBeInTheDocument();
-    expect(screen.getByText(/limit reached/i)).toBeInTheDocument();
+    expect(screen.getByText(/limit reached \(20 players\)/i)).toBeInTheDocument();
+    await userEvent.type(screen.getByPlaceholderText(/search players/i), "barkley");
+    const addButton = await screen.findByRole("button", { name: /add saquon barkley/i });
+    expect(addButton).toBeDisabled();
   });
 
-  it("team grid renders 32 teams", () => {
+  it("team grid renders 32 teams with full-name aria-labels grouped by division", () => {
     render(
       <FavoritesPanel favorites={makeFav()} onSave={vi.fn()} searchPlayers={vi.fn(async () => [])} />
     );
-    expect(screen.getAllByRole("button", { name: /^team-/i })).toHaveLength(32);
+    expect(screen.getByRole("button", { name: "Kansas City Chiefs" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Buffalo Bills" })).toBeInTheDocument();
+    expect(screen.getByText("AFC East")).toBeInTheDocument();
+    expect(screen.getByText("NFC West")).toBeInTheDocument();
+    const teamButtons = screen.getAllByRole("button", { pressed: false });
+    expect(teamButtons.length).toBeGreaterThanOrEqual(32);
   });
 
   it("toggling a team calls onSave with the team added", async () => {
@@ -91,11 +190,23 @@ describe("FavoritesPanel", () => {
     render(
       <FavoritesPanel favorites={makeFav()} onSave={onSave} searchPlayers={vi.fn(async () => [])} />
     );
-    const kc = screen.getByRole("button", { name: "team-KC" });
+    const kc = screen.getByRole("button", { name: "Kansas City Chiefs" });
     await userEvent.click(kc);
     expect(onSave).toHaveBeenCalledWith({
       favorite_player_ids: [],
       favorite_teams: ["KC"],
     });
+  });
+
+  it("teams-at-cap disables unselected team buttons (unified disabled treatment)", () => {
+    render(
+      <FavoritesPanel
+        favorites={makeFav({ favorite_teams: ["KC", "BUF", "PHI", "SF"] })}
+        onSave={vi.fn()}
+        searchPlayers={vi.fn(async () => [])}
+      />
+    );
+    expect(screen.getByRole("button", { name: "Dallas Cowboys" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Kansas City Chiefs" })).not.toBeDisabled();
   });
 });
