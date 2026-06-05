@@ -96,6 +96,8 @@ export function PlayerCard({ player }: PlayerCardProps) {
               <img
                 src={teamLogoUrl(player.team)}
                 alt={fullTeamName}
+                loading="lazy"
+                decoding="async"
                 className="w-[17px] h-[17px] rounded-sm object-contain shrink-0 opacity-90"
               />
             )}
@@ -112,6 +114,8 @@ export function PlayerCard({ player }: PlayerCardProps) {
               src={teamLogoUrl(player.team)}
               alt={fullTeamName}
               aria-hidden="true"
+              loading="lazy"
+              decoding="async"
               className="w-7 h-7 rounded object-contain"
             />
           )}

@@ -98,6 +98,15 @@ describe("PlayerCard", () => {
     expect(badges.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("team logo src uses ESPN CDN (not Sleeper) for both badge and card logo", () => {
+    render(<PlayerCard player={{ ...basePlayer, is_favorite_team: true }} />);
+    const imgs = screen.getAllByAltText("Baltimore Ravens") as HTMLImageElement[];
+    for (const img of imgs) {
+      expect(img.src).toContain("espncdn.com");
+      expect(img.src).not.toContain("sleepercdn.com");
+    }
+  });
+
   it("renders the VBD breakdown with replacement and total when expanded", async () => {
     render(<PlayerCard player={basePlayer} />);
     const user = userEvent.setup();
