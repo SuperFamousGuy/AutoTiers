@@ -5,7 +5,7 @@ description: The canonical Software Development Lifecycle for AutoTiers agents. 
 
 # AutoTiers SDLC
 
-A request lands. Five stages, three advisors, one orchestrator. Every stage produces a structured artifact the next stage can act on without re-deriving context.
+A request lands. Five primary stages (1–5), three advisors, one orchestrator. Stages 3.5 and 3.6 are sub-stages of Stage 3. Every stage produces a structured artifact the next stage can act on without re-deriving context.
 
 ## Roles
 
@@ -73,7 +73,7 @@ autotiers-manager reports back to user
                                                        ├─ may consult claude-code-author
                                                            │
                                                            ▼
-                                                       Learning Artifact (committed on main)
+                                                       Learning updates (via PR to main)
 ```
 
 ## Triage — which stages apply
@@ -182,7 +182,7 @@ Body:
 - File issues BEFORE reporting back to the user. The user sees issue URLs, not promises.
 - One issue per distinct concern. Don't batch unrelated gaps into one issue.
 - If the deferred item is a stretch goal from the original request, link the original issue in the background section.
-- Issue URLs always appear in the "FOLLOW-UPS" section of the Manager's final report.
+- Issue URLs always appear in the "ISSUES FILED" section of the Manager's final report.
 
 **Skip only when:**
 - There are genuinely no out-of-scope items (rare — say so explicitly in the report).
@@ -322,9 +322,9 @@ ADVISORS CONSULTED: mathematician | researcher | claude-code-author  (and one li
 PR: <url> (always present when code changed — Manager opens before reporting)
 
 ISSUES FILED: <url> — one line per issue created in Stage 3.6 (or "none" if no out-of-scope items)
-
-LEARNING: what was updated in Stage 5 (skill/agent/SDLC edits committed, or "none" if no signal met the bar)
 ```
+
+Stage 5 (Retrospective Learning) runs after merge and teardown — it is a quiet post-merge step that produces commits, not a line in this report.
 
 When QA returns NEEDS_CHANGES the Manager loops back to Engineer before reporting; the user sees a final ship or a final block, not the intermediate iterations.
 
@@ -399,8 +399,8 @@ Severity exception: any defect that:
 1. Identify which artifact(s) need changing.
 2. Consult `claude-code-author` if the change touches `.claude/agents/`, `.claude/skills/`, `.claude/commands/`, or `.claude/settings.json` — use the agent's judgment on file format and discovery rules.
 3. Make the edit surgically. Don't rewrite whole files; add the new signal to the right section.
-4. Commit the change(s) directly on `main` with a conventional-commit title: `chore(sdlc): <what changed and why>`.
-5. Report in the LEARNING line of the Manager's final summary.
+4. Open a PR targeting `main` with a conventional-commit title: `chore(sdlc): <what changed and why>`. If branch protections are disabled and the changes are trivial (e.g., a one-line addition to a skill), a direct commit to `main` is acceptable.
+5. The learning updates are visible via the resulting commit(s) — no separate user-facing report is needed.
 
 ### What NOT to update
 
