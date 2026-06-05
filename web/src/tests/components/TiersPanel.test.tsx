@@ -52,8 +52,22 @@ describe("TiersPanel", () => {
     // ALL-view labels disappear when position-filtered
     expect(screen.queryByText("Elite")).not.toBeInTheDocument();
     expect(screen.queryByText("Strong Starter")).not.toBeInTheDocument();
-    // WR1 and WR2 have no positional descriptive label in POSITIONAL_TIER_LABELS
-    expect(screen.queryByText("Flex WR")).not.toBeInTheDocument();
+  });
+
+  it("shows 'Flex WR' descriptive label for WR4 when WR filter is active", async () => {
+    render(<TiersPanel result={response} isPending={false} onDownloadCsv={() => {}} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^wr$/i }));
+    const flexWREl = screen.getByText("Flex WR");
+    expect(flexWREl.parentElement).toHaveTextContent(/WR4/);
+  });
+
+  it("shows 'Elite TE' descriptive label for TE1 when TE filter is active", async () => {
+    render(<TiersPanel result={response} isPending={false} onDownloadCsv={() => {}} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^te$/i }));
+    const eliteTEEl = screen.getByText("Elite TE");
+    expect(eliteTEEl.parentElement).toHaveTextContent(/TE1/);
   });
 
   it("shows 'Elite QB' descriptive label for QB1 when QB filter is active", async () => {
