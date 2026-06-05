@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { TEAM_FULL_NAME, TEAM_PRIMARY_COLORS, hexToRgb } from "@/lib/teams";
+import { TEAM_FULL_NAME, TEAM_TINT_COLORS, hexToRgb } from "@/lib/teams";
 import { teamLogoUrl } from "@/lib/espn-cdn";
 import type { TieredPlayer } from "@/api/types";
 
@@ -28,8 +28,8 @@ export function PlayerCard({ player }: PlayerCardProps) {
   const [imgError, setImgError] = useState(false);
 
   const posColor = positionColor(player.position);
-  const teamPrimary = player.team ? TEAM_PRIMARY_COLORS[player.team] : null;
-  const teamRgb = teamPrimary ? hexToRgb(teamPrimary) : null;
+  const teamTint = player.team ? TEAM_TINT_COLORS[player.team] : null;
+  const teamRgb = teamTint ? hexToRgb(teamTint) : null;
   const fullTeamName = player.team ? (TEAM_FULL_NAME[player.team] ?? player.team) : "—";
 
   const isFavPlayer = player.is_favorite_player === true;
