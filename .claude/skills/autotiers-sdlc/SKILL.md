@@ -5,7 +5,7 @@ description: The canonical Software Development Lifecycle for AutoTiers agents. 
 
 # AutoTiers SDLC
 
-A request lands. Three stages, three advisors, one orchestrator. Every stage produces a structured artifact the next stage can act on without re-deriving context.
+A request lands. Five stages, three advisors, one orchestrator. Every stage produces a structured artifact the next stage can act on without re-deriving context.
 
 ## Roles
 
@@ -17,7 +17,7 @@ A request lands. Three stages, three advisors, one orchestrator. Every stage pro
 | **autotiers-qa** | Stage 3 — Verification | After implementation, before reporting back to the user. May consult any other agent to confirm the change is safe. |
 | **autotiers-mathematician** | Advisor — math correctness | Consulted by Designer (for algorithm shape), Engineer (for math implementation), or QA (for math invariant checks). |
 | **autotiers-researcher** | Advisor — FF domain knowledge | Consulted by Designer (for heuristic validation) and QA (for "would a real FF expert accept this?"). |
-| **claude-code-author** | Advisor — `.claude/` surface | Consulted by Engineer (when the change touches agents/skills/commands/hooks) and Manager (when the SDLC itself needs editing). |
+| **claude-code-author** | Advisor — `.claude/` surface | Consulted by Engineer (when the change touches agents/skills/commands/hooks), Manager (when the SDLC itself needs editing), and Manager again in Stage 5 (Retrospective Learning) when post-run updates touch the `.claude/` surface. |
 
 The Manager is the only agent whose primary job is orchestration. Every other agent does its specialized work and reports back to the Manager.
 
@@ -59,8 +59,21 @@ User request
    │                                         ▼
    │                                     PR URL (included in final report)
    │
+   ├─[issue filing — always]──▶  Manager files GitHub issues for out-of-scope items
+   │                                  │
+   │                                  ▼
+   │                              Issue URLs (included in final report)
+   │
    ▼
 autotiers-manager reports back to user
+   │
+   ├─[teardown — after merge]──▶  Manager cleans worktrees, branches, stashes
+   │
+   └─[retrospective learning — after teardown]──▶  Manager updates skills/agents/SDLC
+                                                       ├─ may consult claude-code-author
+                                                           │
+                                                           ▼
+                                                       Learning Artifact (committed on main)
 ```
 
 ## Triage — which stages apply
@@ -129,6 +142,52 @@ After QA approves (or when QA is skipped), the Manager opens a pull request. No 
 - The branch has no commits beyond `main` (nothing to PR).
 - The user explicitly says "don't open a PR."
 
+### Stage 3.6 — Out-of-Scope Issue Filing (always runs)
+
+Every request surfaces work that was deliberately not done. That work must become a GitHub issue — not a note in the chat, not a bullet in the PR body, not a mental note. If it isn't filed, it doesn't exist.
+
+**What gets filed:**
+
+| Source | What to file |
+|--------|-------------|
+| Design Artifact — "Out of scope" section | Every bullet that defers real user value |
+| Engineer's report — "EDGE CASES I DID NOT COVER" | Every deferred case (not trivial type exhaustion) |
+| QA Verdict — "NON-BLOCKERS" | Every non-blocker that would improve correctness or coverage |
+| PR review comments — "Defer" decisions | Each one, if it hasn't already been filed |
+
+**What does NOT get filed:**
+- Trivial code style observations with no user impact
+- Things the Manager already decided are wrong directions
+- Duplicate of an existing open issue (link instead)
+
+**Issue format** (`gh issue create`):
+
+```
+Title: conventional-commit style, under 70 characters
+Body:
+  ## Background
+  One sentence linking to the PR or feature that surfaced this.
+
+  ## What to do
+  Concrete description of the gap or feature.
+
+  ## Acceptance criteria
+  Bulleted checklist a future engineer can implement against.
+
+  ## Notes
+  Dependencies, constraints, or context a future implementer needs.
+```
+
+**Rules:**
+- File issues BEFORE reporting back to the user. The user sees issue URLs, not promises.
+- One issue per distinct concern. Don't batch unrelated gaps into one issue.
+- If the deferred item is a stretch goal from the original request, link the original issue in the background section.
+- Issue URLs always appear in the "FOLLOW-UPS" section of the Manager's final report.
+
+**Skip only when:**
+- There are genuinely no out-of-scope items (rare — say so explicitly in the report).
+- The user explicitly says "don't file issues."
+
 ## Advisory consultations — when to invoke whom
 
 ### Designer's advisors
@@ -195,6 +254,7 @@ Anything sourced from the Researcher's skill goes here with citation.
 
 ## Out of scope
 What this design deliberately does NOT do. Prevents the Engineer over-building.
+Each item here that defers real user value MUST become a GitHub issue (filed by the Manager in Stage 3.6).
 
 ## Open questions
 What still needs a decision before the Engineer can start. Manager triages these.
@@ -227,7 +287,7 @@ CATEGORIES CHECKED: list from autotiers-bug-classes
 ENGINEER'S ASSUMPTIONS CHALLENGED: which assumptions QA verified or contested
 ```
 
-The Manager reads the QA Verdict and decides whether to ship, loop back to Engineer, or escalate to the user.
+The Manager reads the QA Verdict and decides whether to ship, loop back to Engineer, or escalate to the user. Every NON-BLOCKER in the QA Verdict MUST become a GitHub issue (filed in Stage 3.6) — it is not sufficient to note it in the final report.
 
 ## When the Manager pushes back instead of executing
 
@@ -261,7 +321,9 @@ ADVISORS CONSULTED: mathematician | researcher | claude-code-author  (and one li
 
 PR: <url> (always present when code changed — Manager opens before reporting)
 
-FOLLOW-UPS YOU SHOULD KNOW ABOUT: anything I noticed but didn't address, with one line on why
+ISSUES FILED: <url> — one line per issue created in Stage 3.6 (or "none" if no out-of-scope items)
+
+LEARNING: what was updated in Stage 5 (skill/agent/SDLC edits committed, or "none" if no signal met the bar)
 ```
 
 When QA returns NEEDS_CHANGES the Manager loops back to Engineer before reporting; the user sees a final ship or a final block, not the intermediate iterations.
@@ -297,6 +359,60 @@ The Manager runs teardown after a branch merges. No exceptions. This is what gen
 | Local `worktree-<name>` branch | Yes | `git branch -d` |
 | `docs/superpowers/specs/*.md` files | No | Keep |
 | `docs/superpowers/plans/*.md` files | No | Keep |
+
+## Stage 5 — Retrospective Learning (always runs after teardown)
+
+After cleanup, the Manager pauses and asks: _what should the agents, skills, and process know now that they didn't know before?_ Then makes those updates — for real, as committed changes — not as chat notes.
+
+This is the stage that makes the system smarter over time. Skip it and the next team member (human or agent) repeats the same mistakes.
+
+### What to look for
+
+Scan the full SDLC run — Design Artifact, Implementation Report, QA Verdict, any advisor outputs, any pushback exchanges — and identify signals:
+
+| Signal | Target artifact |
+|--------|----------------|
+| A bug type appeared that has no entry in `autotiers-bug-classes` | Add a new bug class |
+| A bug class entry proved too vague to catch the actual failure | Sharpen it |
+| Researcher surfaced a validated FF heuristic that isn't in the knowledge base | Append to `autotiers-ff-knowledge` |
+| A triage rule (Design/QA apply/skip) fired incorrectly — stage was skipped when it shouldn't have been, or ran unnecessarily | Update the triage section of this file |
+| A pushback trigger arose that isn't on the Manager's pushback list | Add it |
+| An agent overstepped or understepped its stated role | Update `.claude/agents/<agent>.md` |
+| An advisor was invoked for a reason not listed in "when to invoke whom" | Add the trigger |
+| A handoff section was useless or a needed section was absent | Update the handoff format |
+| The same workaround / approach appeared in two or more features | Codify as a new skill or add to an existing one |
+| A skill or agent was never invoked and has no plausible future use | Flag for deprecation (file a GitHub issue; don't delete unilaterally) |
+
+### The bar for updating
+
+**Don't update for a single data point.** A pattern needs at least two independent occurrences before it earns a rule — unless the incident was severe (e.g., a bug that shipped to users despite QA).
+
+Severity exception: any defect that:
+- Passed QA and reached production, OR
+- Required a hotfix branch, OR
+- Was called out explicitly by the user as "this keeps happening"
+
+…earns an immediate update, even on first occurrence.
+
+### How to update
+
+1. Identify which artifact(s) need changing.
+2. Consult `claude-code-author` if the change touches `.claude/agents/`, `.claude/skills/`, `.claude/commands/`, or `.claude/settings.json` — use the agent's judgment on file format and discovery rules.
+3. Make the edit surgically. Don't rewrite whole files; add the new signal to the right section.
+4. Commit the change(s) directly on `main` with a conventional-commit title: `chore(sdlc): <what changed and why>`.
+5. Report in the LEARNING line of the Manager's final summary.
+
+### What NOT to update
+
+- Code conventions, architecture, file paths — those live in CLAUDE.md or are derivable from the code.
+- Git history or who-changed-what — `git log` is authoritative.
+- Transient task state — nothing from the current session that won't be true next session.
+- Speculation ("this might be an issue someday") — only real signals from real runs.
+
+### Skip only when
+
+- The run produced zero new signal: every stage behaved exactly as expected, no new heuristics, no surprises, no edge cases. (Rare. State "no new signal" explicitly in the LEARNING line.)
+- The user explicitly says "don't update skills."
 
 ## When SDLC stages may parallelize
 
