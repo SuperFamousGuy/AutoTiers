@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TEAM_FULL_NAME, TEAM_PRIMARY_COLORS, hexToRgb } from "@/lib/teams";
+import { teamLogoUrl } from "@/lib/espn-cdn";
 import type { TieredPlayer } from "@/api/types";
 
 const POSITION_COLORS: Record<string, string> = {
@@ -93,7 +94,7 @@ export function PlayerCard({ player }: PlayerCardProps) {
             {isFavPlayer && <span className="shrink-0">⭐</span>}
             {isFavTeam && player.team && (
               <img
-                src={`https://sleepercdn.com/images/team_logos/nfl/${player.team.toLowerCase()}.jpg`}
+                src={teamLogoUrl(player.team)}
                 alt={fullTeamName}
                 className="w-[17px] h-[17px] rounded-sm object-contain shrink-0 opacity-90"
               />
@@ -108,7 +109,7 @@ export function PlayerCard({ player }: PlayerCardProps) {
         <div className="flex items-center gap-2.5 shrink-0">
           {player.team && (
             <img
-              src={`https://sleepercdn.com/images/team_logos/nfl/${player.team.toLowerCase()}.jpg`}
+              src={teamLogoUrl(player.team)}
               alt={fullTeamName}
               aria-hidden="true"
               className="w-7 h-7 rounded object-contain"
