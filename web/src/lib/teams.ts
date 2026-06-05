@@ -68,7 +68,7 @@ export const TEAM_FULL_NAME: Record<string, string> = Object.fromEntries(
   )
 );
 
-export const TEAM_PRIMARY_COLORS: Record<string, string> = {
+export const TEAM_TINT_COLORS: Record<string, string> = {
   ARI: "#97233F", ATL: "#A71930", BAL: "#241773", BUF: "#00338D",
   CAR: "#0085CA", CHI: "#C83803", CIN: "#FB4F14", CLE: "#FF3C00",
   DAL: "#003594", DEN: "#FB4F14", DET: "#0076B6", GB:  "#203731",
