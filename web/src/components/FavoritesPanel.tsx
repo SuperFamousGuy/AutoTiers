@@ -159,7 +159,7 @@ export function FavoritesPanel({
         </p>
       )}
 
-      <section>
+      <section data-testid="player-favorites" data-batchloading={String(batchLoading)}>
         <header className="flex items-center justify-between mb-2">
           <h3 className="font-medium">Favorite Players</h3>
           <span className={`text-xs ${playersAtCap ? "text-amber-600" : "text-muted-foreground"}`}>
