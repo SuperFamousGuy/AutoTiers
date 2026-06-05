@@ -125,6 +125,39 @@ describe("FavoritesPanel", () => {
     resolveBatch([]);
   });
 
+  it("batchLoading clears when all favorites removed while fetch is in-flight", async () => {
+    let resolveBatch!: (v: PlayerSearchResult[]) => void;
+    const batch = vi.fn(
+      () => new Promise<PlayerSearchResult[]>((res) => { resolveBatch = res; })
+    );
+    const { rerender } = render(
+      <FavoritesPanel
+        favorites={makeFav({ favorite_player_ids: ["1", "2"] })}
+        onSave={vi.fn()}
+        searchPlayers={vi.fn(async () => [])}
+        batchPlayers={batch}
+      />
+    );
+    // Batch in-flight — batchLoading must be true
+    await waitFor(() =>
+      expect(screen.getByTestId("player-favorites")).toHaveAttribute("data-batchloading", "true")
+    );
+    // Remove all favorites while batch still pending
+    rerender(
+      <FavoritesPanel
+        favorites={makeFav({ favorite_player_ids: [] })}
+        onSave={vi.fn()}
+        searchPlayers={vi.fn(async () => [])}
+        batchPlayers={batch}
+      />
+    );
+    // Cleanup must have cleared batchLoading
+    await waitFor(() =>
+      expect(screen.getByTestId("player-favorites")).toHaveAttribute("data-batchloading", "false")
+    );
+    resolveBatch([]);
+  });
+
   it("after batch resolves, player names appear in cards", async () => {
     const batch = vi.fn(async () => [
       { id: "1", name: "Saquon Barkley", position: "RB", team: "PHI", espn_id: "3054211" },
