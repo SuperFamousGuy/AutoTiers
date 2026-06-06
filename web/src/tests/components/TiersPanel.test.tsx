@@ -45,6 +45,45 @@ describe("TiersPanel", () => {
     expect(starterEl.parentElement).toHaveTextContent(/Tier 2/);
   });
 
+  it("shows 'Late Round' fallback label in the Tier 7 header span", () => {
+    const tier7Response: GenerateResponse = {
+      total: 1,
+      data_as_of: null,
+      players: [
+        {
+          overall_rank: 1,
+          player_id: "9999",
+          name: "Test Player",
+          position: "WR",
+          team: "FA",
+          age: null,
+          overall_tier: 7,
+          positional_tier: "WR7",
+          adjusted_score: 50.0,
+          projected_score_raw: 50.0,
+          prior_year_actual: null,
+          espn_projection: null,
+          fantasypros_projection: null,
+          avg_projection: null,
+          adp_standard: null,
+          adp_ppr: null,
+          adp_dynasty: null,
+          league_adp: null,
+          vbd_score: 0.0,
+          position_replacement: 50.0,
+          flags: [],
+          rules_applied: [],
+          rule_applications: [],
+          is_favorite_player: null,
+          is_favorite_team: null,
+        },
+      ],
+    };
+    render(<TiersPanel result={tier7Response} isPending={false} onDownloadCsv={() => {}} />);
+    const lateRoundEl = screen.getByText("Late Round");
+    expect(lateRoundEl.parentElement).toHaveTextContent(/Tier 7/);
+  });
+
   it("does not show ALL-view descriptive labels when WR position filter is active", async () => {
     render(<TiersPanel result={response} isPending={false} onDownloadCsv={() => {}} />);
     const user = userEvent.setup();
