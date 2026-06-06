@@ -41,14 +41,17 @@ export function SettingsPanel({ value, onChange, linkedLeague, profileId, onRefr
   const hasAnyOverride = Object.keys(value.tier_labels ?? {}).length > 0;
 
   const handleTierLabelChange = (tier: number, inputValue: string) => {
+    set("tier_labels", { ...(value.tier_labels ?? {}), [tier]: inputValue });
+  };
+
+  const handleTierLabelBlur = (tier: number, inputValue: string) => {
+    const trimmed = inputValue.trim();
     const defaultLabel = TIER_LABELS[tier];
-    const trimmed = inputValue;
-    // Remove key if empty or equal to the static default
     if (trimmed === "" || trimmed === defaultLabel) {
       const next = { ...(value.tier_labels ?? {}) };
       delete next[tier];
       set("tier_labels", Object.keys(next).length > 0 ? next : undefined);
-    } else {
+    } else if (trimmed !== inputValue) {
       set("tier_labels", { ...(value.tier_labels ?? {}), [tier]: trimmed });
     }
   };
@@ -187,6 +190,7 @@ export function SettingsPanel({ value, onChange, linkedLeague, profileId, onRefr
                 value={value.tier_labels?.[tier] ?? ""}
                 placeholder={defaultLabel}
                 onChange={(e) => handleTierLabelChange(tier, e.target.value)}
+                onBlur={(e) => handleTierLabelBlur(tier, e.target.value)}
                 className="w-full h-8 rounded border border-input bg-background px-2 text-sm text-foreground"
                 aria-label={`Tier ${tier} label`}
               />
