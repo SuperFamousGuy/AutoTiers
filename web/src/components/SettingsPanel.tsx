@@ -2,8 +2,12 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { RotateCcw } from "lucide-react";
 import { ScoreWeights } from "./ScoreWeights";
 import { LinkedLeagueChip } from "@/components/LinkedLeagueChip";
+import { TIER_LABELS } from "@/lib/tiers";
 import type { ScoringFormat, LeagueSize, QbTdPoints } from "@/api/types";
 import type { Weights } from "@/lib/weights";
 
@@ -16,6 +20,7 @@ export interface SettingsState {
   bonus_100yd_receiving: boolean;
   bonus_first_downs: boolean;
   weights: Weights;
+  tier_labels?: Partial<Record<number, string>>;
 }
 
 interface SettingsPanelProps {
@@ -28,10 +33,39 @@ interface SettingsPanelProps {
 
 const LEAGUE_SIZES: LeagueSize[] = [8, 10, 12, 14, 16];
 const DRAFT_ROUNDS_OPTIONS = [10, 12, 14, 15, 16, 18, 20, 25] as const;
+const TIER_LABEL_ROWS = [1, 2, 3, 4, 5, 6] as const;
 
 export function SettingsPanel({ value, onChange, linkedLeague, profileId, onRefreshLink }: SettingsPanelProps) {
   const set = <K extends keyof SettingsState>(key: K, v: SettingsState[K]) =>
     onChange({ ...value, [key]: v });
+
+  const hasAnyOverride = Object.keys(value.tier_labels ?? {}).length > 0;
+
+  const handleTierLabelChange = (tier: number, inputValue: string) => {
+    set("tier_labels", { ...(value.tier_labels ?? {}), [tier]: inputValue });
+  };
+
+  const handleTierLabelBlur = (tier: number, inputValue: string) => {
+    const trimmed = inputValue.trim();
+    const defaultLabel = TIER_LABELS[tier];
+    if (trimmed === "" || trimmed === defaultLabel) {
+      const next = { ...(value.tier_labels ?? {}) };
+      delete next[tier];
+      set("tier_labels", Object.keys(next).length > 0 ? next : undefined);
+    } else if (trimmed !== inputValue) {
+      set("tier_labels", { ...(value.tier_labels ?? {}), [tier]: trimmed });
+    }
+  };
+
+  const handleResetTier = (tier: number) => {
+    const next = { ...(value.tier_labels ?? {}) };
+    delete next[tier];
+    set("tier_labels", Object.keys(next).length > 0 ? next : undefined);
+  };
+
+  const handleResetAll = () => {
+    set("tier_labels", undefined);
+  };
 
   return (
     <aside className="space-y-6 border-r bg-card p-6 overflow-y-auto min-h-0">
@@ -136,6 +170,45 @@ export function SettingsPanel({ value, onChange, linkedLeague, profileId, onRefr
         weights={value.weights}
         onChange={(w) => set("weights", w)}
       />
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <Label>Tier Labels</Label>
+          {hasAnyOverride && (
+            <Button variant="ghost" size="sm" onClick={handleResetAll}>
+              Reset all
+            </Button>
+          )}
+        </div>
+        {TIER_LABEL_ROWS.map((tier) => {
+          const hasOverride = value.tier_labels?.[tier] !== undefined;
+          const defaultLabel = TIER_LABELS[tier] ?? "";
+          return (
+            <div key={tier} className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground w-12 shrink-0">Tier {tier}</span>
+              <Input
+                type="text"
+                value={value.tier_labels?.[tier] ?? ""}
+                placeholder={defaultLabel}
+                onChange={(e) => handleTierLabelChange(tier, e.target.value)}
+                onBlur={(e) => handleTierLabelBlur(tier, e.target.value)}
+                className="h-8"
+                aria-label={`Tier ${tier} label`}
+              />
+              {hasOverride && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Reset tier ${tier} label`}
+                  onClick={() => handleResetTier(tier)}
+                >
+                  <RotateCcw className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </aside>
   );
 }

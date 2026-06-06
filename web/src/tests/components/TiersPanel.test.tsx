@@ -7,6 +7,40 @@ import type { GenerateResponse } from "@/api/types";
 
 const response = generateResponse as GenerateResponse;
 
+const tier7Response: GenerateResponse = {
+  total: 1,
+  data_as_of: null,
+  players: [
+    {
+      overall_rank: 1,
+      player_id: "9999",
+      name: "Test Player",
+      position: "WR",
+      team: "FA",
+      age: null,
+      overall_tier: 7,
+      positional_tier: "WR7",
+      adjusted_score: 50.0,
+      projected_score_raw: 50.0,
+      prior_year_actual: null,
+      espn_projection: null,
+      fantasypros_projection: null,
+      avg_projection: null,
+      adp_standard: null,
+      adp_ppr: null,
+      adp_dynasty: null,
+      league_adp: null,
+      vbd_score: 0.0,
+      position_replacement: 50.0,
+      flags: [],
+      rules_applied: [],
+      rule_applications: [],
+      is_favorite_player: null,
+      is_favorite_team: null,
+    },
+  ],
+};
+
 describe("TiersPanel", () => {
   it("shows placeholder when no result", () => {
     render(<TiersPanel result={null} isPending={false} onDownloadCsv={() => {}} />);
@@ -46,39 +80,6 @@ describe("TiersPanel", () => {
   });
 
   it("shows 'Late Round' fallback label in the Tier 7 header span", () => {
-    const tier7Response: GenerateResponse = {
-      total: 1,
-      data_as_of: null,
-      players: [
-        {
-          overall_rank: 1,
-          player_id: "9999",
-          name: "Test Player",
-          position: "WR",
-          team: "FA",
-          age: null,
-          overall_tier: 7,
-          positional_tier: "WR7",
-          adjusted_score: 50.0,
-          projected_score_raw: 50.0,
-          prior_year_actual: null,
-          espn_projection: null,
-          fantasypros_projection: null,
-          avg_projection: null,
-          adp_standard: null,
-          adp_ppr: null,
-          adp_dynasty: null,
-          league_adp: null,
-          vbd_score: 0.0,
-          position_replacement: 50.0,
-          flags: [],
-          rules_applied: [],
-          rule_applications: [],
-          is_favorite_player: null,
-          is_favorite_team: null,
-        },
-      ],
-    };
     render(<TiersPanel result={tier7Response} isPending={false} onDownloadCsv={() => {}} />);
     const lateRoundEl = screen.getByText("Late Round");
     expect(lateRoundEl.parentElement).toHaveTextContent(/Tier 7/);
@@ -142,5 +143,59 @@ describe("TiersPanel", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /download csv/i }));
     expect(onDownload).toHaveBeenCalled();
+  });
+
+  describe("tierLabelOverrides", () => {
+    it("shows override label 'Studs' in the Tier 1 header when tierLabelOverrides={{ 1: 'Studs' }}", () => {
+      render(
+        <TiersPanel
+          result={response}
+          isPending={false}
+          onDownloadCsv={() => {}}
+          tierLabelOverrides={{ 1: "Studs" }}
+        />,
+      );
+      const studsEl = screen.getByText("Studs");
+      expect(studsEl.parentElement).toHaveTextContent(/Tier 1/);
+    });
+
+    it("does not show 'Elite' when tier 1 is overridden with 'Studs'", () => {
+      render(
+        <TiersPanel
+          result={response}
+          isPending={false}
+          onDownloadCsv={() => {}}
+          tierLabelOverrides={{ 1: "Studs" }}
+        />,
+      );
+      expect(screen.queryByText("Elite")).not.toBeInTheDocument();
+    });
+
+    it("shows 'Elite' when tierLabelOverrides is undefined", () => {
+      render(
+        <TiersPanel
+          result={response}
+          isPending={false}
+          onDownloadCsv={() => {}}
+          tierLabelOverrides={undefined}
+        />,
+      );
+      const eliteEl = screen.getByText("Elite");
+      expect(eliteEl.parentElement).toHaveTextContent(/Tier 1/);
+    });
+
+    it("shows static defaults for tiers not covered by override map", () => {
+      render(
+        <TiersPanel
+          result={response}
+          isPending={false}
+          onDownloadCsv={() => {}}
+          tierLabelOverrides={{ 1: "Studs" }}
+        />,
+      );
+      // Tier 2 is not overridden, should show "Strong Starter"
+      const starterEl = screen.getByText("Strong Starter");
+      expect(starterEl.parentElement).toHaveTextContent(/Tier 2/);
+    });
   });
 });

@@ -1,20 +1,33 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { downloadCsv } from "@/api/hooks";
-import type { GenerateRequest } from "@/api/types";
+import type { TieredPlayer } from "@/api/types";
 
-const baseRequest: GenerateRequest = {
-  scoring_format: "standard",
-  league_type: "standard",
-  league_size: 12,
-  qb_td_points: 4,
-  bonus_100yd_rushing: false,
-  bonus_100yd_receiving: false,
-  bonus_first_downs: false,
-  weight_prior_year: 0.3,
-  weight_espn: 0,
-  weight_consensus: 0.7,
-  draft_rounds: 15,
-  rules: [],
+const basePlayer: TieredPlayer = {
+  overall_rank: 1,
+  player_id: "001",
+  name: "Test Player",
+  position: "WR",
+  team: "KC",
+  age: 25,
+  overall_tier: 1,
+  positional_tier: "WR1",
+  adjusted_score: 300.0,
+  projected_score_raw: 290.0,
+  prior_year_actual: null,
+  espn_projection: null,
+  fantasypros_projection: null,
+  avg_projection: null,
+  adp_standard: null,
+  adp_ppr: null,
+  adp_dynasty: null,
+  league_adp: null,
+  vbd_score: 150.0,
+  position_replacement: 150.0,
+  flags: [],
+  rules_applied: [],
+  rule_applications: [],
+  is_favorite_player: null,
+  is_favorite_team: null,
 };
 
 describe("downloadCsv", () => {
@@ -49,31 +62,22 @@ describe("downloadCsv", () => {
     vi.restoreAllMocks();
   });
 
-  it("POSTs the request body, creates a download link, and clicks it", async () => {
-    const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValueOnce(
-      new Response("col1,col2\nval1,val2", { status: 200 }),
-    );
-
-    await downloadCsv(baseRequest);
-
-    expect(fetchSpy).toHaveBeenCalledOnce();
-    const [url, init] = fetchSpy.mock.calls[0];
-    expect(String(url)).toContain("/api/generate/csv");
-    expect((init as RequestInit).method).toBe("POST");
-    expect((init as RequestInit).headers).toEqual({ "Content-Type": "application/json" });
-    expect((init as RequestInit).body).toBe(JSON.stringify(baseRequest));
+  it("creates a download link and clicks it", () => {
+    downloadCsv([basePlayer]);
 
     expect(createObjectURL).toHaveBeenCalledOnce();
     expect(click).toHaveBeenCalledOnce();
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:fake-url");
   });
 
-  it("throws when the server returns a non-2xx status", async () => {
-    vi.spyOn(global, "fetch").mockResolvedValueOnce(
-      new Response("internal error", { status: 500 }),
-    );
+  it("does not make a network request", () => {
+    const fetchSpy = vi.spyOn(global, "fetch");
+    downloadCsv([basePlayer]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
 
-    await expect(downloadCsv(baseRequest)).rejects.toThrow(/CSV download failed: 500/);
-    expect(click).not.toHaveBeenCalled();
+  it("accepts tier label overrides without throwing", () => {
+    expect(() => downloadCsv([basePlayer], { 1: "Studs" })).not.toThrow();
+    expect(click).toHaveBeenCalledOnce();
   });
 });
