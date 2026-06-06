@@ -9,7 +9,7 @@ import { getCustomTierLabel } from "@/lib/tiers";
 function csvField(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return "";
   const str = String(value);
-  if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+  if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
     return `"${str.replace(/"/g, '""')}"`;
   }
   return str;
@@ -56,7 +56,7 @@ const CSV_HEADERS = [
  * Generates a CSV string from a list of tiered players.
  * Tier labels use the provided overrides (if any), falling back to the static defaults.
  */
-export function generateCsvBlob(
+export function generateCsvString(
   players: TieredPlayer[],
   tierLabelOverrides?: Partial<Record<number, string>>,
 ): string {
@@ -94,5 +94,5 @@ export function generateCsvBlob(
     rows.push(row);
   }
 
-  return rows.join("\n");
+  return rows.join("\r\n");
 }

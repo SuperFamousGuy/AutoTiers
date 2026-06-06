@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiFetch } from "./client";
-import { generateCsvBlob } from "@/lib/csv";
+import { generateCsvString } from "@/lib/csv";
 import type {
   DataStatusResponse,
   GenerateRequest,
@@ -39,7 +39,7 @@ export function downloadCsv(
   players: TieredPlayer[],
   tierLabelOverrides?: Partial<Record<number, string>>,
 ): void {
-  const csv = generateCsvBlob(players, tierLabelOverrides);
+  const csv = generateCsvString(players, tierLabelOverrides);
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

@@ -3,6 +3,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { RotateCcw } from "lucide-react";
 import { ScoreWeights } from "./ScoreWeights";
 import { LinkedLeagueChip } from "@/components/LinkedLeagueChip";
@@ -185,13 +186,13 @@ export function SettingsPanel({ value, onChange, linkedLeague, profileId, onRefr
           return (
             <div key={tier} className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground w-12 shrink-0">Tier {tier}</span>
-              <input
+              <Input
                 type="text"
                 value={value.tier_labels?.[tier] ?? ""}
                 placeholder={defaultLabel}
                 onChange={(e) => handleTierLabelChange(tier, e.target.value)}
                 onBlur={(e) => handleTierLabelBlur(tier, e.target.value)}
-                className="w-full h-8 rounded border border-input bg-background px-2 text-sm text-foreground"
+                className="h-8"
                 aria-label={`Tier ${tier} label`}
               />
               {hasOverride && (

@@ -96,6 +96,14 @@ describe("getCustomTierLabel", () => {
   it("falls back to 'Late Round' for tier 7 when override map is present but does not cover tier 7", () => {
     expect(getCustomTierLabel(7, { 1: "Studs" })).toBe("Late Round");
   });
+
+  it("falls back to static default when override is empty string (in-progress cleared input)", () => {
+    expect(getCustomTierLabel(1, { 1: "" })).toBe("Elite");
+  });
+
+  it("falls back to static default when override is whitespace-only", () => {
+    expect(getCustomTierLabel(1, { 1: "   " })).toBe("Elite");
+  });
 });
 
 describe("getPositionalTierLabel", () => {

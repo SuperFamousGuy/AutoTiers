@@ -27,7 +27,8 @@ export function getCustomTierLabel(
   tier: number,
   overrides?: Partial<Record<number, string>>,
 ): string {
-  if (overrides?.[tier] !== undefined) return overrides[tier]!;
+  const override = overrides?.[tier];
+  if (override !== undefined && override.trim() !== "") return override;
   return getTierLabel(tier);
 }
 
