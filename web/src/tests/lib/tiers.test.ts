@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { TIER_LABELS, getTierLabel, POSITIONAL_TIER_LABELS, getPositionalTierLabel } from "@/lib/tiers";
+import { TIER_LABELS, getTierLabel, getCustomTierLabel, POSITIONAL_TIER_LABELS, getPositionalTierLabel } from "@/lib/tiers";
 
 describe("TIER_LABELS", () => {
   it("exports a record with exactly 6 entries", () => {
@@ -65,6 +65,36 @@ describe("POSITIONAL_TIER_LABELS", () => {
     expect(POSITIONAL_TIER_LABELS["RB"]).toBeUndefined();
     expect(POSITIONAL_TIER_LABELS["K"]).toBeUndefined();
     expect(POSITIONAL_TIER_LABELS["DST"]).toBeUndefined();
+  });
+});
+
+describe("getCustomTierLabel", () => {
+  it("returns the static default when no overrides provided", () => {
+    expect(getCustomTierLabel(1)).toBe("Elite");
+  });
+
+  it("returns the static default when overrides is undefined", () => {
+    expect(getCustomTierLabel(2, undefined)).toBe("Strong Starter");
+  });
+
+  it("returns the static default when overrides does not contain the tier", () => {
+    expect(getCustomTierLabel(1, { 2: "Custom" })).toBe("Elite");
+  });
+
+  it("returns the override when present for the given tier", () => {
+    expect(getCustomTierLabel(1, { 1: "Studs" })).toBe("Studs");
+  });
+
+  it("returns override for tier 7 even though there is no static entry", () => {
+    expect(getCustomTierLabel(7, { 7: "Deep Sleepers" })).toBe("Deep Sleepers");
+  });
+
+  it("falls back to 'Late Round' for tier 7 with no override", () => {
+    expect(getCustomTierLabel(7)).toBe("Late Round");
+  });
+
+  it("falls back to 'Late Round' for tier 7 when override map is present but does not cover tier 7", () => {
+    expect(getCustomTierLabel(7, { 1: "Studs" })).toBe("Late Round");
   });
 });
 

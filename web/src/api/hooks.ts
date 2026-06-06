@@ -1,10 +1,12 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { apiFetch, API_URL } from "./client";
+import { apiFetch } from "./client";
+import { generateCsvBlob } from "@/lib/csv";
 import type {
   DataStatusResponse,
   GenerateRequest,
   GenerateResponse,
   Rule,
+  TieredPlayer,
 } from "./types";
 
 export function useRules() {
@@ -33,14 +35,12 @@ export function useGenerateMutation() {
   });
 }
 
-export async function downloadCsv(body: GenerateRequest): Promise<void> {
-  const resp = await fetch(`${API_URL}/api/generate/csv`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!resp.ok) throw new Error(`CSV download failed: ${resp.status}`);
-  const blob = await resp.blob();
+export function downloadCsv(
+  players: TieredPlayer[],
+  tierLabelOverrides?: Partial<Record<number, string>>,
+): void {
+  const csv = generateCsvBlob(players, tierLabelOverrides);
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

@@ -281,11 +281,16 @@ export default function App() {
         <TiersPanel
           result={generate.data ?? null}
           isPending={generate.isPending}
-          onDownloadCsv={() => downloadCsv(buildRequest())}
+          onDownloadCsv={() => {
+            if (generate.data) {
+              downloadCsv(generate.data.players, settings.tier_labels);
+            }
+          }}
           keepers={
             profiles.find((p) => p.id === activeProfileId)?.linked_league?.keepers_json ?? undefined
           }
           scoringFormat={settings.scoring_format}
+          tierLabelOverrides={settings.tier_labels}
         />
       </main>
       <ManageProfilesDialog

@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
 import { PositionFilter, type PositionFilterValue } from "./PositionFilter";
 import { TierGroup } from "./TierGroup";
-import { getTierLabel, getPositionalTierLabel } from "@/lib/tiers";
+import { getCustomTierLabel, getPositionalTierLabel } from "@/lib/tiers";
 import type { GenerateResponse, ScoringFormat } from "@/api/types";
 
 const SCORING_FORMAT_LABELS: Record<ScoringFormat, string> = {
@@ -18,9 +18,10 @@ interface TiersPanelProps {
   onDownloadCsv: () => void;
   keepers?: Array<{ player_name: string; position: string; team: string }>;
   scoringFormat?: ScoringFormat;
+  tierLabelOverrides?: Partial<Record<number, string>>;
 }
 
-export function TiersPanel({ result, isPending, onDownloadCsv, keepers, scoringFormat }: TiersPanelProps) {
+export function TiersPanel({ result, isPending, onDownloadCsv, keepers, scoringFormat, tierLabelOverrides }: TiersPanelProps) {
   const [filter, setFilter] = useState<PositionFilterValue>("ALL");
 
   const groupedByTier = useMemo(() => {
@@ -40,7 +41,7 @@ export function TiersPanel({ result, isPending, onDownloadCsv, keepers, scoringF
         .sort(([a], [b]) => a - b)
         .map(([tier, players]) => ({
           label: `Tier ${tier}`,
-          descriptiveLabel: getTierLabel(tier),
+          descriptiveLabel: getCustomTierLabel(tier, tierLabelOverrides),
           players,
         }));
     } else {
@@ -62,7 +63,7 @@ export function TiersPanel({ result, isPending, onDownloadCsv, keepers, scoringF
           players,
         }));
     }
-  }, [result, filter]);
+  }, [result, filter, tierLabelOverrides]);
 
   if (isPending) {
     return (

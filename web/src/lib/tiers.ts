@@ -19,6 +19,19 @@ export function getTierLabel(tier: number): string {
 }
 
 /**
+ * Returns the descriptive label for a given overall tier, using the user-supplied
+ * override when present, and falling back to the static default (including the
+ * "Late Round" fallback for tier 7+).
+ */
+export function getCustomTierLabel(
+  tier: number,
+  overrides?: Partial<Record<number, string>>,
+): string {
+  if (overrides?.[tier] !== undefined) return overrides[tier]!;
+  return getTierLabel(tier);
+}
+
+/**
  * Descriptive labels for notable positional tiers only. Positions and tiers
  * that are self-explanatory (RB, K, DST) have no entries.
  */
