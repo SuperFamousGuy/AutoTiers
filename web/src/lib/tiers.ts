@@ -44,7 +44,7 @@ export function getCustomTierLabel(
  * for tiers 12+. The result is a dense map — every key 1..tierCount is present.
  *
  * This is a pure function safe to call on every render; the loop runs at most
- * 20 iterations (UI caps tier count at 20).
+ * 25 iterations (UI caps tier count at 25).
  */
 export function buildResolvedTierNames(
   tierCount: number,
