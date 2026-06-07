@@ -298,13 +298,11 @@ class TestOverallTierCountParam:
         players = _large_pool()
         result = assign_tiers(players, league_size=12, overall_tier_count=15)
         tiers_present = {p.overall_tier for p in result}
-        # Every tier from 1 to some maximum must be populated (no gaps)
-        max_tier = max(tiers_present)
-        assert tiers_present == set(range(1, max_tier + 1)), (
-            f"Tier gaps found. Present: {sorted(tiers_present)}"
-        )
-        assert max_tier >= 10, (
-            f"Expected at least 10 populated tiers for 270 players, got {max_tier}"
+        # All 15 tiers must be populated with no gaps. Asserting the exact set
+        # 1..15 (not just max >= 10) catches a regression where overall_tier_count
+        # is ignored and the count silently falls back to the old hardcoded 10.
+        assert tiers_present == set(range(1, 16)), (
+            f"Expected tiers 1..15 all populated, got: {sorted(tiers_present)}"
         )
 
     # Low tier count uses Jenks path (count=5 <= N*=11); clear score gap creates tier gap
@@ -380,9 +378,12 @@ class TestQuantileBreaksDeduplicate:
         # Per math spec example: 5 players, n_classes=20 should produce tiers 1..5 (not 1,3,5,7,9)
         players = [_player(f"p{i}", "WR", float(10 - i * 2)) for i in range(5)]
         result = assign_tiers(players, league_size=12, overall_tier_count=20)
-        max_tier = max(p.overall_tier for p in result)
-        assert max_tier <= 5, (
-            f"With 5 players and count=20, max tier should be <= 5, got {max_tier}"
+        tiers_present = {p.overall_tier for p in result}
+        # With 5 strictly-decreasing distinct scores, dedup must yield exactly
+        # tiers 1..5 (one per player). Asserting the full set rather than
+        # max_tier <= 5 catches over-collapsing where dedup drops real breaks.
+        assert tiers_present == {1, 2, 3, 4, 5}, (
+            f"Expected tiers 1..5 (one per player), got: {sorted(tiers_present)}"
         )
 
     def test_dedup_identical_to_normal_when_classes_within_bounds(self):
@@ -411,14 +412,19 @@ class TestComputeOverallBreaks:
         assert breaks == []
 
     def test_count_below_threshold_uses_jenks(self):
-        # With a clear bi-modal distribution and count=5 (<=11), Jenks should find breaks.
-        # All values within each cluster are identical (two unique values: 100.0 and 10.0).
-        # If quantile were used, every percentile boundary would land on one of the two
-        # distinct values and get deduped away → _quantile_breaks would return [].
-        # Jenks handles this correctly by finding the single meaningful gap between clusters.
+        # Branch-sincerity proof: this fixture has only two unique values
+        # (100.0 x20, 10.0 x20). Every quantile boundary lands on a tie and is
+        # skipped, so _quantile_breaks returns [] here (asserted below). Jenks,
+        # by contrast, finds the single meaningful gap between the clusters.
+        # Therefore a NON-EMPTY result from the dispatcher proves it routed to
+        # Jenks — if it had wrongly used quantile (the count>threshold branch),
+        # breaks would be empty and this test would fail.
         scores = [100.0] * 20 + [10.0] * 20
+        assert _quantile_breaks(scores, 5) == [], (
+            "Fixture invariant: quantile must return [] so a non-empty dispatch "
+            "result can only come from the Jenks branch"
+        )
         breaks = _compute_overall_breaks(scores, overall_tier_count=5)
-        # Jenks should find the gap between 100 and 10
         assert len(breaks) >= 1
 
     def test_count_above_threshold_uses_quantile(self):

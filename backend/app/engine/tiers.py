@@ -82,8 +82,9 @@ def _quantile_breaks(scores: list[float], n_classes: int) -> list[float]:
     """Rank-based break points for fallback tiering.
 
     Given scores and a target number of tiers, returns n_classes-1 break points
-    such that splitting by score < break_i produces approximately equal-sized
-    tier groups. Used when Jenks can't find meaningful variance-based breaks
+    such that splitting by score <= break_i (the comparison used in
+    _assign_tier_from_breaks) produces approximately equal-sized tier groups.
+    Used when Jenks can't find meaningful variance-based breaks
     (e.g., kickers/defenses with tightly clustered scores).
 
     Deduplication: when n_classes > len(scores), integer-division produces
