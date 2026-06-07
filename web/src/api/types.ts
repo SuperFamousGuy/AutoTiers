@@ -40,6 +40,7 @@ export interface GenerateRequest {
   weight_espn: number;
   weight_consensus: number;
   draft_rounds: number;
+  overall_tier_count?: number;
   rules: Rule[];
   keepers?: string[];
   league_adp?: Record<string, number>;

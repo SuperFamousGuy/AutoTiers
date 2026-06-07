@@ -15,12 +15,14 @@ import { useAuth } from "@/contexts/AuthContext";
 import { createProfile, updateProfile, deleteProfile, activateProfile } from "@/api/profiles";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { weightsAreValid } from "@/lib/weights";
+import { buildResolvedTierNames } from "@/lib/tiers";
 import type { Rule, GenerateRequest } from "@/api/types";
 
 const DEFAULT_SETTINGS: SettingsState = {
   scoring_format: "standard",
   league_size: 12,
   draft_rounds: 15,
+  tier_count: 15,
   qb_td_points: 4,
   bonus_100yd_rushing: false,
   bonus_100yd_receiving: false,
@@ -222,6 +224,7 @@ export default function App() {
       weight_espn: 0,
       weight_consensus: settings.weights.consensus / 100,
       draft_rounds: settings.draft_rounds,
+      overall_tier_count: settings.tier_count ?? settings.draft_rounds,
       rules,
       keepers: linked?.keepers_json?.map((k) => k.player_name) ?? undefined,
       league_adp: linked?.adp_json ?? undefined,
@@ -283,14 +286,23 @@ export default function App() {
           isPending={generate.isPending}
           onDownloadCsv={() => {
             if (generate.data) {
-              downloadCsv(generate.data.players, settings.tier_labels);
+              downloadCsv(
+                generate.data.players,
+                buildResolvedTierNames(
+                  settings.tier_count ?? settings.draft_rounds,
+                  settings.tier_labels,
+                ),
+              );
             }
           }}
           keepers={
             profiles.find((p) => p.id === activeProfileId)?.linked_league?.keepers_json ?? undefined
           }
           scoringFormat={settings.scoring_format}
-          tierLabelOverrides={settings.tier_labels}
+          tierLabelOverrides={buildResolvedTierNames(
+            settings.tier_count ?? settings.draft_rounds,
+            settings.tier_labels,
+          )}
         />
       </main>
       <ManageProfilesDialog

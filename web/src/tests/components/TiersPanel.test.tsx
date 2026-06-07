@@ -79,10 +79,10 @@ describe("TiersPanel", () => {
     expect(starterEl.parentElement).toHaveTextContent(/Tier 2/);
   });
 
-  it("shows 'Late Round' fallback label in the Tier 7 header span", () => {
+  it("shows 'Deep Sleepers' label in the Tier 7 header span (tier 7 is now named)", () => {
     render(<TiersPanel result={tier7Response} isPending={false} onDownloadCsv={() => {}} />);
-    const lateRoundEl = screen.getByText("Late Round");
-    expect(lateRoundEl.parentElement).toHaveTextContent(/Tier 7/);
+    const deepSleepersEl = screen.getByText("Deep Sleepers");
+    expect(deepSleepersEl.parentElement).toHaveTextContent(/Tier 7/);
   });
 
   it("does not show ALL-view descriptive labels when WR position filter is active", async () => {

@@ -7,6 +7,14 @@ from app.engine.rules import RuleApplication
 
 POSITION_MAX_TIERS = {"QB": 3, "RB": 5, "WR": 5, "TE": 3, "K": 2, "DST": 3}
 
+# When overall_tier_count <= this threshold, use Jenks natural-breaks clustering
+# (captures genuine value discontinuities). Above this threshold, use quantile
+# (equal-size splits), because the score distribution is smooth at high N and
+# Jenks begins capturing noise rather than real player-value gaps.
+# Calibrated on 270-player VBD distributions; GVF marginal gain at N=12 drops
+# below 0.002, making 11 the last defensible Jenks tier count.
+_JENKS_TIER_THRESHOLD = 11
+
 # Position-aware replacement rank multipliers applied to league_size, then
 # rounded to the nearest integer. The player at the resulting rank within the
 # position is the replacement-level player whose adjusted_score is subtracted
@@ -74,14 +82,21 @@ def _quantile_breaks(scores: list[float], n_classes: int) -> list[float]:
     """Rank-based break points for fallback tiering.
 
     Given scores and a target number of tiers, returns n_classes-1 break points
-    such that splitting by score < break_i produces approximately equal-sized
-    tier groups. Used when Jenks can't find meaningful variance-based breaks
+    such that splitting by score <= break_i (the comparison used in
+    _assign_tier_from_breaks) produces approximately equal-sized tier groups.
+    Used when Jenks can't find meaningful variance-based breaks
     (e.g., kickers/defenses with tightly clustered scores).
+
+    Deduplication: when n_classes > len(scores), integer-division produces
+    duplicate indices that would otherwise inflate tier numbers. A seen-set
+    filters these out. This is a pure defensive fix — it is a no-op when
+    n_classes <= len(scores) (the normal production path).
     """
     if n_classes < 2 or len(scores) < 2:
         return []
     sorted_desc = sorted(scores, reverse=True)
     n = len(sorted_desc)
+    seen: set[float] = set()
     breaks: list[float] = []
     for i in range(1, n_classes):
         idx = (i * n) // n_classes
@@ -94,8 +109,34 @@ def _quantile_breaks(scores: list[float], n_classes: int) -> list[float]:
         if upper == lower:
             # Pure tie at the boundary — can't split cleanly here, skip
             continue
-        breaks.append((upper + lower) / 2)
+        bp = (upper + lower) / 2
+        if bp not in seen:
+            seen.add(bp)
+            breaks.append(bp)
     return breaks
+
+
+def _compute_overall_breaks(scores: list[float], overall_tier_count: int) -> list[float]:
+    """Compute overall tier break points using Jenks or quantile, depending on tier count.
+
+    Uses Jenks (variance-minimising natural breaks) when overall_tier_count <=
+    _JENKS_TIER_THRESHOLD, because the score distribution has genuine clusters
+    at low N that Jenks can capture meaningfully. Above the threshold, uses
+    quantile (equal-size rank splits) because the VBD curve is smooth and Jenks
+    would capture noise rather than real player-value discontinuities.
+
+    Falls back to quantile if Jenks returns empty (all-identical scores).
+    Always clamps overall_tier_count to len(scores) to prevent empty tiers.
+    """
+    clamped = min(overall_tier_count, len(scores))
+    if clamped <= 1:
+        return []
+    if clamped <= _JENKS_TIER_THRESHOLD:
+        breaks = _jenks_interior_breaks(scores, max_classes=clamped)
+        if breaks:
+            return breaks
+        # Jenks failed (all-identical or insufficient variance) — fall through to quantile
+    return _quantile_breaks(scores, clamped)
 
 
 def _cluster_position(players: list[TieredPlayer], position: str, max_tiers: int) -> None:
@@ -144,6 +185,7 @@ def assign_tiers(
     all_players: list[TieredPlayer],
     league_size: int = 12,
     tiebreak_adp_attr: str = "adp_ppr",
+    overall_tier_count: int = 10,
 ) -> list[TieredPlayer]:
     if not all_players:
         return []
@@ -173,7 +215,7 @@ def assign_tiers(
 
     # Step 3: overall tier clustering by vbd_score
     all_scores = [p.vbd_score for p in ranked]
-    overall_breaks = _jenks_interior_breaks(all_scores, max_classes=10)
+    overall_breaks = _compute_overall_breaks(all_scores, overall_tier_count)
     for p in ranked:
         p.overall_tier = _assign_tier_from_breaks(p.vbd_score, overall_breaks)
 

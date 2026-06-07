@@ -28,11 +28,20 @@ class GenerateRequest(BaseModel):
             raise ValueError("league_size must be one of: 8, 10, 12, 14, 16")
         return v
 
+    overall_tier_count: Optional[int] = None  # None -> default to draft_rounds in API layer
+
     @field_validator("draft_rounds")
     @classmethod
     def valid_draft_rounds(cls, v: int) -> int:
         if not (1 <= v <= 30):
             raise ValueError("draft_rounds must be between 1 and 30")
+        return v
+
+    @field_validator("overall_tier_count")
+    @classmethod
+    def valid_overall_tier_count(cls, v: Optional[int]) -> Optional[int]:
+        if v is not None and not (1 <= v <= 30):
+            raise ValueError("overall_tier_count must be between 1 and 30")
         return v
 
     @field_validator("weight_consensus")
