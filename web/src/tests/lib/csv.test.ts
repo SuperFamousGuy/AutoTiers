@@ -77,8 +77,15 @@ describe("generateCsvString", () => {
     expect(columns[6]).toBe("Elite");
   });
 
-  it("tier_label falls back to 'Late Round' for tier 7 with no override", () => {
+  it("tier_label uses 'Deep Sleepers' for tier 7 (now a named tier)", () => {
     const csv = generateCsvString([makePlayer({ overall_tier: 7 })]);
+    const dataRow = csv.split("\r\n")[1];
+    const columns = dataRow.split(",");
+    expect(columns[6]).toBe("Deep Sleepers");
+  });
+
+  it("tier_label falls back to 'Late Round' for tier 12 with no override", () => {
+    const csv = generateCsvString([makePlayer({ overall_tier: 12 })]);
     const dataRow = csv.split("\r\n")[1];
     const columns = dataRow.split(",");
     expect(columns[6]).toBe("Late Round");

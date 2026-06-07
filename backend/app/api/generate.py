@@ -464,7 +464,13 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
     capped = guaranteed + remaining_pool[:remaining_budget]
     capped.sort(key=lambda p: p.adjusted_score, reverse=True)
 
-    return assign_tiers(capped, league_size=req.league_size, tiebreak_adp_attr=tiebreak_adp_attr)
+    overall_tier_count = req.overall_tier_count if req.overall_tier_count is not None else req.draft_rounds
+    return assign_tiers(
+        capped,
+        league_size=req.league_size,
+        tiebreak_adp_attr=tiebreak_adp_attr,
+        overall_tier_count=overall_tier_count,
+    )
 
 
 @router.post("/generate", response_model=GenerateResponse)

@@ -1,5 +1,5 @@
 import pytest
-from app.engine.tiers import TieredPlayer, assign_tiers
+from app.engine.tiers import TieredPlayer, assign_tiers, _quantile_breaks, _compute_overall_breaks
 
 
 def _player(pid: str, position: str, score: float, **kwargs) -> TieredPlayer:
@@ -232,3 +232,208 @@ def test_cluster_position_with_two_value_clusters():
     bot_player = next(p for p in ranked if p.player_id == "k_bot_0")
     assert top_player.positional_tier == "K1"
     assert bot_player.positional_tier == "K2"
+
+
+# ---------------------------------------------------------------------------
+# New tests for customizable overall_tier_count (Math spec §8 + INV-1..INV-6)
+# ---------------------------------------------------------------------------
+
+def _make_pool(n: int, position: str = "WR", score_start: float = 400.0, step: float = 5.0) -> list[TieredPlayer]:
+    """Return n players from the same position with linearly declining scores."""
+    return [_player(f"{position.lower()}_{i}", position, score_start - i * step) for i in range(n)]
+
+
+def _large_pool() -> list[TieredPlayer]:
+    """~270 players across WR/RB/QB/TE/K/DST — representative of a full draft pool.
+
+    Uses slightly irrational step sizes (e.g. 3.71, 3.83) so VBD scores after
+    replacement subtraction are almost entirely unique, giving the quantile
+    algorithm real unique break points to work with.
+    """
+    players: list[TieredPlayer] = []
+    # 90 WRs — step 3.71 to avoid integer-aligned collisions with RBs
+    for i in range(90):
+        players.append(_player(f"wr_{i}", "WR", round(400.0 - i * 3.71, 2)))
+    # 90 RBs — step 3.83 (different from WRs)
+    for i in range(90):
+        players.append(_player(f"rb_{i}", "RB", round(390.0 - i * 3.83, 2)))
+    # 32 QBs
+    for i in range(32):
+        players.append(_player(f"qb_{i}", "QB", round(370.0 - i * 7.13, 2)))
+    # 32 TEs
+    for i in range(32):
+        players.append(_player(f"te_{i}", "TE", round(250.0 - i * 5.17, 2)))
+    # 20 Ks
+    for i in range(20):
+        players.append(_player(f"k_{i}", "K", round(130.0 - i * 0.71, 2)))
+    # 20 DSTs
+    for i in range(20):
+        players.append(_player(f"dst_{i}", "DST", round(140.0 - i * 1.03, 2)))
+    return players
+
+
+class TestOverallTierCountParam:
+    """Math spec §8 implementation checklist: INV-1 through INV-6."""
+
+    # INV-4: count=1 puts all players in overall_tier=1
+    def test_overall_tier_count_one_puts_all_in_tier_1(self):
+        players = _make_pool(20)
+        result = assign_tiers(players, league_size=12, overall_tier_count=1)
+        assert all(p.overall_tier == 1 for p in result), (
+            "All players should be in tier 1 when overall_tier_count=1"
+        )
+
+    # INV-5: count > player pool degrades gracefully (no tier > len(players))
+    def test_overall_tier_count_exceeds_player_pool(self):
+        players = _make_pool(5)
+        result = assign_tiers(players, league_size=12, overall_tier_count=50)
+        max_tier = max(p.overall_tier for p in result)
+        assert max_tier <= 5, (
+            f"Max tier ({max_tier}) must not exceed player count (5)"
+        )
+        assert all(p.overall_tier >= 1 for p in result)
+
+    # High tier count uses quantile path (count=15 > N*=11); all tiers 1..15 populated
+    def test_overall_tier_count_high_uses_quantile_path(self):
+        players = _large_pool()
+        result = assign_tiers(players, league_size=12, overall_tier_count=15)
+        tiers_present = {p.overall_tier for p in result}
+        # Every tier from 1 to some maximum must be populated (no gaps)
+        max_tier = max(tiers_present)
+        assert tiers_present == set(range(1, max_tier + 1)), (
+            f"Tier gaps found. Present: {sorted(tiers_present)}"
+        )
+        assert max_tier >= 10, (
+            f"Expected at least 10 populated tiers for 270 players, got {max_tier}"
+        )
+
+    # Low tier count uses Jenks path (count=5 <= N*=11); clear score gap creates tier gap
+    def test_overall_tier_count_low_uses_jenks_path(self):
+        # 40 WRs: top 10 score 400-370 (cluster), bottom 30 score 200-140 (cluster)
+        players = []
+        for i in range(10):
+            players.append(_player(f"wr_top_{i}", "WR", 400.0 - i * 3.0))
+        for i in range(30):
+            players.append(_player(f"wr_bot_{i}", "WR", 200.0 - i * 2.0))
+        result = assign_tiers(players, league_size=12, overall_tier_count=5)
+        by_id = {p.player_id: p for p in result}
+        # Top WR should be in a strictly better (lower number) tier than the bottom WR
+        assert by_id["wr_top_0"].overall_tier < by_id["wr_bot_29"].overall_tier, (
+            "Top cluster should have a strictly better (lower) overall tier"
+        )
+        # All tiers must be >= 1
+        assert all(p.overall_tier >= 1 for p in result)
+
+    # INV-1: Tier numbers are 1..overall_tier_count (no 0, no count+1)
+    def test_overall_tier_numbers_within_bounds(self):
+        players = _large_pool()
+        count = 15
+        result = assign_tiers(players, league_size=12, overall_tier_count=count)
+        for p in result:
+            assert 1 <= p.overall_tier <= count, (
+                f"Player {p.player_id} has overall_tier={p.overall_tier}, "
+                f"expected 1..{count}"
+            )
+
+    # INV-2: Tier numbers are monotonic with VBD (higher VBD => equal or better tier)
+    def test_overall_tier_numbers_monotonic_with_vbd(self):
+        players = _large_pool()
+        result = assign_tiers(players, league_size=12, overall_tier_count=10)
+        sorted_by_vbd = sorted(result, key=lambda p: p.vbd_score, reverse=True)
+        for a, b in zip(sorted_by_vbd, sorted_by_vbd[1:]):
+            if a.vbd_score > b.vbd_score:
+                assert a.overall_tier <= b.overall_tier, (
+                    f"Monotonicity violated: player with higher VBD "
+                    f"({a.vbd_score}) has worse tier ({a.overall_tier}) "
+                    f"than player with lower VBD ({b.vbd_score}) tier ({b.overall_tier})"
+                )
+
+    # INV-6: Default backward compatibility — no overall_tier_count arg = same as count=10
+    def test_backward_compat_default_matches_old_hardcoded_10(self):
+        players = _large_pool()
+        # Build two independent copies since assign_tiers mutates in place
+        import copy
+        pool_a = copy.deepcopy(players)
+        pool_b = copy.deepcopy(players)
+        result_default = assign_tiers(pool_a, league_size=12)
+        result_explicit = assign_tiers(pool_b, league_size=12, overall_tier_count=10)
+        tiers_default = {p.player_id: p.overall_tier for p in result_default}
+        tiers_explicit = {p.player_id: p.overall_tier for p in result_explicit}
+        assert tiers_default == tiers_explicit, (
+            "Default overall_tier_count=10 must produce identical output to explicit 10"
+        )
+
+
+class TestQuantileBreaksDeduplicate:
+    """Math spec §3: _quantile_breaks dedup fix — no overflow when n_classes > len(players)."""
+
+    def test_no_overflow_when_classes_exceed_players(self):
+        # 5 players with distinct scores, n_classes=20 → would overflow without dedup
+        scores = [10.0, 8.0, 6.0, 4.0, 2.0]
+        breaks = _quantile_breaks(scores, n_classes=20)
+        # With dedup, we get at most 4 breaks (len - 1)
+        assert len(breaks) <= 4, f"Expected <= 4 breaks, got {len(breaks)}: {breaks}"
+        # All break values must be unique
+        assert len(breaks) == len(set(breaks)), "Duplicate break values found"
+
+    def test_five_players_twenty_classes_tier_count(self):
+        # Per math spec example: 5 players, n_classes=20 should produce tiers 1..5 (not 1,3,5,7,9)
+        players = [_player(f"p{i}", "WR", float(10 - i * 2)) for i in range(5)]
+        result = assign_tiers(players, league_size=12, overall_tier_count=20)
+        max_tier = max(p.overall_tier for p in result)
+        assert max_tier <= 5, (
+            f"With 5 players and count=20, max tier should be <= 5, got {max_tier}"
+        )
+
+    def test_dedup_identical_to_normal_when_classes_within_bounds(self):
+        # With 270 players and 15 classes, dedup should not change anything
+        scores = [float(270 - i) for i in range(270)]
+        breaks_15 = _quantile_breaks(scores, n_classes=15)
+        assert len(breaks_15) == 14, f"Expected 14 breaks, got {len(breaks_15)}"
+        assert len(set(breaks_15)) == 14, "Unexpected duplicates in normal case"
+
+    def test_empty_scores_returns_empty(self):
+        assert _quantile_breaks([], n_classes=5) == []
+
+    def test_single_score_returns_empty(self):
+        assert _quantile_breaks([5.0], n_classes=5) == []
+
+    def test_n_classes_one_returns_empty(self):
+        assert _quantile_breaks([5.0, 3.0], n_classes=1) == []
+
+
+class TestComputeOverallBreaks:
+    """Unit tests for the _compute_overall_breaks dispatcher."""
+
+    def test_count_one_returns_no_breaks(self):
+        scores = [10.0, 8.0, 6.0, 4.0, 2.0]
+        breaks = _compute_overall_breaks(scores, overall_tier_count=1)
+        assert breaks == []
+
+    def test_count_below_threshold_uses_jenks(self):
+        # With a clear bi-modal distribution and count=5 (<=11), Jenks should find breaks.
+        # All values within each cluster are identical (two unique values: 100.0 and 10.0).
+        # If quantile were used, every percentile boundary would land on one of the two
+        # distinct values and get deduped away → _quantile_breaks would return [].
+        # Jenks handles this correctly by finding the single meaningful gap between clusters.
+        scores = [100.0] * 20 + [10.0] * 20
+        breaks = _compute_overall_breaks(scores, overall_tier_count=5)
+        # Jenks should find the gap between 100 and 10
+        assert len(breaks) >= 1
+
+    def test_count_above_threshold_uses_quantile(self):
+        # count=15 > 11: should use quantile, producing breaks at even intervals
+        scores = [float(100 - i) for i in range(100)]
+        breaks = _compute_overall_breaks(scores, overall_tier_count=15)
+        assert len(breaks) == 14
+
+    def test_count_exceeds_player_pool_clamps(self):
+        # 5 players, count=50: clamped to 5
+        scores = [10.0, 8.0, 6.0, 4.0, 2.0]
+        breaks = _compute_overall_breaks(scores, overall_tier_count=50)
+        assert len(breaks) <= 4
+
+    def test_all_identical_scores_returns_empty(self):
+        scores = [5.0] * 30
+        breaks = _compute_overall_breaks(scores, overall_tier_count=10)
+        assert breaks == []
