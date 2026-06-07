@@ -72,9 +72,13 @@ The fix in that file builds the `Cookie:` header by hand and sends a Chrome `Use
 
 **Canonical case:** a test had `expect(getAllByText(/coming soon/i)).toHaveLength(2)` but the production change moved one of those rows behind a state branch the test never triggered. The test still passed because it counted text occurrences in the wrong state.
 
+**Second case (weak-bound assertions):** the customizable-tier-count PR (#170) shipped tests asserting `max_tier >= 10` for an `overall_tier_count=15` run and `max_tier <= 5` for a 5-player pool. Both passed even when the new parameter was bypassed — `>= 10` still holds if the count silently falls back to the old hardcoded 10, and `<= 5` still holds if dedup over-collapses to fewer tiers. QA noticed the gap but logged it as a non-blocker; a reviewer caught it post-QA. The fix asserted the **exact** expected set (`tiers == set(range(1, 16))`, `tiers == {1,2,3,4,5}`).
+
 **How to detect:**
 - For each test in the diff, mentally delete the production change and ask: would this test still pass? If yes, the test isn't sincere.
+- **Distrust open-ended bound assertions** (`>=`, `<=`, `>`, `<`, "at least N", `len(x) <= k`) on a value the change is supposed to control. They pass for a whole *range* that includes the bypassed-behaviour value. When a test exists to prove a parameter is *honored*, assert the exact value or the exact set it should produce, not a bound the old/broken behaviour also satisfies.
 - For new `if/else` or `try/except`, both branches need a test that fails when the branch is deleted.
+- Treat a weak-bound assertion on the feature-under-test as a **blocker**, not a non-blocker — this one slipped to an external reviewer precisely because it was deferred.
 - Coverage tools confirm the line executed; only inspection confirms the test actually verified behaviour.
 
 ## 8. Git hygiene
