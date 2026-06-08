@@ -322,6 +322,8 @@ ADVISORS CONSULTED: mathematician | researcher | claude-code-author  (and one li
 PR: <url> (always present when code changed — Manager opens before reporting)
 
 ISSUES FILED: <url> — one line per issue created in Stage 3.6 (or "none" if no out-of-scope items)
+
+TEARDOWN PENDING: <branch-name> → <worktree-path> (run Stage 4 after PR merges, or ask me to clean up)
 ```
 
 Stage 5 (Retrospective Learning) runs after merge and teardown — it is a quiet post-merge step that produces commits, not a line in this report.
@@ -332,14 +334,21 @@ When QA returns NEEDS_CHANGES the Manager loops back to Engineer before reportin
 
 The Manager runs teardown after a branch merges. No exceptions. This is what generates litter when skipped.
 
+### When to trigger
+
+Stage 4 runs **in the same session** the PR is opened if the user merges immediately, OR in the next session the user returns after merging. If the Manager reports back and the session ends, the Manager should include "TEARDOWN PENDING" in its final report (see report format below) so the next session knows cleanup is waiting.
+
+To trigger from a future session, the user asks: "clean up after <feature>" or invokes the `learn-from-experience` skill, which detects and removes stale merged worktrees automatically.
+
 ### Checklist
 
 ```
-[ ] git worktree remove <path>     — for every worktree created during this feature
-[ ] git stash drop                 — drop any epitaxy/WIP stashes on the feature branch
-[ ] git branch -d <feature>        — delete local feature branch
-[ ] git branch -d worktree-<name>  — delete local worktree branch (if created)
-[ ] ls .claude/worktrees/          — verify directory is empty; delete residual dirs if present
+[ ] git worktree remove -f -f <path>  — for every worktree created during this feature
+    NOTE: agent-locked worktrees require -f -f (not just --force); one -f is insufficient
+[ ] git stash drop                    — drop any WIP stashes on the feature branch
+[ ] git branch -d <feature>           — delete local feature branch
+[ ] git branch -d worktree-<name>     — delete local worktree branch (if created)
+[ ] ls .claude/worktrees/             — verify directory clean; remove any residual dirs
 ```
 
 ### Rules
