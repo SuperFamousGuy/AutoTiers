@@ -46,7 +46,7 @@ For locked/stale worktrees — check before removing:
 
 ```bash
 # See if branch has unmerged commits
-git log main...<branch-name> --oneline
+git log main..<branch-name> --oneline
 
 # Check for open PR before removing
 gh pr list --head <branch-name>

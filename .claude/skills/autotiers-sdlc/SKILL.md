@@ -323,7 +323,7 @@ PR: <url> (always present when code changed — Manager opens before reporting)
 
 ISSUES FILED: <url> — one line per issue created in Stage 3.6 (or "none" if no out-of-scope items)
 
-TEARDOWN PENDING: <branch-name> → <worktree-path> (run Stage 4 after PR merges, or ask me to clean up)
+TEARDOWN PENDING: <branch-name> → <worktree-path> (run Stage 4 after PR merges, or ask me to clean up) (or "none" if no worktrees were created)
 ```
 
 Stage 5 (Retrospective Learning) runs after merge and teardown — it is a quiet post-merge step that produces commits, not a line in this report.
@@ -338,7 +338,7 @@ The Manager runs teardown after a branch merges. No exceptions. This is what gen
 
 Stage 4 runs **in the same session** the PR is opened if the user merges immediately, OR in the next session the user returns after merging. If the Manager reports back and the session ends, the Manager should include "TEARDOWN PENDING" in its final report (see report format below) so the next session knows cleanup is waiting.
 
-To trigger from a future session, the user asks: "clean up after <feature>" or invokes the `learn-from-experience` skill, which detects and removes stale merged worktrees automatically.
+To trigger from a future session, the user asks: "clean up after <feature>" or invokes the `learn-from-experience` skill, which walks through the worktree/branch inventory and removes entries whose PRs are merged.
 
 ### Checklist
 
