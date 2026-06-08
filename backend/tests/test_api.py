@@ -665,3 +665,49 @@ async def test_vbd_top_rb_outranks_top_qb_in_standard(async_client, test_db):
     assert top["player_id"] == "rb_0", (
         f"VBD failed: expected top RB at #1, got {top['name']} ({top['position']})"
     )
+
+
+@pytest.mark.asyncio
+async def test_overall_tier_count_fallback_uses_league_size(async_client, test_db):
+    """When overall_tier_count is omitted, the fallback must be league_size, not draft_rounds.
+
+    Sincerity proof: we send league_size=8 and draft_rounds=25. The set of
+    overall_tier values in the response must be exactly {1..8} — i.e. 8 tiers.
+    If the code regresses to using draft_rounds, we'd get up to 25 tiers and
+    the assertion `tiers_present == set(range(1, 9))` would fail.
+    """
+    from app.models import Player, Projection
+
+    # Seed enough WRs for assign_tiers to produce multiple overall tiers.
+    # Using irrational step so VBD scores are all unique (avoids ties collapsing tiers).
+    for i in range(40):
+        test_db.add(Player(id=f"wr_{i}", name=f"WR{i}", position="WR", team="DAL", age=25))
+    await test_db.commit()
+    for i in range(40):
+        test_db.add(Projection(
+            player_id=f"wr_{i}", source="fantasypros", scoring_format="ppr",
+            projected_points=round(400.0 - i * 3.71, 2), last_updated=date.today(),
+        ))
+    await test_db.commit()
+
+    payload = {
+        "scoring_format": "ppr", "league_type": "standard",
+        # league_size=8 so the fallback should produce 8 tiers, not 25.
+        "league_size": 8,
+        "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
+        "bonus_first_downs": False,
+        "weight_prior_year": 0.0, "weight_espn": 0.0, "weight_consensus": 1.0,
+        # draft_rounds intentionally differs so a regression to draft_rounds is detectable.
+        "draft_rounds": 25,
+        # overall_tier_count intentionally omitted — exercises the fallback path.
+        "rules": [],
+    }
+    resp = await async_client.post("/api/generate", json=payload)
+    assert resp.status_code == 200
+    body = resp.json()
+    tiers_present = {p["overall_tier"] for p in body["players"]}
+    # Fallback is league_size=8 → exactly tiers 1..8.
+    # If fallback regresses to draft_rounds=25, more tiers would appear and this fails.
+    assert tiers_present == set(range(1, 9)), (
+        f"Expected overall tiers 1..8 (league_size fallback), got: {sorted(tiers_present)}"
+    )

@@ -464,7 +464,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
     capped = guaranteed + remaining_pool[:remaining_budget]
     capped.sort(key=lambda p: p.adjusted_score, reverse=True)
 
-    overall_tier_count = req.overall_tier_count if req.overall_tier_count is not None else req.draft_rounds
+    overall_tier_count = req.overall_tier_count if req.overall_tier_count is not None else req.league_size
     return assign_tiers(
         capped,
         league_size=req.league_size,

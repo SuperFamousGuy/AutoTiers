@@ -22,7 +22,7 @@ const DEFAULT_SETTINGS: SettingsState = {
   scoring_format: "standard",
   league_size: 12,
   draft_rounds: 15,
-  tier_count: 15,
+  tier_count: 12,
   qb_td_points: 4,
   bonus_100yd_rushing: false,
   bonus_100yd_receiving: false,
@@ -224,7 +224,7 @@ export default function App() {
       weight_espn: 0,
       weight_consensus: settings.weights.consensus / 100,
       draft_rounds: settings.draft_rounds,
-      overall_tier_count: settings.tier_count ?? settings.draft_rounds,
+      overall_tier_count: settings.tier_count ?? settings.league_size,
       rules,
       keepers: linked?.keepers_json?.map((k) => k.player_name) ?? undefined,
       league_adp: linked?.adp_json ?? undefined,
@@ -289,7 +289,7 @@ export default function App() {
               downloadCsv(
                 generate.data.players,
                 buildResolvedTierNames(
-                  settings.tier_count ?? settings.draft_rounds,
+                  settings.tier_count ?? settings.league_size,
                   settings.tier_labels,
                 ),
               );
@@ -300,7 +300,7 @@ export default function App() {
           }
           scoringFormat={settings.scoring_format}
           tierLabelOverrides={buildResolvedTierNames(
-            settings.tier_count ?? settings.draft_rounds,
+            settings.tier_count ?? settings.league_size,
             settings.tier_labels,
           )}
         />
