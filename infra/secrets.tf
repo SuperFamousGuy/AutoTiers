@@ -4,9 +4,8 @@
 resource "random_password" "db" {
   length           = 32
   special          = true
-  override_special = "!#$%^&*()-_=+[]{}|;:,.<>?"
-  # Exclude characters that break connection string parsing
-  # (@ and / and : confuse the postgresql:// URI scheme)
+  override_special = "!#$%^&*()-_=+[]{}|;,.<>?"
+  # Exclude @, /, : — all three break postgresql:// URI parsing
 }
 
 ###############################################################################
