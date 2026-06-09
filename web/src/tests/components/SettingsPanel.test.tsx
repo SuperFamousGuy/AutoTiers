@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { SettingsPanel, DRAFT_ROUNDS_OPTIONS, TIER_COUNT_OPTIONS, LEAGUE_SIZES } from "@/components/SettingsPanel";
+import { SettingsPanel, TIER_COUNT_OPTIONS, LEAGUE_SIZES } from "@/components/SettingsPanel";
 import type { SettingsState } from "@/components/SettingsPanel";
 import { TIER_LABELS } from "@/lib/tiers";
 
