@@ -106,7 +106,7 @@ export default function App() {
       const overrides = new Map(active.rules_json.map((r) => [r.name, r]));
       setRules(fetchedRules.map((r) => {
         const o = overrides.get(r.name);
-        return o ? { ...r, enabled: o.enabled, weight: o.weight } : r;
+        return o ? { ...r, enabled: o.enabled, weight: o.weight, positions: o.positions ?? r.positions } : r;
       }));
     }
     setHistory((prev) => {
@@ -123,7 +123,7 @@ export default function App() {
 
   const autosavePayload = useMemo(() => ({
     settings_json: settings as unknown as Record<string, unknown>,
-    rules_json: rules.map((r) => ({ name: r.name, enabled: r.enabled, weight: r.weight })) as unknown as Array<Record<string, unknown>>,
+    rules_json: rules.map((r) => ({ name: r.name, enabled: r.enabled, weight: r.weight, positions: r.positions })) as unknown as Array<Record<string, unknown>>,
   }), [settings, rules]);
 
   useAutoSave({
@@ -164,7 +164,7 @@ export default function App() {
     const created = await createProfile({
       name: `Profile ${profiles.length + 1}`,
       settings_json: settings as unknown as Record<string, unknown>,
-      rules_json: rules.map((r) => ({ name: r.name, enabled: r.enabled, weight: r.weight })),
+      rules_json: rules.map((r) => ({ name: r.name, enabled: r.enabled, weight: r.weight, positions: r.positions })),
     });
     setProfiles([...profiles, created]);
     setActiveProfileId(created.id);
