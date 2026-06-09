@@ -116,7 +116,7 @@ resource "aws_secretsmanager_secret" "yahoo_client_id" {
 
 resource "aws_secretsmanager_secret_version" "yahoo_client_id" {
   secret_id     = aws_secretsmanager_secret.yahoo_client_id.id
-  secret_string = var.yahoo_client_id
+  secret_string = var.yahoo_client_id != "" ? var.yahoo_client_id : "PLACEHOLDER"
 }
 
 # YAHOO_CLIENT_SECRET
@@ -132,7 +132,7 @@ resource "aws_secretsmanager_secret" "yahoo_client_secret" {
 
 resource "aws_secretsmanager_secret_version" "yahoo_client_secret" {
   secret_id     = aws_secretsmanager_secret.yahoo_client_secret.id
-  secret_string = var.yahoo_client_secret
+  secret_string = var.yahoo_client_secret != "" ? var.yahoo_client_secret : "PLACEHOLDER"
 }
 
 # GOOGLE_CLIENT_ID
@@ -148,7 +148,7 @@ resource "aws_secretsmanager_secret" "google_client_id" {
 
 resource "aws_secretsmanager_secret_version" "google_client_id" {
   secret_id     = aws_secretsmanager_secret.google_client_id.id
-  secret_string = var.google_client_id
+  secret_string = var.google_client_id != "" ? var.google_client_id : "PLACEHOLDER"
 }
 
 # GOOGLE_CLIENT_SECRET
@@ -164,7 +164,7 @@ resource "aws_secretsmanager_secret" "google_client_secret" {
 
 resource "aws_secretsmanager_secret_version" "google_client_secret" {
   secret_id     = aws_secretsmanager_secret.google_client_secret.id
-  secret_string = var.google_client_secret
+  secret_string = var.google_client_secret != "" ? var.google_client_secret : "PLACEHOLDER"
 }
 
 # ADMIN_API_KEY
