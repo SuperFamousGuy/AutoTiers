@@ -1,0 +1,83 @@
+{
+  "_comment": "All resource ARNs in this policy are hardcoded. The following values must be kept in sync with the GitHub Actions variables and the deployed infrastructure: region (us-east-1), account ID (400360841089), ECR repository name (autotiers-backend), ECS cluster (autotiers-prod), ECS service names (autotiers-prod-backend, autotiers-prod-scheduler), S3 bucket (autotiers-prod-frontend-3trfa1gz), CloudFront distribution ID (E5N77VWEW2EXX). If any of these change, update this policy and re-apply it to the autotiers-ci IAM user.",
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ECRAuth",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:GetAuthorizationToken"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ECRImagePush",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:PutImage",
+        "ecr:InitiateLayerUpload",
+        "ecr:UploadLayerPart",
+        "ecr:CompleteLayerUpload",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage"
+      ],
+      "Resource": "arn:aws:ecr:us-east-1:400360841089:repository/autotiers-backend"
+    },
+    {
+      "Sid": "ECSServiceControl",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:UpdateService",
+        "ecs:DescribeServices"
+      ],
+      "Resource": [
+        "arn:aws:ecs:us-east-1:400360841089:service/autotiers-prod/autotiers-prod-backend",
+        "arn:aws:ecs:us-east-1:400360841089:service/autotiers-prod/autotiers-prod-scheduler"
+      ]
+    },
+    {
+      "Sid": "ECSClusterRead",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:ListTasks"
+      ],
+      "Resource": "arn:aws:ecs:us-east-1:400360841089:cluster/autotiers-prod"
+    },
+    {
+      "Sid": "ECSTaskRead",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:DescribeTasks",
+        "ecs:DescribeTaskDefinition"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "S3FrontendBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket"
+      ],
+      "Resource": "arn:aws:s3:::autotiers-prod-frontend-3trfa1gz"
+    },
+    {
+      "Sid": "S3FrontendObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:GetObject"
+      ],
+      "Resource": "arn:aws:s3:::autotiers-prod-frontend-3trfa1gz/*"
+    },
+    {
+      "Sid": "CloudFrontInvalidation",
+      "Effect": "Allow",
+      "Action": [
+        "cloudfront:CreateInvalidation"
+      ],
+      "Resource": "arn:aws:cloudfront::400360841089:distribution/E5N77VWEW2EXX"
+    }
+  ]
+}

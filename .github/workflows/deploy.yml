@@ -1,0 +1,163 @@
+# deploy.yml — runs whenever a GitHub release is published.
+#
+# Two parallel jobs:
+#   deploy-backend   — builds the Docker image, pushes to ECR, and force-deploys
+#                      both the backend and scheduler ECS services.
+#   deploy-frontend  — installs deps, runs the Vite build, syncs to S3, and
+#                      invalidates the CloudFront distribution.
+#
+# Non-sensitive configuration lives in GitHub Actions variables (vars.*).
+# Credentials live in GitHub Actions secrets (secrets.*).
+#
+# Required repository variables (Settings → Secrets and variables → Variables):
+#   AWS_REGION          — e.g. us-east-1
+#   ECR_REPO            — full ECR repository URI, e.g.
+#                         400360841089.dkr.ecr.us-east-1.amazonaws.com/autotiers-backend
+#   ECS_CLUSTER         — ECS cluster name, e.g. autotiers-prod
+#   BACKEND_SERVICE     — ECS service name for the API, e.g. autotiers-prod-backend
+#   SCHEDULER_SERVICE   — ECS service name for the scheduler, e.g. autotiers-prod-scheduler
+#   S3_BUCKET           — S3 bucket name for the compiled frontend assets
+#   CF_DIST_ID          — CloudFront distribution ID
+#   VITE_API_URL        — backend API origin, e.g. https://api.auto-tiers.com
+#
+# Required repository secrets (Settings → Secrets and variables → Secrets):
+#   AWS_ACCESS_KEY_ID
+#   AWS_SECRET_ACCESS_KEY
+
+name: deploy
+
+on:
+  release:
+    types: [published]
+
+# Limit GITHUB_TOKEN to the minimum needed. AWS calls use explicit IAM credentials.
+permissions:
+  contents: read
+
+# Prevent overlapping deploys if two releases are published in quick succession.
+# cancel-in-progress: false ensures the second run queues rather than cancels,
+# so every release is deployed in order.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1: Build and deploy the backend Docker image to ECS
+  # ---------------------------------------------------------------------------
+  deploy-backend:
+    name: Deploy backend (ECR + ECS)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # aws-actions/amazon-ecr-login writes the docker credential helper config
+      # so that subsequent `docker push` calls authenticate transparently.
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            -t ${{ vars.ECR_REPO }}:latest \
+            ./backend
+
+      - name: Push image to ECR
+        run: docker push ${{ vars.ECR_REPO }}:latest
+
+      # Force new deployments so both services pull the freshly-pushed :latest
+      # image even if the task definition revision has not changed.
+      - name: Force redeploy backend service
+        run: |
+          aws ecs update-service \
+            --cluster ${{ vars.ECS_CLUSTER }} \
+            --service ${{ vars.BACKEND_SERVICE }} \
+            --force-new-deployment \
+            --no-cli-pager
+
+      - name: Force redeploy scheduler service
+        run: |
+          aws ecs update-service \
+            --cluster ${{ vars.ECS_CLUSTER }} \
+            --service ${{ vars.SCHEDULER_SERVICE }} \
+            --force-new-deployment \
+            --no-cli-pager
+
+      # Wait for steady state before the workflow reports success.
+      # Default timeout: 10 minutes (600 s) per AWS CLI docs.
+      - name: Wait for backend service to stabilize
+        run: |
+          aws ecs wait services-stable \
+            --cluster ${{ vars.ECS_CLUSTER }} \
+            --services ${{ vars.BACKEND_SERVICE }}
+
+      - name: Wait for scheduler service to stabilize
+        run: |
+          aws ecs wait services-stable \
+            --cluster ${{ vars.ECS_CLUSTER }} \
+            --services ${{ vars.SCHEDULER_SERVICE }}
+
+  # ---------------------------------------------------------------------------
+  # Job 2: Build the frontend and deploy to S3 + CloudFront
+  # ---------------------------------------------------------------------------
+  deploy-frontend:
+    name: Deploy frontend (S3 + CloudFront)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: web
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+        run: npm run build
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # --delete removes files from the bucket that are no longer in web/dist,
+      # keeping the bucket in sync with the build output.
+      - name: Sync dist to S3
+        run: |
+          aws s3 sync web/dist s3://${{ vars.S3_BUCKET }} \
+            --delete \
+            --no-cli-pager
+
+      # Invalidate all paths so CloudFront serves the new assets immediately
+      # rather than waiting for the default TTL to expire.
+      - name: Invalidate CloudFront distribution
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ vars.CF_DIST_ID }} \
+            --paths "/*" \
+            --no-cli-pager
