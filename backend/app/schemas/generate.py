@@ -28,7 +28,7 @@ class GenerateRequest(BaseModel):
             raise ValueError("league_size must be one of: 8, 10, 12, 14, 16")
         return v
 
-    overall_tier_count: Optional[int] = None  # None -> default to draft_rounds in API layer
+    overall_tier_count: Optional[int] = None  # None -> defaults to league_size in the API layer
 
     @field_validator("draft_rounds")
     @classmethod

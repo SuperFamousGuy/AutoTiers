@@ -34,10 +34,10 @@ interface SettingsPanelProps {
   onRefreshLink?: () => Promise<void> | void;
 }
 
-const LEAGUE_SIZES: LeagueSize[] = [8, 10, 12, 14, 16];
+export const LEAGUE_SIZES: LeagueSize[] = [8, 10, 12, 14, 16];
 export const DRAFT_ROUNDS_OPTIONS = [10, 12, 14, 15, 16, 18, 20, 25] as const;
-// Must cover every value reachable via the draft_rounds fallback (effectiveTierCount = tier_count ?? draft_rounds).
-// If DRAFT_ROUNDS_OPTIONS grows, this array must grow to match — enforced by the guard test in SettingsPanel.test.tsx.
+// Must cover every value reachable via the league_size fallback (effectiveTierCount = tier_count ?? league_size).
+// LEAGUE_SIZES is [8, 10, 12, 14, 16] — all within this range — enforced by the guard test in SettingsPanel.test.tsx.
 export const TIER_COUNT_OPTIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25] as const;
 
 export function SettingsPanel({ value, onChange, linkedLeague, profileId, onRefreshLink }: SettingsPanelProps) {
@@ -48,8 +48,8 @@ export function SettingsPanel({ value, onChange, linkedLeague, profileId, onRefr
 
   const hasAnyOverride = Object.keys(value.tier_labels ?? {}).length > 0;
 
-  // Effective tier count: explicit setting or fall back to draft_rounds
-  const effectiveTierCount = value.tier_count ?? value.draft_rounds;
+  // Effective tier count: explicit setting or fall back to league_size
+  const effectiveTierCount = value.tier_count ?? value.league_size;
 
   const handleTierLabelChange = (tier: number, inputValue: string) => {
     set("tier_labels", { ...(value.tier_labels ?? {}), [tier]: inputValue });

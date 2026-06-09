@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { SettingsPanel, DRAFT_ROUNDS_OPTIONS, TIER_COUNT_OPTIONS } from "@/components/SettingsPanel";
+import { SettingsPanel, TIER_COUNT_OPTIONS, LEAGUE_SIZES } from "@/components/SettingsPanel";
 import type { SettingsState } from "@/components/SettingsPanel";
 import { TIER_LABELS } from "@/lib/tiers";
 
@@ -137,13 +137,13 @@ describe("SettingsPanel — Tier Labels section", () => {
 });
 
 describe("SettingsPanel — tier count control", () => {
-  it("number of tiers select renders with default value equal to draft_rounds when tier_count absent", () => {
+  it("number of tiers select renders with default value equal to league_size when tier_count absent", () => {
     render(<StatefulPanel />);
-    // baseSettings has draft_rounds=15 and no tier_count
-    // The select should show "15 tiers"
+    // baseSettings has league_size=12 and no tier_count
+    // The select should show "12 tiers"
     expect(screen.getByRole("combobox", { name: /number of tiers/i })).toBeInTheDocument();
-    // The displayed value should reflect 15 (draft_rounds fallback)
-    expect(screen.getByText("15 tiers")).toBeInTheDocument();
+    // The displayed value should reflect 12 (league_size fallback)
+    expect(screen.getByText("12 tiers")).toBeInTheDocument();
   });
 
   it("renders the correct number of tier label rows based on tier_count", () => {
@@ -251,31 +251,31 @@ describe("SettingsPanel — tier count control", () => {
     expect(screen.getByRole("button", { name: /reset all/i })).toBeInTheDocument();
   });
 
-  it("profile with draft_rounds=25 and no tier_count shows '25 tiers' in select and renders 25 rows", () => {
-    // Regression: a legacy profile hydrated with draft_rounds=25 and no tier_count key
-    // must not yield a blank Select (effectiveTierCount = tier_count ?? draft_rounds = 25).
-    // Every value reachable via the draft_rounds fallback needs a matching <SelectItem>.
+  it("profile with league_size=16 and no tier_count shows '16 tiers' in select and renders 16 rows", () => {
+    // Regression: a profile with league_size=16 and no tier_count key must not yield a
+    // blank Select (effectiveTierCount = tier_count ?? league_size = 16).
+    // Every league_size value must have a matching <SelectItem> in TIER_COUNT_OPTIONS.
     render(
       <SettingsPanel
-        value={{ ...baseSettings, draft_rounds: 25, tier_count: undefined }}
+        value={{ ...baseSettings, league_size: 16, tier_count: undefined }}
         onChange={vi.fn()}
       />,
     );
-    // The tier-count Select should display "25 tiers" (not blank)
-    expect(screen.getByText("25 tiers")).toBeInTheDocument();
-    // All 25 tier-label rows should be rendered
-    for (let i = 1; i <= 25; i++) {
+    // The tier-count Select should display "16 tiers" (not blank)
+    expect(screen.getByText("16 tiers")).toBeInTheDocument();
+    // All 16 tier-label rows should be rendered
+    for (let i = 1; i <= 16; i++) {
       expect(screen.getByRole("textbox", { name: `Tier ${i} label` })).toBeInTheDocument();
     }
-    // No 26th row should exist
-    expect(screen.queryByRole("textbox", { name: "Tier 26 label" })).not.toBeInTheDocument();
+    // No 17th row should exist
+    expect(screen.queryByRole("textbox", { name: "Tier 17 label" })).not.toBeInTheDocument();
   });
 
-  it("TIER_COUNT_OPTIONS max >= DRAFT_ROUNDS_OPTIONS max (guard against blank Select regression)", () => {
-    // If a new value is added to DRAFT_ROUNDS_OPTIONS that exceeds TIER_COUNT_OPTIONS max,
-    // the tier-count Select will render blank for any profile using that draft_rounds as fallback.
-    const maxDraftRounds = Math.max(...DRAFT_ROUNDS_OPTIONS);
+  it("TIER_COUNT_OPTIONS max >= max(LEAGUE_SIZES) (guard against blank Select regression)", () => {
+    // If a new league_size is added to LEAGUE_SIZES that exceeds TIER_COUNT_OPTIONS max,
+    // the tier-count Select will render blank for any profile using that league_size as fallback.
+    const maxLeagueSize = Math.max(...LEAGUE_SIZES);
     const maxTierCount = Math.max(...TIER_COUNT_OPTIONS);
-    expect(maxTierCount).toBeGreaterThanOrEqual(maxDraftRounds);
+    expect(maxTierCount).toBeGreaterThanOrEqual(maxLeagueSize);
   });
 });
