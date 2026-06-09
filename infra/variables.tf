@@ -110,3 +110,15 @@ variable "admin_api_key" {
   sensitive   = true
   default     = "REPLACE_ME"
 }
+
+variable "acm_certificate_arn" {
+  description = "ARN of the ACM certificate covering auto-tiers.com, www.auto-tiers.com, api.auto-tiers.com. Must be in us-east-1 (required by CloudFront)."
+  type        = string
+  default     = ""
+}
+
+variable "frontend_url" {
+  description = "Public URL of the frontend. Defaults to CloudFront domain; override with custom domain once DNS is wired (e.g. https://auto-tiers.com)."
+  type        = string
+  default     = ""
+}

@@ -30,7 +30,7 @@ type PlatformTab = "sleeper" | "espn" | "yahoo" | "nfl" | "cbs";
 const TABS: {
   id: PlatformTab;
   label: string;
-  Icon: () => JSX.Element;
+  Icon: () => React.JSX.Element;
   comingSoon?: boolean;
 }[] = [
   { id: "sleeper", label: "Sleeper", Icon: SleeperIcon },
