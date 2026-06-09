@@ -32,6 +32,7 @@ class Rule:
     enabled: bool = True
     weight: float = 1.0
     description: str = ""
+    positions: list[str] | None = None  # None (or []) = apply to all positions
 
 
 @dataclass
@@ -105,6 +106,12 @@ def apply_rules(base_score: float, ctx: PlayerContext, rules: list[Rule]) -> Rul
     for rule in rules:
         if not rule.enabled:
             continue
+        # Position gate: a non-empty positions list means the rule only fires
+        # for players at one of those positions. None and [] both mean "all
+        # positions" — the falsy check handles both without special-casing.
+        if rule.positions:
+            if ctx.position not in rule.positions:
+                continue
         if not all(_evaluate(c, ctx) for c in rule.conditions):
             continue
 

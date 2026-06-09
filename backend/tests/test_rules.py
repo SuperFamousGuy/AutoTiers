@@ -330,6 +330,134 @@ def test_follow_the_money_rule_does_not_fire():
     assert "Follow the Money" not in result.rules_applied
 
 
+def test_position_gate_skips_rule_when_position_not_in_list():
+    """A rule with positions=["RB"] must not fire on a WR player."""
+    rule = Rule(
+        name="RB Only Rule",
+        conditions=[RuleCondition(field="carry_share", operator="<", value=0.50)],
+        effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.85),
+        positions=["RB"],
+    )
+    # WR player with carry_share that would trigger the condition — rule should not fire.
+    ctx = make_ctx(position="WR", carry_share=0.30)
+    result = apply_rules(100.0, ctx, [rule])
+    assert result.adjusted_score == 100.0
+    assert "RB Only Rule" not in result.rules_applied
+
+
+def test_position_gate_fires_rule_when_position_matches():
+    """A rule with positions=["RB"] must fire on a matching RB player."""
+    rule = Rule(
+        name="RB Only Rule",
+        conditions=[RuleCondition(field="carry_share", operator="<", value=0.50)],
+        effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.85),
+        positions=["RB"],
+    )
+    ctx = make_ctx(position="RB", carry_share=0.30)
+    result = apply_rules(100.0, ctx, [rule])
+    assert result.adjusted_score < 100.0
+    assert "RB Only Rule" in result.rules_applied
+
+
+def test_position_gate_none_fires_on_all_positions():
+    """A rule with positions=None must fire on any position (no gate applied)."""
+    rule = Rule(
+        name="Any Position Rule",
+        conditions=[RuleCondition(field="carry_share", operator="<", value=0.50)],
+        effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.85),
+        positions=None,
+    )
+    for pos in ["QB", "RB", "WR", "TE", "K", "DST"]:
+        ctx = make_ctx(position=pos, carry_share=0.30)
+        result = apply_rules(100.0, ctx, [rule])
+        assert result.adjusted_score < 100.0, f"Rule should fire on position {pos}"
+
+
+def test_position_gate_empty_list_fires_on_all_positions():
+    """A rule with positions=[] is treated identically to None — applies to all."""
+    rule = Rule(
+        name="Any Position Rule",
+        conditions=[RuleCondition(field="carry_share", operator="<", value=0.50)],
+        effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.85),
+        positions=[],
+    )
+    ctx = make_ctx(position="WR", carry_share=0.30)
+    result = apply_rules(100.0, ctx, [rule])
+    assert result.adjusted_score < 100.0
+    assert "Any Position Rule" in result.rules_applied
+
+
+def test_position_gate_multi_position_list():
+    """A rule with positions=["WR", "TE"] fires on WR and TE but not RB."""
+    rule = Rule(
+        name="Receiver Rule",
+        conditions=[RuleCondition(field="target_share", operator=">=", value=0.25)],
+        effect=RuleEffect(type=EffectType.MULTIPLIER, value=1.07),
+        positions=["WR", "TE"],
+    )
+    wr_ctx = make_ctx(position="WR", target_share=0.30)
+    te_ctx = make_ctx(position="TE", target_share=0.30)
+    rb_ctx = make_ctx(position="RB", target_share=0.30)
+
+    assert apply_rules(100.0, wr_ctx, [rule]).adjusted_score > 100.0
+    assert apply_rules(100.0, te_ctx, [rule]).adjusted_score > 100.0
+    assert apply_rules(100.0, rb_ctx, [rule]).adjusted_score == 100.0
+
+
+def test_builtin_rb_committee_penalty_has_rb_position():
+    rule = next(r for r in BUILTIN_RULES if r.name == "RB Committee Penalty")
+    assert rule.positions == ["RB"]
+
+
+def test_builtin_target_share_premium_has_wr_te_positions():
+    rule = next(r for r in BUILTIN_RULES if r.name == "Target Share Premium")
+    assert rule.positions == ["WR", "TE"]
+
+
+def test_builtin_370_touches_has_rb_position():
+    rule = next(r for r in BUILTIN_RULES if r.name == "370 Touches")
+    assert rule.positions == ["RB"]
+
+
+def test_builtin_handcuff_rb_has_rb_position():
+    rule = next(r for r in BUILTIN_RULES if r.name == "Handcuff RB")
+    assert rule.positions == ["RB"]
+
+
+def test_builtin_over_the_hill_has_skill_positions():
+    rule = next(r for r in BUILTIN_RULES if r.name == "Over the Hill")
+    assert set(rule.positions) == {"QB", "RB", "WR", "TE"}
+
+
+def test_builtin_year_after_the_year_after_has_rb_wr_positions():
+    rule = next(r for r in BUILTIN_RULES if r.name == "Year After the Year After")
+    assert set(rule.positions) == {"RB", "WR"}
+
+
+def test_builtin_bad_offense_has_skill_positions():
+    rule = next(r for r in BUILTIN_RULES if r.name == "Bad Offense")
+    assert set(rule.positions) == {"QB", "RB", "WR", "TE"}
+
+
+def test_builtin_follow_the_money_has_skill_positions():
+    rule = next(r for r in BUILTIN_RULES if r.name == "Follow the Money")
+    assert set(rule.positions) == {"QB", "RB", "WR", "TE"}
+
+
+def test_builtin_rules_without_positions_default_to_none():
+    """Rules not in the 8 position-aware rules should have positions=None."""
+    no_position_rule_names = {
+        "Declining Snap%", "New Team Penalty", "New Head Coach",
+        "Sophomore Leap", "Contract Year Flag", "Injury History",
+        "Availability Risk", "TD Regression", "Opportunity Over-Producer",
+        "Opportunity Under-Producer", "Red Zone Usage Premium",
+        "Projection Unavailable", "Favorites",
+    }
+    for rule in BUILTIN_RULES:
+        if rule.name in no_position_rule_names:
+            assert rule.positions is None, f"Rule '{rule.name}' should have positions=None"
+
+
 def test_apply_rules_applications_track_sequential_state():
     """Each application records the score state AT THAT POINT, not the final state."""
     rule_a = Rule(

@@ -32,6 +32,12 @@ from app.data.matching import normalize_name
 
 router = APIRouter()
 
+# Rules whose positions field is fixed to the built-in value and cannot be
+# overridden by the client. Changing positions for these rules would be
+# misleading because their conditions reference position-specific semantics
+# (e.g. "370 Touches" has position=="RB" as an explicit condition).
+LOCKED_POSITIONS: set[str] = {"370 Touches", "Handcuff RB"}
+
 
 async def _compute_data_as_of(db: AsyncSession) -> Optional[str]:
     """Return ISO date of the oldest successful source refresh, or None if no source has succeeded."""
@@ -58,6 +64,25 @@ def _build_league_settings(req: GenerateRequest) -> LeagueSettings:
     )
 
 
+def _merge_positions(builtin: Rule, override_schema) -> "list[str] | None":
+    """Return the positions to use after merging a client override into a built-in rule.
+
+    For locked rules the built-in positions are always used, regardless of
+    what the client sent. For all other rules:
+    - If the client explicitly provided the `positions` field (even as null/[]),
+      that value is used. null means "apply to all positions"; [] is equivalent.
+    - If the client omitted the field entirely, the built-in default is kept.
+
+    Pydantic's model_fields_set tracks which fields were explicitly supplied on
+    construction, so we can distinguish "sent null" from "field absent".
+    """
+    if builtin.name in LOCKED_POSITIONS:
+        return builtin.positions
+    if "positions" in override_schema.model_fields_set:
+        return override_schema.positions
+    return builtin.positions
+
+
 def _schema_to_rule(schema) -> Rule:
     return Rule(
         name=schema.name,
@@ -66,6 +91,7 @@ def _schema_to_rule(schema) -> Rule:
         enabled=schema.enabled,
         weight=schema.weight,
         description=schema.description,
+        positions=schema.positions,
     )
 
 
@@ -184,7 +210,12 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
     # remaining duplicates via the merged dict.
     builtin_by_name = {r.name: r for r in BUILTIN_RULES}
     user_rule_map = {
-        schema.name: dataclasses.replace(builtin_by_name[schema.name], enabled=schema.enabled, weight=schema.weight)
+        schema.name: dataclasses.replace(
+            builtin_by_name[schema.name],
+            enabled=schema.enabled,
+            weight=schema.weight,
+            positions=_merge_positions(builtin_by_name[schema.name], schema),
+        )
         for schema in req.rules
         if schema.name in builtin_by_name
     }

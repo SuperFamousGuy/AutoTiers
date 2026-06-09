@@ -106,7 +106,7 @@ export default function App() {
       const overrides = new Map(active.rules_json.map((r) => [r.name, r]));
       setRules(fetchedRules.map((r) => {
         const o = overrides.get(r.name);
-        return o ? { ...r, enabled: o.enabled, weight: o.weight } : r;
+        return o ? { ...r, enabled: o.enabled, weight: o.weight, positions: "positions" in o ? o.positions : r.positions } : r;
       }));
     }
     setHistory((prev) => {
@@ -123,7 +123,7 @@ export default function App() {
 
   const autosavePayload = useMemo(() => ({
     settings_json: settings as unknown as Record<string, unknown>,
-    rules_json: rules.map((r) => ({ name: r.name, enabled: r.enabled, weight: r.weight })) as unknown as Array<Record<string, unknown>>,
+    rules_json: rules.map((r) => ({ name: r.name, enabled: r.enabled, weight: r.weight, positions: r.positions })) as unknown as Array<Record<string, unknown>>,
   }), [settings, rules]);
 
   useAutoSave({
@@ -164,7 +164,7 @@ export default function App() {
     const created = await createProfile({
       name: `Profile ${profiles.length + 1}`,
       settings_json: settings as unknown as Record<string, unknown>,
-      rules_json: rules.map((r) => ({ name: r.name, enabled: r.enabled, weight: r.weight })),
+      rules_json: rules.map((r) => ({ name: r.name, enabled: r.enabled, weight: r.weight, positions: r.positions })),
     });
     setProfiles([...profiles, created]);
     setActiveProfileId(created.id);
@@ -194,11 +194,11 @@ export default function App() {
     // for the server round-trip.
     setSettings(newTip.settings_json as unknown as SettingsState);
     const overrides = new Map(
-      (newTip.rules_json as Array<{ name: string; enabled: boolean; weight: number }>).map((r) => [r.name, r]),
+      (newTip.rules_json as Array<{ name: string; enabled: boolean; weight: number; positions: string[] | null }>).map((r) => [r.name, r]),
     );
     setRules(fetchedRules.map((r) => {
       const o = overrides.get(r.name);
-      return o ? { ...r, enabled: o.enabled, weight: o.weight } : r;
+      return o ? { ...r, enabled: o.enabled, weight: o.weight, positions: "positions" in o ? o.positions : r.positions } : r;
     }));
 
     // Drop the popped entry from history. The autosave guard ("bail if payload

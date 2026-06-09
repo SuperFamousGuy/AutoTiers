@@ -58,5 +58,6 @@ async def list_rules(
             is_builtin=True,
             category=_categorize(rule.name),
             description=rule.description,
+            positions=rule.positions,
         ))
     return out
