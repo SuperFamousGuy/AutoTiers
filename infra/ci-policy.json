@@ -1,4 +1,5 @@
 {
+  "_comment": "Region (us-east-1) and account ID (400360841089) are hardcoded in all resource ARNs. If vars.AWS_REGION or the AWS account changes, update this policy and re-apply it to the autotiers-ci IAM user.",
   "Version": "2012-10-17",
   "Statement": [
     {

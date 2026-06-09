@@ -18,6 +18,7 @@
 #   SCHEDULER_SERVICE   — ECS service name for the scheduler, e.g. autotiers-prod-scheduler
 #   S3_BUCKET           — S3 bucket name for the compiled frontend assets
 #   CF_DIST_ID          — CloudFront distribution ID
+#   VITE_API_URL        — backend API origin, e.g. https://api.auto-tiers.com
 #
 # Required repository secrets (Settings → Secrets and variables → Secrets):
 #   AWS_ACCESS_KEY_ID
@@ -123,7 +124,7 @@ jobs:
       - name: Build frontend
         working-directory: web
         env:
-          VITE_API_URL: https://api.auto-tiers.com
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
         run: npm run build
 
       - name: Configure AWS credentials
