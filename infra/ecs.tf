@@ -42,7 +42,11 @@ resource "aws_cloudwatch_log_group" "scheduler" {
 locals {
   backend_base_url = var.backend_base_url != "" ? var.backend_base_url : "http://${aws_lb.main.dns_name}"
   frontend_url     = var.frontend_url != "" ? var.frontend_url : "https://${aws_cloudfront_distribution.frontend.domain_name}"
-  cors_origins     = var.frontend_url != "" ? "[\"${var.frontend_url}\",\"https://www.${trimprefix(var.frontend_url, "https://")}\",\"https://${aws_cloudfront_distribution.frontend.domain_name}\"]" : "[\"https://${aws_cloudfront_distribution.frontend.domain_name}\"]"
+  cors_origins = var.frontend_url != "" ? jsonencode([
+    var.frontend_url,
+    "https://www.${trimprefix(trimprefix(var.frontend_url, "https://"), "www.")}",
+    "https://${aws_cloudfront_distribution.frontend.domain_name}"
+  ]) : jsonencode(["https://${aws_cloudfront_distribution.frontend.domain_name}"])
 }
 
 ###############################################################################
@@ -264,7 +268,7 @@ resource "aws_ecs_task_definition" "scheduler" {
           name  = "CORS_ORIGINS"
           value = local.cors_origins
         },
-        { name = "FRONTEND_URL", value = "https://${aws_cloudfront_distribution.frontend.domain_name}" },
+        { name = "FRONTEND_URL", value = local.frontend_url },
         { name = "YAHOO_REDIRECT_URI", value = "${local.backend_base_url}/api/auth/yahoo/callback" },
         { name = "GOOGLE_REDIRECT_URI", value = "${local.backend_base_url}/api/auth/google/callback" },
       ]

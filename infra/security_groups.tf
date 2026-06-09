@@ -1,11 +1,9 @@
 ###############################################################################
-# ALB Security Group — accepts HTTP (80) from the internet.
-# Port 443 is intentionally absent until an ACM cert + HTTPS listener are added
-# (tracked in GitHub issue #180).
+# ALB Security Group — accepts HTTP (80) and HTTPS (443) from the internet.
 ###############################################################################
 resource "aws_security_group" "alb" {
   name        = "${var.app_name}-${var.environment}-sg-alb"
-  description = "Allow HTTP inbound to the ALB"
+  description = "Allow HTTP and HTTPS inbound to the ALB"
   vpc_id      = aws_vpc.main.id
 
   ingress {
