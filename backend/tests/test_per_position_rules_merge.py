@@ -3,9 +3,11 @@
 Covers:
 - LOCKED_POSITIONS enforcement: 370 Touches and Handcuff RB always keep
   the built-in positions regardless of the client override.
-- Non-locked rules: client override is respected when provided.
-- Fallback: when the client does not send positions, the built-in default is kept.
-- positions=[] from client treated as null (no override).
+- Non-locked rules: client override is respected when positions field is
+  explicitly provided (including null and []).
+- Fallback: when the client OMITS the positions field entirely, the built-in
+  default is kept.  Pydantic model_fields_set distinguishes "sent null"
+  (apply to all) from "field absent" (no preference; keep default).
 """
 import dataclasses
 import pytest
@@ -26,7 +28,11 @@ def _builtin(name: str) -> Rule:
 
 
 def _schema_override(name: str, positions) -> RuleSchema:
-    """Build a minimal RuleSchema with a positions override for testing."""
+    """Build a minimal RuleSchema with an EXPLICIT positions field (including null).
+
+    This places 'positions' in model_fields_set, meaning the client sent it
+    intentionally — null means "apply to all positions", not "no preference".
+    """
     builtin = _builtin(name)
     return RuleSchema(
         name=name,
@@ -38,6 +44,26 @@ def _schema_override(name: str, positions) -> RuleSchema:
         enabled=True,
         weight=1.0,
         positions=positions,
+    )
+
+
+def _schema_no_positions(name: str) -> RuleSchema:
+    """Build a minimal RuleSchema with the positions field OMITTED.
+
+    This leaves 'positions' out of model_fields_set, meaning the client
+    expressed no preference — _merge_positions should fall back to the
+    built-in default.
+    """
+    builtin = _builtin(name)
+    return RuleSchema(
+        name=name,
+        conditions=[
+            {"field": c.field, "operator": c.operator, "value": c.value}
+            for c in builtin.conditions
+        ],
+        effect={"type": builtin.effect.type, "value": builtin.effect.value},
+        enabled=True,
+        weight=1.0,
     )
 
 
@@ -96,29 +122,46 @@ def test_non_locked_rule_client_override_multiple_positions():
     assert result == ["QB", "RB"]
 
 
-def test_non_locked_rule_client_null_keeps_builtin_default():
-    """When client sends positions=None for a non-locked rule, keep the built-in."""
+def test_non_locked_rule_client_explicit_null_applies_to_all():
+    """Client explicitly sending positions=null means 'apply to all positions'.
+
+    This overrides even a non-null built-in default (e.g. Target Share Premium
+    defaults to ["WR", "TE"]).  The user chose "All" in the UI and that choice
+    must be persisted — result should be None (apply everywhere).
+    """
     builtin = _builtin("Target Share Premium")
     override = _schema_override("Target Share Premium", None)
+    result = _merge_positions(builtin, override)
+    assert result is None  # explicit null = apply to all
+
+
+def test_non_locked_rule_field_omitted_keeps_builtin_default():
+    """When the client omits the positions field, keep the built-in default.
+
+    The client expressed no preference; _merge_positions should fall back to
+    the built-in value rather than wiping it.
+    """
+    builtin = _builtin("Target Share Premium")
+    override = _schema_no_positions("Target Share Premium")
+    assert "positions" not in override.model_fields_set
     result = _merge_positions(builtin, override)
     assert result == ["WR", "TE"]  # built-in default preserved
 
 
-def test_non_locked_rule_client_empty_list_treated_as_no_override():
-    """positions=[] from client means 'apply everywhere' but the client sent
-    an explicit (if vacuous) value. Per design, [] and null are equivalent —
-    both mean 'no filter'. When client sends [], the result should be []
-    (falsy, so engine applies to all positions)."""
+def test_non_locked_rule_client_empty_list_applies_to_all():
+    """Client explicitly sending positions=[] means 'apply to all positions'.
+
+    [] and null are semantically equivalent at the engine (both falsy), so
+    the explicit override is applied and the built-in default is not kept.
+    """
     builtin = _builtin("Target Share Premium")
     override = _schema_override("Target Share Premium", [])
     result = _merge_positions(builtin, override)
-    # [] is not None, so the override is applied: result is []
-    # Engine treats [] and None identically (both falsy), so this is correct.
-    assert result == []
+    assert result == []  # explicit [] = apply everywhere (engine treats [] as all)
 
 
 def test_non_locked_rule_no_builtin_default_with_client_null():
-    """For a rule with positions=None as built-in default and no client override."""
+    """For a rule with positions=None as built-in default, explicit null is a no-op."""
     builtin = _builtin("Declining Snap%")
     assert builtin.positions is None
     override = _schema_override("Declining Snap%", None)

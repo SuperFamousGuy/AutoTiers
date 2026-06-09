@@ -68,13 +68,17 @@ def _merge_positions(builtin: Rule, override_schema) -> "list[str] | None":
     """Return the positions to use after merging a client override into a built-in rule.
 
     For locked rules the built-in positions are always used, regardless of
-    what the client sent. For all other rules, the client's positions value
-    overrides the built-in default when provided (including []) — None from the
-    client means "no override; keep the built-in default."
+    what the client sent. For all other rules:
+    - If the client explicitly provided the `positions` field (even as null/[]),
+      that value is used. null means "apply to all positions"; [] is equivalent.
+    - If the client omitted the field entirely, the built-in default is kept.
+
+    Pydantic's model_fields_set tracks which fields were explicitly supplied on
+    construction, so we can distinguish "sent null" from "field absent".
     """
     if builtin.name in LOCKED_POSITIONS:
         return builtin.positions
-    if override_schema.positions is not None:
+    if "positions" in override_schema.model_fields_set:
         return override_schema.positions
     return builtin.positions
 

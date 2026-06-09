@@ -106,7 +106,7 @@ export default function App() {
       const overrides = new Map(active.rules_json.map((r) => [r.name, r]));
       setRules(fetchedRules.map((r) => {
         const o = overrides.get(r.name);
-        return o ? { ...r, enabled: o.enabled, weight: o.weight, positions: o.positions ?? r.positions } : r;
+        return o ? { ...r, enabled: o.enabled, weight: o.weight, positions: "positions" in o ? o.positions : r.positions } : r;
       }));
     }
     setHistory((prev) => {
@@ -198,7 +198,7 @@ export default function App() {
     );
     setRules(fetchedRules.map((r) => {
       const o = overrides.get(r.name);
-      return o ? { ...r, enabled: o.enabled, weight: o.weight, positions: o.positions ?? r.positions } : r;
+      return o ? { ...r, enabled: o.enabled, weight: o.weight, positions: "positions" in o ? o.positions : r.positions } : r;
     }));
 
     // Drop the popped entry from history. The autosave guard ("bail if payload

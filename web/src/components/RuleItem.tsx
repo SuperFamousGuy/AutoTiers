@@ -6,7 +6,6 @@ import { cn } from "@/lib/utils";
 import type { Rule } from "@/api/types";
 
 const ALL_POSITIONS = ["QB", "RB", "WR", "TE", "K", "DST"] as const;
-type Position = (typeof ALL_POSITIONS)[number];
 
 // Rules whose positions are fixed by the backend and cannot be changed.
 const LOCKED_POSITION_RULES = new Set(["370 Touches", "Handcuff RB"]);

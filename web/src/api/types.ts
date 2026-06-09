@@ -129,7 +129,7 @@ export interface Profile {
   id: string;
   name: string;
   settings_json: Record<string, unknown>;
-  rules_json: Array<{ name: string; enabled: boolean; weight: number; positions: string[] | null }>;
+  rules_json: Array<{ name: string; enabled: boolean; weight: number; positions?: string[] | null }>;
   linked_league: LinkedLeague | null;
 }
 
