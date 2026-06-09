@@ -40,8 +40,13 @@ resource "aws_rds_cluster" "main" {
   # Encrypt storage at rest
   storage_encrypted = true
 
-  # Skip final snapshot on destroy — enable in production if desired
+  # Skip final snapshot on destroy — set to false and configure
+  # final_snapshot_identifier before going live in production (issue #181).
   skip_final_snapshot = true
+
+  # Prevent accidental destruction of the production database.
+  # Set to false only when intentionally tearing down the environment.
+  deletion_protection = true
 
   backup_retention_period = 7
   preferred_backup_window = "03:00-04:00"

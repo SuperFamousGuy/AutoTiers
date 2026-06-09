@@ -2,10 +2,11 @@
 # Random values
 ###############################################################################
 resource "random_password" "db" {
-  length           = 32
-  special          = true
-  override_special = "!#$%^&*()-_=+[]{}|;,.<>?"
-  # Exclude @, /, : — all three break postgresql:// URI parsing
+  length  = 32
+  special = true
+  # Only RFC 3986 userinfo-safe specials: unreserved + a subset of sub-delims.
+  # Excluded: @ / : # % ? & ^ [ ] { } | < > — all break URI parsing or percent-encoding.
+  override_special = "!$*()-_=+,."
 }
 
 ###############################################################################

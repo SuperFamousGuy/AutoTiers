@@ -34,6 +34,19 @@ variable "db_name" {
   default     = "autotiers"
 }
 
+variable "backend_base_url" {
+  description = <<-EOT
+    Base URL of the backend API, used to construct OAuth redirect URIs.
+    Defaults to the ALB HTTP URL (resolved at apply time); override with an
+    HTTPS URL once an ACM cert and 443 listener are in place (issue #180).
+    Example: "https://api.autotiers.com"
+  EOT
+  type        = string
+  default     = ""
+  # Empty default means Terraform falls back to the ALB DNS name in ecs.tf.
+  # Set this variable when you have a stable custom domain.
+}
+
 ###############################################################################
 # Secret values — must be supplied via tfvars or TF_VAR_* env vars.
 # Defaults are empty strings so `terraform validate` succeeds without real creds;
@@ -44,6 +57,11 @@ variable "jwt_secret" {
   type        = string
   sensitive   = true
   default     = "REPLACE_ME"
+
+  validation {
+    condition     = var.jwt_secret != "REPLACE_ME" && length(var.jwt_secret) >= 32
+    error_message = "jwt_secret must be set to a real secret (min 32 characters). Do not deploy with the default placeholder."
+  }
 }
 
 variable "secret_key" {
@@ -51,6 +69,11 @@ variable "secret_key" {
   type        = string
   sensitive   = true
   default     = "REPLACE_ME"
+
+  validation {
+    condition     = var.secret_key != "REPLACE_ME" && length(var.secret_key) >= 32
+    error_message = "secret_key must be a real Fernet key (base64-urlsafe, min 32 chars). Generate with: python3 -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+  }
 }
 
 variable "yahoo_client_id" {
