@@ -194,11 +194,11 @@ export default function App() {
     // for the server round-trip.
     setSettings(newTip.settings_json as unknown as SettingsState);
     const overrides = new Map(
-      (newTip.rules_json as Array<{ name: string; enabled: boolean; weight: number }>).map((r) => [r.name, r]),
+      (newTip.rules_json as Array<{ name: string; enabled: boolean; weight: number; positions: string[] | null }>).map((r) => [r.name, r]),
     );
     setRules(fetchedRules.map((r) => {
       const o = overrides.get(r.name);
-      return o ? { ...r, enabled: o.enabled, weight: o.weight } : r;
+      return o ? { ...r, enabled: o.enabled, weight: o.weight, positions: o.positions ?? r.positions } : r;
     }));
 
     // Drop the popped entry from history. The autosave guard ("bail if payload
