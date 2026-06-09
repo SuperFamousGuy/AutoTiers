@@ -30,6 +30,17 @@ on:
   release:
     types: [published]
 
+# Limit GITHUB_TOKEN to the minimum needed. AWS calls use explicit IAM credentials.
+permissions:
+  contents: read
+
+# Prevent overlapping deploys if two releases are published in quick succession.
+# cancel-in-progress: false ensures the second run queues rather than cancels,
+# so every release is deployed in order.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
 jobs:
   # ---------------------------------------------------------------------------
   # Job 1: Build and deploy the backend Docker image to ECS
