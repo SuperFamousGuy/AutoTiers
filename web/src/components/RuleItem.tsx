@@ -5,6 +5,12 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { cn } from "@/lib/utils";
 import type { Rule } from "@/api/types";
 
+const ALL_POSITIONS = ["QB", "RB", "WR", "TE", "K", "DST"] as const;
+type Position = (typeof ALL_POSITIONS)[number];
+
+// Rules whose positions are fixed by the backend and cannot be changed.
+const LOCKED_POSITION_RULES = new Set(["370 Touches", "Handcuff RB"]);
+
 interface RuleItemProps {
   rule: Rule;
   onChange: (next: Rule) => void;
@@ -97,6 +103,72 @@ export function RuleItem({ rule, onChange }: RuleItemProps) {
       <CollapsibleContent className="pb-2 pl-9 pr-2 text-xs space-y-2">
         {rule.description && (
           <p className="text-muted-foreground leading-snug">{rule.description}</p>
+        )}
+        {/* Positions section */}
+        {LOCKED_POSITION_RULES.has(rule.name) ? (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-muted-foreground">Positions:</span>
+            {(rule.positions ?? []).map((pos) => (
+              <span
+                key={pos}
+                className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground font-mono"
+              >
+                {pos}
+              </span>
+            ))}
+            <span className="text-muted-foreground">(locked)</span>
+          </div>
+        ) : (
+          <div role="group" aria-label="Position scope" className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-muted-foreground">Positions</span>
+            {/* "All" button — active when positions is null/[] */}
+            <button
+              type="button"
+              aria-label="Apply to all positions"
+              aria-pressed={!rule.positions || rule.positions.length === 0}
+              onClick={() => onChange({ ...rule, positions: null })}
+              className={cn(
+                "rounded border px-1.5 py-0.5 font-mono transition-colors",
+                (!rule.positions || rule.positions.length === 0)
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-background text-foreground border-input hover:bg-accent hover:text-accent-foreground",
+              )}
+            >
+              All
+            </button>
+            {ALL_POSITIONS.map((pos) => {
+              const isActive = !!(rule.positions && rule.positions.includes(pos));
+              return (
+                <button
+                  key={pos}
+                  type="button"
+                  aria-label={`Toggle ${pos}`}
+                  aria-pressed={isActive}
+                  onClick={() => {
+                    const current = rule.positions ?? [];
+                    let next: string[];
+                    if (isActive) {
+                      next = current.filter((p) => p !== pos);
+                    } else {
+                      next = [...current, pos];
+                    }
+                    // If all positions are now selected, revert to null (= "All")
+                    const newPositions =
+                      next.length === ALL_POSITIONS.length ? null : next.length === 0 ? null : next;
+                    onChange({ ...rule, positions: newPositions });
+                  }}
+                  className={cn(
+                    "rounded border px-1.5 py-0.5 font-mono transition-colors",
+                    isActive
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background text-foreground border-input hover:bg-accent hover:text-accent-foreground",
+                  )}
+                >
+                  {pos}
+                </button>
+              );
+            })}
+          </div>
         )}
         {impact && (
           <div className="flex items-center justify-between gap-2 flex-wrap">

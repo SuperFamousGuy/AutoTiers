@@ -35,3 +35,4 @@ class RuleSchema(BaseModel):
     is_builtin: bool = False
     category: str = "Custom"
     description: str = ""
+    positions: list[str] | None = None  # None (or []) = apply to all positions

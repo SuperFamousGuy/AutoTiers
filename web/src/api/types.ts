@@ -26,6 +26,7 @@ export interface Rule {
   is_builtin: boolean;
   category: string;
   description?: string;
+  positions: string[] | null;  // null (or []) = apply to all positions
 }
 
 export interface GenerateRequest {
@@ -128,7 +129,7 @@ export interface Profile {
   id: string;
   name: string;
   settings_json: Record<string, unknown>;
-  rules_json: Array<{ name: string; enabled: boolean; weight: number }>;
+  rules_json: Array<{ name: string; enabled: boolean; weight: number; positions: string[] | null }>;
   linked_league: LinkedLeague | null;
 }
 

@@ -13,12 +13,14 @@ BUILTIN_RULES: list[Rule] = [
         conditions=[RuleCondition(field="carry_share", operator="<", value=0.50)],
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.85),
         description="Penalizes RBs in committee backfields (carry share under 50%). -15% to projected score at default weight.",
+        positions=["RB"],
     ),
     Rule(
         name="Target Share Premium",
         conditions=[RuleCondition(field="target_share", operator=">=", value=0.25)],
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=1.07),
         description="Boosts WR/TE with elite target share (>=25% of team targets). +7% at default weight.",
+        positions=["WR", "TE"],
     ),
     Rule(
         name="Declining Snap%",
@@ -61,6 +63,7 @@ BUILTIN_RULES: list[Rule] = [
         conditions=[RuleCondition(field="carry_share", operator="<", value=0.30)],
         effect=RuleEffect(type=EffectType.FLAG, value="Handcuff"),
         description="Flags low-volume backup RBs (carry share under 30%). No score change; informational only.",
+        positions=["RB"],
     ),
     Rule(
         name="Availability Risk",
@@ -105,6 +108,7 @@ BUILTIN_RULES: list[Rule] = [
         conditions=[RuleCondition(field="is_over_the_hill", operator="==", value=True)],
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.85),
         description="Penalizes players past their position's typical decline age: RB >=28, WR >=30, TE >=31, QB >=36. K and DST excluded. -15% at default weight.",
+        positions=["QB", "RB", "WR", "TE"],
     ),
     Rule(
         name="Projection Unavailable",
@@ -120,6 +124,7 @@ BUILTIN_RULES: list[Rule] = [
         ],
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.90),
         description="Penalizes RBs who absorbed 370+ touches (carries + receptions) last season — historically a leading indicator of decline. -10% at default weight.",
+        positions=["RB"],
     ),
     Rule(
         name="Year After the Year After",
@@ -128,18 +133,21 @@ BUILTIN_RULES: list[Rule] = [
         ],
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=1.10),
         description="Boosts RBs and WRs returning to full health two years after an injury-shortened season (under 12 games played). Position gating happens upstream in the generate endpoint — the rules engine has no `in` operator, so the field is set to None for non-RB/WR players. Soft-tissue injuries take a full year to fully recover; year two is when players are truly back. +10% at default weight.",
+        positions=["RB", "WR"],
     ),
     Rule(
         name="Bad Offense",
         conditions=[RuleCondition(field="bad_offense_team", operator="==", value=True)],
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.93),
         description="Penalizes offensive skill players (QB/RB/WR/TE) on teams ranked in the bottom 8 by 3-year average points scored. Position gating happens upstream in the generate endpoint — the field is set to None for K/DST so the rule doesn't fire on them. Chronic structural issues suppress ceiling. -7% at default weight.",
+        positions=["QB", "RB", "WR", "TE"],
     ),
     Rule(
         name="Follow the Money",
         conditions=[RuleCondition(field="above_market_contract", operator="==", value=True)],
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=1.05),
         description="Boosts QB/RB/WR/TE players paid above-market contracts (cap hit > 1.5x position median). Position gating happens upstream in the generate endpoint. Coaches prioritize touches/snaps for big-money players to justify the investment. +5% at default weight.",
+        positions=["QB", "RB", "WR", "TE"],
     ),
     Rule(
         name="Favorites",
