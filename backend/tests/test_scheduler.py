@@ -19,7 +19,7 @@ async def test_refresh_job_calls_fetcher():
 
 
 @pytest.mark.asyncio
-async def test_setup_scheduler_adds_two_jobs():
+async def test_setup_scheduler_adds_hourly_job():
     if scheduler.running:
         scheduler.shutdown()
     for job in scheduler.get_jobs():
@@ -27,7 +27,6 @@ async def test_setup_scheduler_adds_two_jobs():
     setup_scheduler()
     try:
         job_ids = {j.id for j in scheduler.get_jobs()}
-        assert "weekly_refresh" in job_ids
-        assert "daily_refresh" in job_ids
+        assert "hourly_refresh" in job_ids
     finally:
         scheduler.shutdown()
