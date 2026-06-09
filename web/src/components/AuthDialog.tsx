@@ -4,6 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { yahooAuthorizeUrl, googleAuthorizeUrl } from "@/api/auth";
+import { YahooIcon, GoogleIcon } from "@/components/BrandIcons";
 import { ApiError } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import type { SettingsState } from "@/components/SettingsPanel";
@@ -118,6 +119,7 @@ export function AuthDialog({ open, onOpenChange, initialState }: AuthDialogProps
           className="w-full"
           onClick={() => { window.location.href = yahooAuthorizeUrl(); }}
         >
+          <YahooIcon />
           Continue with Yahoo
         </Button>
         <Button
@@ -126,6 +128,7 @@ export function AuthDialog({ open, onOpenChange, initialState }: AuthDialogProps
           className="w-full mt-2"
           onClick={() => { window.location.href = googleAuthorizeUrl(); }}
         >
+          <GoogleIcon />
           Continue with Google
         </Button>
       </DialogContent>
