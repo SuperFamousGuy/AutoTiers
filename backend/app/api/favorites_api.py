@@ -56,22 +56,11 @@ def _validate_and_normalize(body: FavoritesUpdate) -> tuple[list[str], list[str]
 
 
 async def _maybe_enable_favorites_rule(db: AsyncSession, user: User) -> None:
-    """If the user's active profile doesn't yet list 'Favorites' in rules_json,
-    append it as enabled. Does NOT modify a 'Favorites' entry that already
-    exists (so a user who disabled the rule keeps it disabled across
-    subsequent adds)."""
-    if user.last_active_profile_id is None:
-        return
-    profile = await db.get(Profile, user.last_active_profile_id)
-    if profile is None:
-        return
-    current_names = {entry.get("name") for entry in profile.rules_json if isinstance(entry, dict)}
-    if "Favorites" in current_names:
-        return
-    profile.rules_json = [
-        *profile.rules_json,
-        {"name": "Favorites", "enabled": True, "weight": 1.0},
-    ]
+    """No-op. Previously auto-injected a 'Favorites' rule entry into the active
+    profile's rules_json list.  With the position-first rules model, rules_json
+    is a dict keyed by position, and BUILTIN_RULES already include Favorites
+    with enabled=True for every position.  No side-effect is required."""
+    return
 
 
 @router.get("", response_model=FavoritesOut)

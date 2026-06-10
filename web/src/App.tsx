@@ -234,7 +234,7 @@ export default function App() {
         generateDisabled={!canGenerate}
         generateIsPending={generate.isPending}
         onGenerate={() => generate.mutate(buildRequest())}
-        currentState={{ settings, rules: canonicalRules }}
+        currentState={{ settings, rules: positionRules }}
         isDark={isDark}
         onToggleDark={toggleDark}
         onShowOnboarding={reopenOnboarding}

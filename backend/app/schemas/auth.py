@@ -15,7 +15,7 @@ class SignupRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=10)
     initial_settings: Optional[dict[str, Any]] = None
-    initial_rules: Optional[list[dict[str, Any]]] = None
+    initial_rules: Optional[dict[str, list[dict[str, Any]]]] = None
 
 
 class LoginRequest(BaseModel):

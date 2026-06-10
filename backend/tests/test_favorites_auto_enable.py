@@ -1,8 +1,9 @@
-"""Tests for the auto-enable side effect inside PUT /favorites.
+"""Tests verifying that PUT /favorites does NOT corrupt rules_json.
 
-When a user transitions from 0 favorites to 1+, the Favorites rule must
-flip to enabled in their currently-active profile's rules_json — in the
-same transaction.
+The old auto-enable side effect (injecting a Favorites entry into a flat list)
+has been removed. rules_json is now a dict keyed by position. These tests
+confirm the put_favorites endpoint leaves rules_json intact regardless of
+how many favorites the user adds or removes.
 """
 import pytest
 from sqlalchemy import select
@@ -17,7 +18,7 @@ async def _signup_and_make_active_profile(async_client, test_db: AsyncSession) -
         "email": "auto@example.com",
         "password": "password-long-enough",
         "initial_settings": {"scoring": "half_ppr"},
-        "initial_rules": [],
+        "initial_rules": {},
     })
     user = (await test_db.scalars(
         select(User).where(User.email == "auto@example.com")
@@ -31,19 +32,13 @@ async def _signup_and_make_active_profile(async_client, test_db: AsyncSession) -
     return user, profile
 
 
-def _rule_state(profile: Profile, name: str) -> tuple[bool, float] | None:
-    """Look up (enabled, weight) for a rule name in the profile's rules_json. None if absent."""
-    for entry in profile.rules_json:
-        if entry.get("name") == name:
-            return entry.get("enabled", True), entry.get("weight", 1.0)
-    return None
-
-
 @pytest.mark.asyncio
-async def test_first_favorite_add_enables_rule(async_client, test_db):
+async def test_first_favorite_does_not_corrupt_rules_json(async_client, test_db):
+    """Adding a first favorite must leave rules_json as a valid dict (not a list)."""
     user, profile = await _signup_and_make_active_profile(async_client, test_db)
-    pre = _rule_state(profile, "Favorites")
-    assert pre is None or pre[0] is False, "expected Favorites to start off"
+
+    # Capture dict shape before the favorite is added.
+    initial_rules = dict(profile.rules_json)
 
     r = await async_client.put("/api/favorites", json={
         "favorite_player_ids": ["4046"], "favorite_teams": [],
@@ -51,57 +46,78 @@ async def test_first_favorite_add_enables_rule(async_client, test_db):
     assert r.status_code == 200, r.text
 
     await test_db.refresh(profile)
-    post = _rule_state(profile, "Favorites")
-    assert post is not None, "Favorites rule should be present in rules_json after first add"
-    assert post[0] is True, "Favorites rule should be enabled after first add"
-
-
-@pytest.mark.asyncio
-async def test_subsequent_add_does_not_re_enable_disabled_rule(async_client, test_db):
-    """User may have intentionally disabled the rule after first add.
-    A SUBSEQUENT add (still > 0) must not re-enable it."""
-    user, profile = await _signup_and_make_active_profile(async_client, test_db)
-
-    await async_client.put("/api/favorites", json={
-        "favorite_player_ids": ["4046"], "favorite_teams": [],
-    })
-    await test_db.refresh(profile)
-    # User disables the rule manually.
-    profile.rules_json = [
-        ({"name": "Favorites", "enabled": False, "weight": 1.0}
-         if entry.get("name") == "Favorites" else entry)
-        for entry in profile.rules_json
-    ]
-    await test_db.commit()
-    await test_db.refresh(profile)
-
-    await async_client.put("/api/favorites", json={
-        "favorite_player_ids": ["4046", "7564"], "favorite_teams": [],
-    })
-    await test_db.refresh(profile)
-    post = _rule_state(profile, "Favorites")
-    assert post is not None and post[0] is False, (
-        "Favorites rule must stay disabled when user has explicitly disabled it, "
-        "even if count goes 1 → 2."
+    # rules_json must still be a dict — not a list, not a mangled format.
+    assert isinstance(profile.rules_json, dict), (
+        f"rules_json should remain a dict after first favorite add; got {type(profile.rules_json)}"
+    )
+    # Dict content must be unchanged.
+    assert profile.rules_json == initial_rules, (
+        "rules_json should not be mutated by adding a favorite"
     )
 
 
 @pytest.mark.asyncio
-async def test_transition_to_empty_does_not_disable_rule(async_client, test_db):
-    """Removing the last favorite should NOT disable the rule. The rule
-    silently no-ops when there are no favorites (is_favorite never True);
-    leaving it enabled means a re-add Just Works without surprising the user."""
+async def test_multiple_favorites_do_not_corrupt_rules_json(async_client, test_db):
+    """rules_json remains a valid dict after multiple favorites are added."""
+    user, profile = await _signup_and_make_active_profile(async_client, test_db)
+
+    initial_rules = dict(profile.rules_json)
+
+    # Add first favorite.
+    await async_client.put("/api/favorites", json={
+        "favorite_player_ids": ["4046"], "favorite_teams": [],
+    })
+    # Add a second favorite (still > 0, transitions from 1 → 2).
+    await async_client.put("/api/favorites", json={
+        "favorite_player_ids": ["4046", "7564"], "favorite_teams": [],
+    })
+
+    await test_db.refresh(profile)
+    assert isinstance(profile.rules_json, dict), (
+        f"rules_json should remain a dict after multiple favorite adds; got {type(profile.rules_json)}"
+    )
+    assert profile.rules_json == initial_rules, (
+        "rules_json should not be mutated by adding multiple favorites"
+    )
+
+
+@pytest.mark.asyncio
+async def test_no_duplicate_favorites_entries_after_add(async_client, test_db):
+    """No duplicate Favorites entries appear anywhere in rules_json after adding a favorite."""
     user, profile = await _signup_and_make_active_profile(async_client, test_db)
 
     await async_client.put("/api/favorites", json={
         "favorite_player_ids": ["4046"], "favorite_teams": [],
     })
+
+    await test_db.refresh(profile)
+    assert isinstance(profile.rules_json, dict), (
+        f"rules_json should remain a dict; got {type(profile.rules_json)}"
+    )
+    for position, rule_list in profile.rules_json.items():
+        names = [r.get("name") for r in rule_list if isinstance(r, dict)]
+        assert names.count("Favorites") <= 1, (
+            f"Duplicate 'Favorites' entry found under position '{position}' in rules_json"
+        )
+
+
+@pytest.mark.asyncio
+async def test_add_favorite_preserves_existing_position_overrides(async_client, test_db):
+    """Adding a first favorite with a non-empty rules_json dict leaves the dict unchanged."""
+    user, profile = await _signup_and_make_active_profile(async_client, test_db)
+
+    # Pre-set a specific override to confirm it survives the favorite add.
+    existing_rules = {"RB": [{"name": "RB Committee Penalty", "enabled": False, "weight": 1.0}]}
+    profile.rules_json = existing_rules
+    await test_db.commit()
     await test_db.refresh(profile)
 
-    await async_client.put("/api/favorites", json={
-        "favorite_player_ids": [], "favorite_teams": [],
+    r = await async_client.put("/api/favorites", json={
+        "favorite_player_ids": ["4046"], "favorite_teams": [],
     })
+    assert r.status_code == 200, r.text
+
     await test_db.refresh(profile)
-    post = _rule_state(profile, "Favorites")
-    assert post is not None, "Favorites rule should still be in rules_json"
-    assert post[0] is True, "Favorites rule should remain enabled after going to empty"
+    assert profile.rules_json == existing_rules, (
+        f"rules_json should be unchanged after adding a favorite; got {profile.rules_json!r}"
+    )
