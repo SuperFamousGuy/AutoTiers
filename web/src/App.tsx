@@ -106,7 +106,7 @@ export default function App() {
       const overrides = new Map(active.rules_json.map((r) => [r.name, r]));
       setRules(fetchedRules.map((r) => {
         const o = overrides.get(r.name);
-        return o ? { ...r, enabled: o.enabled, weight: o.weight, positions: "positions" in o ? o.positions : r.positions } : r;
+        return o ? { ...r, enabled: o.enabled, weight: o.weight, positions: "positions" in o && o.positions !== undefined ? o.positions : r.positions } : r;
       }));
     }
     setHistory((prev) => {

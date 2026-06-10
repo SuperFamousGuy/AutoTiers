@@ -1,7 +1,9 @@
 import pytest
 import respx
+import httpx
 from httpx import Response
-from app.auth.yahoo import build_authorize_url, exchange_code, fetch_identity
+from unittest.mock import patch, AsyncMock
+from app.auth.yahoo import build_authorize_url, exchange_code, fetch_identity, refresh_access_token
 
 
 def test_build_authorize_url_includes_required_params():
@@ -13,14 +15,59 @@ def test_build_authorize_url_includes_required_params():
     assert "scope=openid+email" in url or "scope=openid%20email" in url
 
 
+def test_build_authorize_url_identity_scope():
+    url = build_authorize_url("state123")
+    assert "fspt-r" not in url
+    assert "openid" in url
+    assert "email" in url
+
+
+def test_build_authorize_url_fantasy_scope():
+    url = build_authorize_url("state123", fantasy=True)
+    assert "fspt-r" in url
+    assert "openid" in url
+
+
+@pytest.mark.asyncio
+async def test_exchange_code_returns_tuple():
+    with respx.mock(base_url="https://api.login.yahoo.com") as router:
+        router.post("/oauth2/get_token").mock(
+            return_value=Response(200, json={"access_token": "acc123", "refresh_token": "ref456"})
+        )
+        access, refresh = await exchange_code("mycode")
+    assert access == "acc123"
+    assert refresh == "ref456"
+
+
+@pytest.mark.asyncio
+async def test_exchange_code_no_refresh_token():
+    with respx.mock(base_url="https://api.login.yahoo.com") as router:
+        router.post("/oauth2/get_token").mock(
+            return_value=Response(200, json={"access_token": "acc123"})
+        )
+        access, refresh = await exchange_code("mycode")
+    assert access == "acc123"
+    assert refresh is None
+
+
+@pytest.mark.asyncio
+async def test_refresh_access_token():
+    with respx.mock(base_url="https://api.login.yahoo.com") as router:
+        router.post("/oauth2/get_token").mock(
+            return_value=Response(200, json={"access_token": "new_acc"})
+        )
+        new_token = await refresh_access_token("old_refresh")
+    assert new_token == "new_acc"
+
+
 @pytest.mark.asyncio
 async def test_exchange_code_returns_access_token():
     with respx.mock(base_url="https://api.login.yahoo.com") as router:
         router.post("/oauth2/get_token").mock(return_value=Response(
             200, json={"access_token": "the-access-token", "token_type": "bearer", "expires_in": 3600}
         ))
-        token = await exchange_code("the-code")
-    assert token == "the-access-token"
+        access, _ = await exchange_code("the-code")
+    assert access == "the-access-token"
 
 
 @pytest.mark.asyncio
@@ -364,3 +411,57 @@ async def test_callback_backfills_email_when_linking_and_user_has_none(async_cli
     await test_db.refresh(u)
     assert u.yahoo_subject == "y-new"
     assert u.email == "backfilled@example.com"
+
+
+@pytest.mark.asyncio
+async def test_yahoo_authorize_fantasy_intent_adds_fspt_scope(async_client):
+    """GET /api/auth/yahoo/authorize?intent=yahoo_fantasy redirects with fspt-r scope."""
+    resp = await async_client.get(
+        "/api/auth/yahoo/authorize",
+        params={"intent": "yahoo_fantasy"},
+        follow_redirects=False,
+    )
+    assert resp.status_code in (302, 307)
+    location = resp.headers["location"]
+    assert "fspt-r" in location
+
+
+@pytest.mark.asyncio
+async def test_yahoo_callback_fantasy_stores_tokens(async_client, test_db):
+    """Callback with yahoo_fantasy intent stores encrypted tokens on user."""
+    from app.models import User
+    from app.auth.jwt import encode_jwt
+    from app.security.fernet import decrypt
+
+    user = User(yahoo_subject="sub_xyz", email="tok@example.com")
+    test_db.add(user)
+    await test_db.commit()
+    await test_db.refresh(user)
+
+    state = "teststate999"
+    jwt = encode_jwt(user.id)
+
+    with (
+        patch("app.api.auth.exchange_code", new_callable=AsyncMock,
+              return_value=("acc_tok", "ref_tok")),
+        patch("app.api.auth.fetch_identity", new_callable=AsyncMock,
+              return_value=("sub_xyz", "tok@example.com", True)),
+    ):
+        resp = await async_client.get(
+            "/api/auth/yahoo/callback",
+            params={"code": "authcode", "state": state},
+            cookies={
+                "autotiers_oauth_state": state,
+                "autotiers_session": jwt,
+                "autotiers_oauth_intent": "yahoo_fantasy",
+            },
+            follow_redirects=False,
+        )
+
+    assert resp.status_code == 302
+    await test_db.refresh(user)
+    assert user.yahoo_access_token is not None
+    assert user.yahoo_refresh_token is not None
+    # Tokens must be encrypted (not the raw values)
+    assert decrypt(user.yahoo_access_token) == "acc_tok"
+    assert decrypt(user.yahoo_refresh_token) == "ref_tok"
