@@ -29,19 +29,9 @@ from app.engine.xfp import (
 from app.engine.tiers import TieredPlayer, assign_tiers
 from app.schemas.generate import GenerateRequest, GenerateResponse, TieredPlayerOut, RuleApplicationOut
 from app.data.matching import normalize_name
+from app.data.teams import DOME_TEAMS, ELEVATION_TEAM
 
 router = APIRouter()
-
-# Dome / retractable-roof stadium teams. Used to populate `plays_in_dome` on
-# PlayerContext for the "Dome Kicker" rule.
-DOME_TEAMS: frozenset[str] = frozenset({
-    "DET", "MIN", "NO", "LV",
-    "DAL", "HOU", "IND", "ARI", "ATL",
-    "LAR", "LAC",
-})
-
-# The only team that plays home games at meaningful elevation (Denver ~5,280 ft).
-ELEVATION_TEAM = "DEN"
 
 # Rules whose positions field is fixed to the built-in value and cannot be
 # overridden by the client. Changing positions for these rules would be

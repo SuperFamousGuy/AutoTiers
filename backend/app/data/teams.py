@@ -27,3 +27,22 @@ def is_valid_team(code: str) -> bool:
     if not code or not code.strip():
         return False
     return code in NFL_TEAMS
+
+
+# Teams whose home stadium is a fully enclosed dome or retractable-roof facility.
+# Retractable-roof closure is the norm for cold/rain games (~90 % of home games
+# in adverse-weather months), so treating these as "dome" is the standard industry
+# approximation used by ETR, Footballguys, and PFF kicker tier tools.
+# Used by the "Dome Kicker" builtin rule (app.engine.builtin_rules).
+DOME_TEAMS: frozenset[str] = frozenset({
+    "DET", "MIN", "NO", "LV",           # fixed domes
+    "DAL", "HOU", "IND", "ARI", "ATL",  # retractable roofs
+    "LAR", "LAC",                        # SoFi Stadium (roofed; partially open sides)
+})
+
+# Team that plays home games at meaningful altitude (~5,280 ft above sea level).
+# The structural elevation advantage for the home kicker is ~5 yards of extra
+# range per Burke/Advanced Football Analytics (2013). Visiting kickers benefit
+# for one game only — not enough for a season-long redraft boost.
+# Used by the "Mile High Kicker" builtin rule (app.engine.builtin_rules).
+ELEVATION_TEAM: str = "DEN"
