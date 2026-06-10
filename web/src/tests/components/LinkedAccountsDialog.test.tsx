@@ -24,8 +24,10 @@ vi.mock("@/api/linkedLeague", () => ({
 }));
 
 vi.mock("@/components/YahooConnectForm", () => ({
-  YahooConnectForm: ({ profile }: any) => (
-    <div data-testid="yahoo-connect-form">Yahoo Connect Form for {profile.name}</div>
+  YahooConnectForm: ({ profile, onLinked }: any) => (
+    <div data-testid="yahoo-connect-form" onClick={() => onLinked({})}>
+      Yahoo Connect Form for {profile.name}
+    </div>
   ),
 }));
 
@@ -33,6 +35,7 @@ const baseUser: User = {
   id: "u1",
   email: "alice@example.com",
   yahoo_subject: null,
+  yahoo_fantasy_connected: false,
   google_subject: null,
   last_active_profile_id: null,
 };
@@ -212,5 +215,18 @@ describe("LinkedAccountsDialog", () => {
     );
     expect(await screen.findByLabelText(/sleeper username/i)).toBeInTheDocument();
     expect(screen.queryByLabelText(/league id/i)).not.toBeInTheDocument();
+  });
+
+  it("Yahoo tab onLinked callback calls onRefresh", async () => {
+    const onRefresh = vi.fn().mockResolvedValue(undefined);
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={onRefresh} initialError={null} activeProfile={activeProfile} />,
+    );
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /^yahoo$/i }));
+    const form = await screen.findByTestId("yahoo-connect-form");
+    await u.click(form);
+    expect(onRefresh).toHaveBeenCalled();
   });
 });
