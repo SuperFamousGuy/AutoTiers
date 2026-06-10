@@ -32,6 +32,17 @@ from app.data.matching import normalize_name
 
 router = APIRouter()
 
+# Dome / retractable-roof stadium teams. Used to populate `plays_in_dome` on
+# PlayerContext for the "Dome Kicker" rule.
+DOME_TEAMS: frozenset[str] = frozenset({
+    "DET", "MIN", "NO", "LV",
+    "DAL", "HOU", "IND", "ARI", "ATL",
+    "LAR", "LAC",
+})
+
+# The only team that plays home games at meaningful elevation (Denver ~5,280 ft).
+ELEVATION_TEAM = "DEN"
+
 # Rules whose positions field is fixed to the built-in value and cannot be
 # overridden by the client. Changing positions for these rules would be
 # misleading because their conditions reference position-specific semantics
@@ -392,6 +403,14 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
             is_favorite_player = None
             is_favorite_team = None
 
+        plays_in_dome: Optional[bool] = None
+        if player.position == "K":
+            plays_in_dome = player.team in DOME_TEAMS
+
+        is_denver_kicker: Optional[bool] = None
+        if player.position == "K":
+            is_denver_kicker = player.team == ELEVATION_TEAM
+
         ctx = PlayerContext(
             player_id=player.id,
             position=player.position,
@@ -421,6 +440,8 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
             above_market_contract=above_market_contract,
             opportunity_score_z=opportunity_score_z,
             is_favorite=is_favorite_player or is_favorite_team,
+            plays_in_dome=plays_in_dome,
+            is_denver_kicker=is_denver_kicker,
         )
 
         rule_result = apply_rules(blended, ctx, rules)

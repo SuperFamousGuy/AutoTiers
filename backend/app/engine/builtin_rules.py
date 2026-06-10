@@ -159,4 +159,28 @@ BUILTIN_RULES: list[Rule] = [
             "not a statistical claim."
         ),
     ),
+    Rule(
+        name="Dome Kicker",
+        conditions=[RuleCondition(field="plays_in_dome", operator="==", value=True)],
+        effect=RuleEffect(type=EffectType.MULTIPLIER, value=1.04),
+        description=(
+            "Boosts kickers whose home venue is a dome or retractable-roof stadium "
+            "(DET, MIN, NO, LV, DAL, HOU, IND, ARI, ATL, LAR, LAC). "
+            "Controlled environment eliminates wind/cold penalties. "
+            "Signal is modest across sources; +4% at default weight."
+        ),
+        positions=["K"],
+    ),
+    Rule(
+        name="Mile High Kicker",
+        conditions=[RuleCondition(field="is_denver_kicker", operator="==", value=True)],
+        effect=RuleEffect(type=EffectType.MULTIPLIER, value=1.05),
+        description=(
+            "Boosts the Denver Broncos kicker for the structural altitude advantage "
+            "at ~5,280 ft (~5 yards of extra range per Burke/Advanced Football Analytics). "
+            "8 home games at elevation per season; visiting kickers only benefit "
+            "for one game so no season-long boost warranted for them. +5% at default weight."
+        ),
+        positions=["K"],
+    ),
 ]
