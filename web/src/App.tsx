@@ -109,7 +109,6 @@ export default function App() {
     // Profile rules_json is already in the new dict format (position-keyed overrides).
     // Backend guarantees dict format (model_validator migrates old list format to {}).
     setPositionRules(active.rules_json as unknown as PositionRulesState);
-
     setHistory((prev) => {
       if ((prev[activeProfileId]?.length ?? 0) > 0) return prev;
       return {

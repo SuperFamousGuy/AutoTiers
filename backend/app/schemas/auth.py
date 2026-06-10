@@ -1,7 +1,7 @@
 """Request and response shapes for /api/auth endpoints."""
 import uuid
 from typing import Optional, Any
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 
 # Re-export ProfileOut from profile.py so /me and /profiles share one schema.
 # Earlier we had two separate ProfileOut classes — and only the /me copy carried
@@ -29,8 +29,23 @@ class UserOut(BaseModel):
     yahoo_subject: Optional[str]
     google_subject: Optional[str]
     last_active_profile_id: Optional[uuid.UUID]
+    yahoo_fantasy_connected: bool = False
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _compute_fantasy_connected(cls, data: Any) -> Any:
+        if hasattr(data, "yahoo_access_token"):
+            return {
+                "id": data.id,
+                "email": data.email,
+                "yahoo_subject": data.yahoo_subject,
+                "google_subject": data.google_subject,
+                "last_active_profile_id": data.last_active_profile_id,
+                "yahoo_fantasy_connected": data.yahoo_access_token is not None,
+            }
+        return data
 
 
 class MeResponse(BaseModel):

@@ -1,0 +1,244 @@
+"""Tests for the Yahoo Fantasy API client."""
+import pytest
+import httpx
+from unittest.mock import AsyncMock, MagicMock
+from app.integrations.yahoo_fantasy import (
+    list_user_leagues,
+    fetch_league,
+    YahooLeagueSummary,
+    YahooLeagueData,
+)
+
+
+LEAGUES_RESPONSE = {
+    "fantasy_content": {
+        "users": {
+            "0": {
+                "user": [
+                    {"guid": "ABCDEF"},
+                    {
+                        "games": {
+                            "0": {
+                                "game": [
+                                    {"game_key": "423", "season": "2024"},
+                                    {
+                                        "leagues": {
+                                            "0": {
+                                                "league": [
+                                                    {
+                                                        "league_key": "423.l.12345",
+                                                        "name": "My FF League",
+                                                        "num_teams": "12",
+                                                        "season": "2024",
+                                                    }
+                                                ]
+                                            },
+                                            "count": 1,
+                                        }
+                                    },
+                                ]
+                            },
+                            "count": 1,
+                        }
+                    },
+                ]
+            },
+            "count": 1,
+        }
+    }
+}
+
+SETTINGS_RESPONSE = {
+    "fantasy_content": {
+        "league": [
+            {
+                "league_key": "423.l.12345",
+                "name": "My FF League",
+                "num_teams": "12",
+                "season": "2024",
+            },
+            {
+                "settings": {
+                    "stat_modifiers": {
+                        "stats": {
+                            "stat": [
+                                {"stat_id": "5", "value": "4"},
+                                {"stat_id": "11", "value": "1"},
+                            ]
+                        }
+                    }
+                }
+            },
+        ]
+    }
+}
+
+
+def _make_user(access_token="enc_access", refresh_token="enc_refresh"):
+    user = MagicMock()
+    user.yahoo_access_token = access_token
+    user.yahoo_refresh_token = refresh_token
+    return user
+
+
+@pytest.mark.asyncio
+async def test_list_user_leagues_returns_summaries(respx_mock):
+    url = "https://fantasysports.yahooapis.com/fantasy/v2/users;use_login=1/games;game_keys=nfl/leagues"
+    respx_mock.get(url).mock(return_value=httpx.Response(200, json=LEAGUES_RESPONSE))
+
+    db = AsyncMock()
+    user = _make_user()
+
+    with pytest.MonkeyPatch().context() as m:
+        m.setattr("app.integrations.yahoo_fantasy.decrypt", lambda x: x)
+        m.setattr("app.integrations.yahoo_fantasy.encrypt", lambda x: x)
+        leagues = await list_user_leagues(user, db)
+
+    assert len(leagues) == 1
+    assert leagues[0].league_key == "423.l.12345"
+    assert leagues[0].name == "My FF League"
+    assert leagues[0].season == 2024
+    assert leagues[0].num_teams == 12
+
+
+@pytest.mark.asyncio
+async def test_fetch_league_returns_data(respx_mock):
+    league_key = "423.l.12345"
+    url = f"https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/settings"
+    respx_mock.get(url).mock(return_value=httpx.Response(200, json=SETTINGS_RESPONSE))
+
+    db = AsyncMock()
+    user = _make_user()
+
+    with pytest.MonkeyPatch().context() as m:
+        m.setattr("app.integrations.yahoo_fantasy.decrypt", lambda x: x)
+        m.setattr("app.integrations.yahoo_fantasy.encrypt", lambda x: x)
+        data = await fetch_league(league_key, user, db)
+
+    assert data.league_id == "423.l.12345"
+    assert data.name == "My FF League"
+    assert data.season == 2024
+    assert data.league_size == 12
+    assert data.raw_scoring is not None
+
+
+@pytest.mark.asyncio
+async def test_fetch_league_refreshes_token_on_401(respx_mock):
+    league_key = "423.l.12345"
+    url = f"https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/settings"
+    respx_mock.get(url).mock(
+        side_effect=[
+            httpx.Response(401, text="Unauthorized"),
+            httpx.Response(200, json=SETTINGS_RESPONSE),
+        ]
+    )
+
+    db = AsyncMock()
+    user = _make_user()
+
+    async def fake_refresh(token: str) -> str:
+        return "new_access_token"
+
+    with pytest.MonkeyPatch().context() as m:
+        m.setattr("app.integrations.yahoo_fantasy.decrypt", lambda x: x)
+        m.setattr("app.integrations.yahoo_fantasy.encrypt", lambda x: x)
+        m.setattr("app.integrations.yahoo_fantasy.refresh_access_token", fake_refresh)
+        data = await fetch_league(league_key, user, db)
+
+    assert data.league_id == "423.l.12345"
+    assert user.yahoo_access_token == "new_access_token"
+    db.commit.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_get_yahoo_leagues_endpoint(async_client, test_db):
+    from app.models import User, Profile
+    from app.security.fernet import encrypt
+    import uuid
+
+    user = User(
+        email="yf@example.com",
+        yahoo_subject="ysub1",
+        yahoo_access_token=encrypt("acc"),
+        yahoo_refresh_token=encrypt("ref"),
+    )
+    test_db.add(user)
+    await test_db.flush()
+
+    profile = Profile(
+        user_id=user.id,
+        name="My Profile",
+        settings_json={},
+        rules_json=[],
+    )
+    test_db.add(profile)
+    await test_db.commit()
+    await test_db.refresh(profile)
+
+    from app.auth.jwt import encode_jwt
+    jwt = encode_jwt(str(user.id))
+
+    from app.integrations.yahoo_fantasy import YahooLeagueSummary
+    with pytest.MonkeyPatch().context() as m:
+        async def fake_list(u, db):
+            return [YahooLeagueSummary("423.l.99", "Test League", 2024, 12)]
+        m.setattr("app.api.linked_league.list_yahoo_leagues", fake_list)
+
+        resp = await async_client.get(
+            f"/api/profiles/{profile.id}/link/yahoo/leagues",
+            cookies={"autotiers_session": jwt},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["league_key"] == "423.l.99"
+
+
+@pytest.mark.asyncio
+async def test_post_yahoo_link_endpoint(async_client, test_db):
+    from app.models import User, Profile
+    from app.security.fernet import encrypt
+    from app.auth.jwt import encode_jwt
+    from app.integrations.yahoo_fantasy import YahooLeagueData
+
+    user = User(
+        email="yf2@example.com",
+        yahoo_subject="ysub2",
+        yahoo_access_token=encrypt("acc"),
+        yahoo_refresh_token=encrypt("ref"),
+    )
+    test_db.add(user)
+    await test_db.flush()
+    profile = Profile(user_id=user.id, name="P", settings_json={}, rules_json=[])
+    test_db.add(profile)
+    await test_db.commit()
+    await test_db.refresh(profile)
+
+    jwt = encode_jwt(str(user.id))
+
+    fake_data = YahooLeagueData(
+        league_id="423.l.99",
+        name="Test League",
+        season=2024,
+        league_size=12,
+        raw_scoring={"stat": [{"stat_id": "11", "value": "1"}]},
+        keepers=[],
+        adp_json=None,
+    )
+
+    with pytest.MonkeyPatch().context() as m:
+        async def fake_fetch(league_key, u, db):
+            return fake_data
+        m.setattr("app.api.linked_league.fetch_yahoo_league", fake_fetch)
+
+        resp = await async_client.post(
+            f"/api/profiles/{profile.id}/link/yahoo",
+            json={"league_key": "423.l.99", "season": 2024},
+            cookies={"autotiers_session": jwt},
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["linked_league"]["provider"] == "yahoo"
+    assert body["linked_league"]["league_id"] == "423.l.99"

@@ -55,3 +55,28 @@ def espn_to_settings(raw_scoring: dict, league_size: int) -> dict:
         "bonus_100yd_receiving": False,
         "bonus_first_downs": False,
     }
+
+
+# Yahoo stat IDs — verified against Yahoo Fantasy API v2 settings response.
+# Update these if a real league response shows different IDs.
+_YAHOO_PASSING_TD = "5"
+_YAHOO_RECEPTIONS = "11"
+
+
+def yahoo_to_settings(raw_scoring: dict, league_size: int) -> dict:
+    """Map Yahoo stat_modifiers.stats payload to AutoTiers settings fields.
+
+    raw_scoring is the value of fantasy_content.league[1].settings.stat_modifiers.stats
+    i.e. a dict with key "stat" containing a list of {"stat_id": str, "value": str}.
+    """
+    stats = {item["stat_id"]: float(item.get("value") or 0) for item in raw_scoring.get("stat", [])}
+    rec = stats.get(_YAHOO_RECEPTIONS, 0.0)
+    pass_td = stats.get(_YAHOO_PASSING_TD, 4.0)
+    return {
+        "scoring_format": _classify_ppr(rec),
+        "league_size": league_size,
+        "qb_td_points": pass_td,
+        "bonus_100yd_rushing": False,
+        "bonus_100yd_receiving": False,
+        "bonus_first_downs": False,
+    }

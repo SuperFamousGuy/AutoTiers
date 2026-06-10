@@ -21,7 +21,12 @@ from app.integrations.sleeper import (
     list_user_leagues, fetch_league as fetch_sleeper_league, SleeperUserNotFound,
 )
 from app.integrations.espn import fetch_league as fetch_espn_league, EspnAuthRequired
-from app.integrations.scoring_mappers import sleeper_to_settings, espn_to_settings
+from app.integrations.yahoo_fantasy import (
+    list_user_leagues as list_yahoo_leagues,
+    fetch_league as fetch_yahoo_league,
+    YahooLeagueSummary,
+)
+from app.integrations.scoring_mappers import sleeper_to_settings, espn_to_settings, yahoo_to_settings
 from app.security.fernet import encrypt, decrypt
 from app.schemas.linked_league import LinkedLeagueOut
 from app.schemas.auth import ProfileOut
@@ -56,6 +61,18 @@ class EspnConnectBody(BaseModel):
 class LinkedLeagueResponse(BaseModel):
     linked_league: LinkedLeagueOut
     profile: ProfileOut
+
+
+class YahooLeagueSummaryOut(BaseModel):
+    league_key: str
+    name: str
+    season: int
+    num_teams: int
+
+
+class YahooConnectBody(BaseModel):
+    league_key: str
+    season: int
 
 
 async def _check_ownership(
@@ -246,6 +263,68 @@ async def post_espn(
     return _build_response(ll, profile)
 
 
+@router.get("/yahoo/leagues", response_model=list[YahooLeagueSummaryOut])
+async def get_yahoo_leagues(
+    profile_id: uuid.UUID,
+    user: User = require_user,
+    db: AsyncSession = Depends(get_db),
+) -> list[YahooLeagueSummaryOut]:
+    await _check_ownership(profile_id, user, db)
+    if not user.yahoo_access_token or not user.yahoo_refresh_token:
+        raise HTTPException(
+            status_code=400,
+            detail="Yahoo Fantasy is not connected. Re-authorize with Yahoo to enable Fantasy Sports access.",
+        )
+    try:
+        leagues = await list_yahoo_leagues(user, db)
+    except Exception as e:
+        raise _provider_http_error("Yahoo", e)
+    return [
+        YahooLeagueSummaryOut(
+            league_key=l.league_key,
+            name=l.name,
+            season=l.season,
+            num_teams=l.num_teams,
+        )
+        for l in leagues
+    ]
+
+
+@router.post("/yahoo", response_model=LinkedLeagueResponse)
+async def post_yahoo(
+    profile_id: uuid.UUID,
+    body: YahooConnectBody,
+    user: User = require_user,
+    db: AsyncSession = Depends(get_db),
+) -> LinkedLeagueResponse:
+    if not user.yahoo_access_token or not user.yahoo_refresh_token:
+        raise HTTPException(
+            status_code=400,
+            detail="Yahoo Fantasy is not connected. Re-authorize with Yahoo to enable Fantasy Sports access.",
+        )
+    profile = await _resolve_profile(profile_id, user, db)
+    try:
+        data = await fetch_yahoo_league(body.league_key, user, db)
+    except Exception as e:
+        raise _provider_http_error("Yahoo", e)
+
+    mapped = yahoo_to_settings(data.raw_scoring, league_size=data.league_size)
+    ll = _upsert_linked_league(profile, db)
+    ll.provider = "yahoo"
+    ll.username_or_swid = ""
+    ll.credentials_encrypted = None
+    ll.league_id = data.league_id
+    ll.league_metadata_json = {"name": data.name, "season": data.season}
+    ll.keepers_json = data.keepers
+    ll.adp_json = data.adp_json
+    ll.last_synced_at = datetime.now(timezone.utc)
+    _apply_settings(profile, mapped)
+
+    await db.commit()
+    await db.refresh(profile, attribute_names=["linked_league"])
+    return _build_response(ll, profile)
+
+
 @router.post("/refresh", response_model=LinkedLeagueResponse)
 async def refresh(
     profile_id: uuid.UUID,
@@ -285,6 +364,14 @@ async def refresh(
         except Exception as e:
             raise _provider_http_error("ESPN", e)
         mapped = espn_to_settings(data.raw_scoring, league_size=data.league_size)
+    elif ll.provider == "yahoo":
+        if not user.yahoo_access_token or not user.yahoo_refresh_token:
+            raise HTTPException(status_code=400, detail="Yahoo Fantasy token missing — reconnect Yahoo.")
+        try:
+            data = await fetch_yahoo_league(ll.league_id, user, db)
+        except Exception as e:
+            raise _provider_http_error("Yahoo", e)
+        mapped = yahoo_to_settings(data.raw_scoring, league_size=data.league_size)
     else:
         raise HTTPException(status_code=400, detail=f"Unknown provider '{ll.provider}'")
 

@@ -153,3 +153,33 @@ async def test_me_returns_user_and_profiles_when_authenticated(async_client):
     assert body["user"]["email"] == "alice@example.com"
     assert len(body["profiles"]) == 1
     assert body["profiles"][0]["name"] == "My setup"
+
+
+def test_userout_yahoo_fantasy_connected_true():
+    from app.schemas.auth import UserOut
+    from unittest.mock import MagicMock
+    import uuid
+    user = MagicMock()
+    user.id = uuid.uuid4()
+    user.email = "test@example.com"
+    user.yahoo_subject = "sub123"
+    user.yahoo_access_token = "enc_token"
+    user.google_subject = None
+    user.last_active_profile_id = None
+    out = UserOut.model_validate(user)
+    assert out.yahoo_fantasy_connected is True
+
+
+def test_userout_yahoo_fantasy_connected_false():
+    from app.schemas.auth import UserOut
+    from unittest.mock import MagicMock
+    import uuid
+    user = MagicMock()
+    user.id = uuid.uuid4()
+    user.email = "test@example.com"
+    user.yahoo_subject = None
+    user.yahoo_access_token = None
+    user.google_subject = None
+    user.last_active_profile_id = None
+    out = UserOut.model_validate(user)
+    assert out.yahoo_fantasy_connected is False

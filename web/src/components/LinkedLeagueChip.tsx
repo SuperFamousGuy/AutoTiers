@@ -4,14 +4,14 @@ import { refreshLink } from "@/api/linkedLeague";
 
 interface Props {
   profileId: string;
-  provider: "sleeper" | "espn";
+  provider: "sleeper" | "espn" | "yahoo";
   leagueName: string;
   onRefreshed: () => Promise<void> | void;
 }
 
 export function LinkedLeagueChip({ profileId, provider, leagueName, onRefreshed }: Props) {
   const [busy, setBusy] = useState(false);
-  const label = provider === "sleeper" ? "Sleeper" : "ESPN";
+  const label = provider === "sleeper" ? "Sleeper" : provider === "espn" ? "ESPN" : "Yahoo";
 
   async function handleRefresh() {
     setBusy(true);
