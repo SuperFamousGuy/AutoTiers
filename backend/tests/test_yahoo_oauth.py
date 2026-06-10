@@ -2,6 +2,7 @@ import pytest
 import respx
 import httpx
 from httpx import Response
+from unittest.mock import patch, AsyncMock
 from app.auth.yahoo import build_authorize_url, exchange_code, fetch_identity, refresh_access_token
 
 
@@ -410,3 +411,57 @@ async def test_callback_backfills_email_when_linking_and_user_has_none(async_cli
     await test_db.refresh(u)
     assert u.yahoo_subject == "y-new"
     assert u.email == "backfilled@example.com"
+
+
+@pytest.mark.asyncio
+async def test_yahoo_authorize_fantasy_intent_adds_fspt_scope(async_client):
+    """GET /api/auth/yahoo/authorize?intent=yahoo_fantasy redirects with fspt-r scope."""
+    resp = await async_client.get(
+        "/api/auth/yahoo/authorize",
+        params={"intent": "yahoo_fantasy"},
+        follow_redirects=False,
+    )
+    assert resp.status_code in (302, 307)
+    location = resp.headers["location"]
+    assert "fspt-r" in location
+
+
+@pytest.mark.asyncio
+async def test_yahoo_callback_fantasy_stores_tokens(async_client, test_db):
+    """Callback with yahoo_fantasy intent stores encrypted tokens on user."""
+    from app.models import User
+    from app.auth.jwt import encode_jwt
+    from app.security.fernet import decrypt
+
+    user = User(yahoo_subject="sub_xyz", email="tok@example.com")
+    test_db.add(user)
+    await test_db.commit()
+    await test_db.refresh(user)
+
+    state = "teststate999"
+    jwt = encode_jwt(user.id)
+
+    with (
+        patch("app.api.auth.exchange_code", new_callable=AsyncMock,
+              return_value=("acc_tok", "ref_tok")),
+        patch("app.api.auth.fetch_identity", new_callable=AsyncMock,
+              return_value=("sub_xyz", "tok@example.com", True)),
+    ):
+        resp = await async_client.get(
+            "/api/auth/yahoo/callback",
+            params={"code": "authcode", "state": state},
+            cookies={
+                "autotiers_oauth_state": state,
+                "autotiers_session": jwt,
+                "autotiers_oauth_intent": "yahoo_fantasy",
+            },
+            follow_redirects=False,
+        )
+
+    assert resp.status_code == 302
+    await test_db.refresh(user)
+    assert user.yahoo_access_token is not None
+    assert user.yahoo_refresh_token is not None
+    # Tokens must be encrypted (not the raw values)
+    assert decrypt(user.yahoo_access_token) == "acc_tok"
+    assert decrypt(user.yahoo_refresh_token) == "ref_tok"

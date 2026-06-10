@@ -16,6 +16,7 @@ from app.auth.jwt import set_auth_cookie, clear_auth_cookie
 from app.auth.dependencies import require_user, _resolve_user
 from app.auth.rate_limit import login_rate_limiter
 from app.auth.yahoo import build_authorize_url, exchange_code, fetch_identity
+from app.security.fernet import encrypt
 from app.auth.google import (
     build_authorize_url as build_google_authorize_url,
     exchange_code as exchange_google_code,
@@ -180,10 +181,10 @@ def _set_oauth_state_cookies(response, state_cookie_name: str, state: str, inten
         samesite="lax",
         path="/",
     )
-    if intent == "link":
+    if intent in ("link", "yahoo_fantasy"):
         response.set_cookie(
             key=_OAUTH_INTENT_COOKIE,
-            value="link",
+            value=intent,
             max_age=600,
             httponly=True,
             secure=not settings.debug,
@@ -195,7 +196,8 @@ def _set_oauth_state_cookies(response, state_cookie_name: str, state: str, inten
 @router.get("/yahoo/authorize")
 async def yahoo_authorize(intent: str | None = None) -> RedirectResponse:
     state = secrets.token_urlsafe(32)
-    response = RedirectResponse(url=build_authorize_url(state), status_code=307)
+    fantasy = intent == "yahoo_fantasy"
+    response = RedirectResponse(url=build_authorize_url(state, fantasy=fantasy), status_code=307)
     _set_oauth_state_cookies(response, _OAUTH_STATE_COOKIE, state, intent)
     return response
 
@@ -212,12 +214,18 @@ async def yahoo_callback(
     if not autotiers_oauth_state or autotiers_oauth_state != state:
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
 
-    access_token = await exchange_code(code)
+    access_token, refresh_token = await exchange_code(code)
     yahoo_subject, yahoo_email, yahoo_email_verified = await fetch_identity(access_token)
 
     current_user = await _resolve_user(autotiers_session, db)
 
     if current_user is not None:
+        # Store tokens when this is a fantasy connect intent.
+        if autotiers_oauth_intent == "yahoo_fantasy" and refresh_token:
+            current_user.yahoo_access_token = encrypt(access_token)
+            current_user.yahoo_refresh_token = encrypt(refresh_token)
+            await db.commit()
+
         return await _handle_oauth_link(
             db,
             current_user,
@@ -231,7 +239,7 @@ async def yahoo_callback(
     # The user clicked "Connect" from inside the app intending to link, but
     # we couldn't resolve their session. Bail out instead of silently signing
     # them in as a different account and orphaning their existing profile.
-    if autotiers_oauth_intent == "link":
+    if autotiers_oauth_intent in ("link", "yahoo_fantasy"):
         url = _frontend_url_with_param("linking_error", "session_lost")
         response = RedirectResponse(url=url, status_code=302)
         response.delete_cookie(_OAUTH_STATE_COOKIE, path="/")
