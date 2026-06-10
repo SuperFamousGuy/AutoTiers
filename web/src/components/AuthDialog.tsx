@@ -116,19 +116,19 @@ export function AuthDialog({ open, onOpenChange, initialState }: AuthDialogProps
         <Button
           type="button"
           variant="outline"
-          className="w-full"
+          className="w-full gap-2"
           onClick={() => { window.location.href = yahooAuthorizeUrl(); }}
         >
-          <YahooIcon />
+          <span aria-hidden="true"><YahooIcon /></span>
           Continue with Yahoo
         </Button>
         <Button
           type="button"
           variant="outline"
-          className="w-full mt-2"
+          className="w-full mt-2 gap-2"
           onClick={() => { window.location.href = googleAuthorizeUrl(); }}
         >
-          <GoogleIcon />
+          <span aria-hidden="true"><GoogleIcon /></span>
           Continue with Google
         </Button>
       </DialogContent>
