@@ -28,6 +28,8 @@ _CATEGORIES = {
     "Handcuff": "Flag",
     "Availability Risk": "Flag",
     "Favorites": "Personal",
+    "Dome Kicker": "Situation",
+    "Mile High Kicker": "Situation",
 }
 
 

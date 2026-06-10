@@ -4,6 +4,7 @@ from app.engine.rules import (
     RuleResult, apply_rules,
 )
 from app.engine.builtin_rules import BUILTIN_RULES
+from app.api.generate import DOME_TEAMS, ELEVATION_TEAM
 
 
 def _ctx(**overrides) -> PlayerContext:
@@ -18,6 +19,7 @@ def _ctx(**overrides) -> PlayerContext:
         prior_touches=None, injured_two_years_ago=None,
         bad_offense_team=None, above_market_contract=None,
         opportunity_score_z=None, is_favorite=None,
+        plays_in_dome=None, is_denver_kicker=None,
     )
     defaults.update(overrides)
     return PlayerContext(**defaults)
@@ -34,6 +36,7 @@ def make_ctx(**overrides) -> PlayerContext:
         prior_touches=None, injured_two_years_ago=None,
         bad_offense_team=None, above_market_contract=None,
         opportunity_score_z=None, is_favorite=None,
+        plays_in_dome=None, is_denver_kicker=None,
     )
     defaults.update(overrides)
     return PlayerContext(**defaults)
@@ -144,9 +147,9 @@ def test_builtin_rules_is_nonempty_list_of_rules():
         assert rule.conditions
 
 
-def test_builtin_rules_count_is_21():
-    """Adding Favorites rule (was 20)."""
-    assert len(BUILTIN_RULES) == 21
+def test_builtin_rules_count_is_23():
+    """Adding Dome Kicker and Mile High Kicker rules (was 21)."""
+    assert len(BUILTIN_RULES) == 23
 
 
 def test_opportunity_rules_categorized_as_regression():
@@ -487,3 +490,138 @@ def test_apply_rules_applications_track_sequential_state():
     assert result.applications[1].before_score == 110.0
     assert result.applications[1].after_score == 55.0
     assert result.adjusted_score == 55.0
+
+
+# ---------------------------------------------------------------------------
+# Dome Kicker and Mile High Kicker tests
+# ---------------------------------------------------------------------------
+
+def test_dome_teams_contains_exactly_11_teams():
+    """DOME_TEAMS must contain exactly the 11 documented teams."""
+    expected = {"DET", "MIN", "NO", "LV", "DAL", "HOU", "IND", "ARI", "ATL", "LAR", "LAC"}
+    assert DOME_TEAMS == expected
+
+
+def test_elevation_team_is_den():
+    assert ELEVATION_TEAM == "DEN"
+
+
+def test_dome_kicker_fires_on_k_with_plays_in_dome_true():
+    """plays_in_dome=True on a K → Dome Kicker fires (+4%)."""
+    rule = next(r for r in BUILTIN_RULES if r.name == "Dome Kicker")
+    ctx = make_ctx(position="K", plays_in_dome=True)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "Dome Kicker" in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0 * 1.04)
+
+
+def test_dome_kicker_does_not_fire_on_non_k_position():
+    """plays_in_dome=True on a QB → position gate blocks Dome Kicker."""
+    rule = next(r for r in BUILTIN_RULES if r.name == "Dome Kicker")
+    ctx = make_ctx(position="QB", plays_in_dome=True)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "Dome Kicker" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0)
+
+
+def test_dome_kicker_does_not_fire_when_plays_in_dome_false():
+    """plays_in_dome=False on a K → condition fails, rule skipped."""
+    rule = next(r for r in BUILTIN_RULES if r.name == "Dome Kicker")
+    ctx = make_ctx(position="K", plays_in_dome=False)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "Dome Kicker" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0)
+
+
+def test_dome_kicker_does_not_fire_when_plays_in_dome_none():
+    """plays_in_dome=None on a K → _evaluate short-circuits to False."""
+    rule = next(r for r in BUILTIN_RULES if r.name == "Dome Kicker")
+    ctx = make_ctx(position="K", plays_in_dome=None)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "Dome Kicker" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0)
+
+
+def test_mile_high_kicker_fires_on_k_with_is_denver_kicker_true():
+    """is_denver_kicker=True on a K → Mile High Kicker fires (+5%)."""
+    rule = next(r for r in BUILTIN_RULES if r.name == "Mile High Kicker")
+    ctx = make_ctx(position="K", is_denver_kicker=True)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "Mile High Kicker" in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0 * 1.05)
+
+
+def test_mile_high_kicker_does_not_fire_on_non_k_position():
+    """is_denver_kicker=True on a WR → position gate blocks Mile High Kicker."""
+    rule = next(r for r in BUILTIN_RULES if r.name == "Mile High Kicker")
+    ctx = make_ctx(position="WR", is_denver_kicker=True)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "Mile High Kicker" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0)
+
+
+def test_both_dome_and_mile_high_rules_do_not_stack_for_den_k():
+    """DEN is NOT a dome team — a Denver K gets only Mile High, not Dome Kicker."""
+    dome_rule = next(r for r in BUILTIN_RULES if r.name == "Dome Kicker")
+    mhk_rule = next(r for r in BUILTIN_RULES if r.name == "Mile High Kicker")
+    # DEN kicker: plays_in_dome=False (DEN not in DOME_TEAMS), is_denver_kicker=True
+    ctx = make_ctx(position="K", plays_in_dome=False, is_denver_kicker=True)
+    result = apply_rules(100.0, ctx, [dome_rule, mhk_rule])
+    assert "Mile High Kicker" in result.rules_applied
+    assert "Dome Kicker" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0 * 1.05)
+
+
+def test_both_dome_and_mile_high_rules_stack_when_both_true():
+    """A hypothetical K with plays_in_dome=True AND is_denver_kicker=True gets both multipliers."""
+    dome_rule = next(r for r in BUILTIN_RULES if r.name == "Dome Kicker")
+    mhk_rule = next(r for r in BUILTIN_RULES if r.name == "Mile High Kicker")
+    ctx = make_ctx(position="K", plays_in_dome=True, is_denver_kicker=True)
+    result = apply_rules(100.0, ctx, [dome_rule, mhk_rule])
+    assert "Dome Kicker" in result.rules_applied
+    assert "Mile High Kicker" in result.rules_applied
+    # 100 * 1.04 * 1.05 = 109.2
+    assert result.adjusted_score == pytest.approx(100.0 * 1.04 * 1.05)
+
+
+def test_dome_kicker_rule_has_k_position():
+    """Dome Kicker must carry positions=["K"]."""
+    rule = next(r for r in BUILTIN_RULES if r.name == "Dome Kicker")
+    assert rule.positions == ["K"]
+
+
+def test_mile_high_kicker_rule_has_k_position():
+    """Mile High Kicker must carry positions=["K"]."""
+    rule = next(r for r in BUILTIN_RULES if r.name == "Mile High Kicker")
+    assert rule.positions == ["K"]
+
+
+def test_den_not_in_dome_teams():
+    """Denver is not a dome team — the two bonuses are separate signals."""
+    assert "DEN" not in DOME_TEAMS
+
+
+def test_dome_kicker_applications_appear_in_rule_applications():
+    """When Dome Kicker fires, its RuleApplication is present in result.applications."""
+    rule = next(r for r in BUILTIN_RULES if r.name == "Dome Kicker")
+    ctx = make_ctx(position="K", plays_in_dome=True)
+    result = apply_rules(100.0, ctx, [rule])
+    assert len(result.applications) == 1
+    app = result.applications[0]
+    assert app.name == "Dome Kicker"
+    assert app.before_score == 100.0
+    assert app.after_score == pytest.approx(104.0)
+    assert app.delta == pytest.approx(4.0)
+
+
+def test_mile_high_kicker_applications_appear_in_rule_applications():
+    """When Mile High Kicker fires, its RuleApplication is present in result.applications."""
+    rule = next(r for r in BUILTIN_RULES if r.name == "Mile High Kicker")
+    ctx = make_ctx(position="K", is_denver_kicker=True)
+    result = apply_rules(100.0, ctx, [rule])
+    assert len(result.applications) == 1
+    app = result.applications[0]
+    assert app.name == "Mile High Kicker"
+    assert app.before_score == 100.0
+    assert app.after_score == pytest.approx(105.0)
+    assert app.delta == pytest.approx(5.0)

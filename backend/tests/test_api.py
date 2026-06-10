@@ -712,3 +712,82 @@ async def test_overall_tier_count_fallback_uses_league_size(async_client, test_d
     assert tiers_present == set(range(1, 9)), (
         f"Expected overall tiers 1..8 (league_size fallback), got: {sorted(tiers_present)}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Integration tests: kicker dome and elevation rule wiring
+# Validates that generate.py correctly populates plays_in_dome and
+# is_denver_kicker from player.team, not just that the rules engine
+# evaluates them correctly (which is covered by test_rules.py).
+# ---------------------------------------------------------------------------
+
+async def _seed_kickers(db):
+    """Seed three kickers: dome (MIN), Denver (DEN), and outdoor (BUF).
+
+    Projections use "ppr" scoring_format to match _GENERATE_BODY so
+    _avg_projection returns a non-None value for each player.
+    """
+    kickers = [
+        Player(id="k_min", name="Dome Kicker", position="K", team="MIN", age=30, years_exp=5),
+        Player(id="k_den", name="Denver Kicker", position="K", team="DEN", age=28, years_exp=3),
+        Player(id="k_buf", name="Outdoor Kicker", position="K", team="BUF", age=32, years_exp=7),
+    ]
+    for k in kickers:
+        db.add(k)
+    projs = [
+        Projection(player_id="k_min", source="fantasypros", scoring_format="ppr",
+                   projected_points=140.0, last_updated=date.today()),
+        Projection(player_id="k_den", source="fantasypros", scoring_format="ppr",
+                   projected_points=145.0, last_updated=date.today()),
+        Projection(player_id="k_buf", source="fantasypros", scoring_format="ppr",
+                   projected_points=130.0, last_updated=date.today()),
+    ]
+    for proj in projs:
+        db.add(proj)
+    await db.commit()
+
+
+async def test_dome_kicker_rule_fires_for_dome_team(async_client, test_db):
+    """MIN kicker gets 'Dome Kicker' in rules_applied via player.team wiring."""
+    await _seed_kickers(test_db)
+    resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
+    assert resp.status_code == 200
+    by_id = {p["player_id"]: p for p in resp.json()["players"]}
+    assert "Dome Kicker" in by_id["k_min"]["rules_applied"]
+
+
+async def test_dome_kicker_rule_does_not_fire_for_outdoor_team(async_client, test_db):
+    """BUF kicker does NOT get 'Dome Kicker' — outdoor stadium."""
+    await _seed_kickers(test_db)
+    resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
+    assert resp.status_code == 200
+    by_id = {p["player_id"]: p for p in resp.json()["players"]}
+    assert "Dome Kicker" not in by_id["k_buf"]["rules_applied"]
+
+
+async def test_mile_high_kicker_rule_fires_for_denver(async_client, test_db):
+    """DEN kicker gets 'Mile High Kicker' in rules_applied via player.team wiring."""
+    await _seed_kickers(test_db)
+    resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
+    assert resp.status_code == 200
+    by_id = {p["player_id"]: p for p in resp.json()["players"]}
+    assert "Mile High Kicker" in by_id["k_den"]["rules_applied"]
+
+
+async def test_mile_high_kicker_rule_does_not_fire_for_non_denver(async_client, test_db):
+    """MIN kicker does NOT get 'Mile High Kicker' — not Denver."""
+    await _seed_kickers(test_db)
+    resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
+    assert resp.status_code == 200
+    by_id = {p["player_id"]: p for p in resp.json()["players"]}
+    assert "Mile High Kicker" not in by_id["k_min"]["rules_applied"]
+
+
+async def test_denver_kicker_does_not_get_dome_bonus(async_client, test_db):
+    """DEN is not in DOME_TEAMS; DEN kicker gets Mile High only, not Dome Kicker."""
+    await _seed_kickers(test_db)
+    resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
+    assert resp.status_code == 200
+    by_id = {p["player_id"]: p for p in resp.json()["players"]}
+    assert "Dome Kicker" not in by_id["k_den"]["rules_applied"]
+    assert "Mile High Kicker" in by_id["k_den"]["rules_applied"]
