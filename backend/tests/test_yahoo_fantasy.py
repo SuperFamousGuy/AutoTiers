@@ -148,3 +148,97 @@ async def test_fetch_league_refreshes_token_on_401(respx_mock):
     assert data.league_id == "423.l.12345"
     assert user.yahoo_access_token == "new_access_token"
     db.commit.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_get_yahoo_leagues_endpoint(async_client, test_db):
+    from app.models import User, Profile
+    from app.security.fernet import encrypt
+    import uuid
+
+    user = User(
+        email="yf@example.com",
+        yahoo_subject="ysub1",
+        yahoo_access_token=encrypt("acc"),
+        yahoo_refresh_token=encrypt("ref"),
+    )
+    test_db.add(user)
+    await test_db.flush()
+
+    profile = Profile(
+        user_id=user.id,
+        name="My Profile",
+        settings_json={},
+        rules_json=[],
+    )
+    test_db.add(profile)
+    await test_db.commit()
+    await test_db.refresh(profile)
+
+    from app.auth.jwt import encode_jwt
+    jwt = encode_jwt(str(user.id))
+
+    from app.integrations.yahoo_fantasy import YahooLeagueSummary
+    with pytest.MonkeyPatch().context() as m:
+        async def fake_list(u, db):
+            return [YahooLeagueSummary("423.l.99", "Test League", 2024, 12)]
+        m.setattr("app.api.linked_league.list_yahoo_leagues", fake_list)
+
+        resp = await async_client.get(
+            f"/api/profiles/{profile.id}/link/yahoo/leagues",
+            cookies={"autotiers_session": jwt},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["league_key"] == "423.l.99"
+
+
+@pytest.mark.asyncio
+async def test_post_yahoo_link_endpoint(async_client, test_db):
+    from app.models import User, Profile
+    from app.security.fernet import encrypt
+    from app.auth.jwt import encode_jwt
+    from app.integrations.yahoo_fantasy import YahooLeagueData
+
+    user = User(
+        email="yf2@example.com",
+        yahoo_subject="ysub2",
+        yahoo_access_token=encrypt("acc"),
+        yahoo_refresh_token=encrypt("ref"),
+    )
+    test_db.add(user)
+    await test_db.flush()
+    profile = Profile(user_id=user.id, name="P", settings_json={}, rules_json=[])
+    test_db.add(profile)
+    await test_db.commit()
+    await test_db.refresh(profile)
+
+    jwt = encode_jwt(str(user.id))
+
+    fake_data = YahooLeagueData(
+        league_id="423.l.99",
+        name="Test League",
+        season=2024,
+        league_size=12,
+        raw_scoring={"stat": [{"stat_id": "11", "value": "1"}]},
+        keepers=[],
+        adp_json=None,
+    )
+
+    with pytest.MonkeyPatch().context() as m:
+        async def fake_fetch(league_key, u, db):
+            return fake_data
+        m.setattr("app.api.linked_league.fetch_yahoo_league", fake_fetch)
+
+        resp = await async_client.post(
+            f"/api/profiles/{profile.id}/link/yahoo",
+            json={"league_key": "423.l.99", "season": 2024},
+            cookies={"autotiers_session": jwt},
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["linked_league"]["provider"] == "yahoo"
+    assert body["linked_league"]["league_id"] == "423.l.99"
