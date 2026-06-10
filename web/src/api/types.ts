@@ -104,6 +104,7 @@ export interface User {
   id: string;
   email: string | null;
   yahoo_subject: string | null;
+  yahoo_fantasy_connected: boolean;
   google_subject: string | null;
   last_active_profile_id: string | null;
 }

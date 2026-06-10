@@ -1,6 +1,13 @@
 import { apiFetch, API_URL, ApiError } from "./client";
 import type { LinkedLeague, SleeperLeagueSummary, Profile } from "./types";
 
+export interface YahooLeagueSummary {
+  league_key: string;
+  name: string;
+  season: number;
+  num_teams: number;
+}
+
 export interface LinkedLeagueResponse {
   linked_league: LinkedLeague;
   profile: Profile;
@@ -54,4 +61,18 @@ export async function disconnectLink(profileId: string): Promise<void> {
     const body = await resp.text();
     throw new ApiError(resp.status, body || resp.statusText);
   }
+}
+
+export function listYahooLeagues(profileId: string): Promise<YahooLeagueSummary[]> {
+  return apiFetch<YahooLeagueSummary[]>(`/api/profiles/${profileId}/link/yahoo/leagues`);
+}
+
+export function connectYahoo(
+  profileId: string,
+  body: { league_key: string; season: number },
+): Promise<LinkedLeagueResponse> {
+  return apiFetch<LinkedLeagueResponse>(
+    `/api/profiles/${profileId}/link/yahoo`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
 }
