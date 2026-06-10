@@ -30,7 +30,7 @@ describe("linkedLeague API", () => {
         linked_league: { profile_id: PID, provider: "sleeper", league_id: "L1",
           league_metadata_json: { name: "Champs", season: 2026 },
           keepers_json: [], adp_json: null, last_synced_at: "2026-01-01T00:00:00Z" },
-        profile: { id: PID, name: "My", settings_json: {}, rules_json: [], linked_league: null },
+        profile: { id: PID, name: "My", settings_json: {}, rules_json: {}, linked_league: null },
       }), { status: 200 }),
     );
     const out = await connectSleeper(PID, { username: "alice", league_id: "L1", season: 2026 });
@@ -45,7 +45,7 @@ describe("linkedLeague API", () => {
         linked_league: { profile_id: PID, provider: "espn", league_id: "12345",
           league_metadata_json: { name: "ESPN League", season: 2026 },
           keepers_json: [], adp_json: null, last_synced_at: "2026-01-01T00:00:00Z" },
-        profile: { id: PID, name: "My", settings_json: {}, rules_json: [], linked_league: null },
+        profile: { id: PID, name: "My", settings_json: {}, rules_json: {}, linked_league: null },
       }), { status: 200 }),
     );
     const out = await connectEspn(PID, { league_id: "12345", season: 2026, swid: "{x}", espn_s2: "y" });
@@ -66,7 +66,7 @@ describe("linkedLeague API", () => {
         linked_league: { profile_id: PID, provider: "sleeper", league_id: "L1",
           league_metadata_json: { name: "New", season: 2026 },
           keepers_json: [], adp_json: null, last_synced_at: "2026-02-01T00:00:00Z" },
-        profile: { id: PID, name: "My", settings_json: {}, rules_json: [], linked_league: null },
+        profile: { id: PID, name: "My", settings_json: {}, rules_json: {}, linked_league: null },
       }), { status: 200 }),
     );
     const out = await refreshLink(PID);

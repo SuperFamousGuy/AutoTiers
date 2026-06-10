@@ -409,9 +409,9 @@ def test_builtin_rb_committee_penalty_has_rb_position():
     assert rule.positions == ["RB"]
 
 
-def test_builtin_target_share_premium_has_wr_te_positions():
+def test_builtin_target_share_premium_has_rb_wr_te_positions():
     rule = next(r for r in BUILTIN_RULES if r.name == "Target Share Premium")
-    assert rule.positions == ["WR", "TE"]
+    assert rule.positions == ["RB", "WR", "TE"]
 
 
 def test_builtin_370_touches_has_rb_position():
@@ -424,14 +424,14 @@ def test_builtin_handcuff_rb_has_rb_position():
     assert rule.positions == ["RB"]
 
 
-def test_builtin_over_the_hill_has_skill_positions():
+def test_builtin_over_the_hill_has_skill_positions_including_k():
     rule = next(r for r in BUILTIN_RULES if r.name == "Over the Hill")
-    assert set(rule.positions) == {"QB", "RB", "WR", "TE"}
+    assert set(rule.positions) == {"QB", "RB", "WR", "TE", "K"}
 
 
-def test_builtin_year_after_the_year_after_has_rb_wr_positions():
+def test_builtin_year_after_the_year_after_has_expanded_positions():
     rule = next(r for r in BUILTIN_RULES if r.name == "Year After the Year After")
-    assert set(rule.positions) == {"RB", "WR"}
+    assert set(rule.positions) == {"QB", "RB", "WR", "TE", "K"}
 
 
 def test_builtin_bad_offense_has_skill_positions():
@@ -445,9 +445,9 @@ def test_builtin_follow_the_money_has_skill_positions():
 
 
 def test_builtin_rules_without_positions_default_to_none():
-    """Rules not in the 8 position-aware rules should have positions=None."""
+    """Rules not in the position-aware rules should have positions=None."""
     no_position_rule_names = {
-        "Declining Snap%", "New Team Penalty", "New Head Coach",
+        "New Team Penalty", "New Head Coach",
         "Sophomore Leap", "Contract Year Flag", "Injury History",
         "Availability Risk", "TD Regression", "Opportunity Over-Producer",
         "Opportunity Under-Producer", "Red Zone Usage Premium",
@@ -456,6 +456,12 @@ def test_builtin_rules_without_positions_default_to_none():
     for rule in BUILTIN_RULES:
         if rule.name in no_position_rule_names:
             assert rule.positions is None, f"Rule '{rule.name}' should have positions=None"
+
+
+def test_builtin_declining_snap_has_rb_wr_te_positions():
+    """Declining Snap% now applies only to RB/WR/TE (not QB, K, or DST)."""
+    rule = next(r for r in BUILTIN_RULES if r.name == "Declining Snap%")
+    assert rule.positions == ["RB", "WR", "TE"]
 
 
 def test_apply_rules_applications_track_sequential_state():

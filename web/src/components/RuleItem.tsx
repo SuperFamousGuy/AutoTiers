@@ -3,16 +3,12 @@ import { ChevronDown } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
-import type { Rule } from "@/api/types";
-
-const ALL_POSITIONS = ["QB", "RB", "WR", "TE", "K", "DST"] as const;
-
-// Rules whose positions are fixed by the backend and cannot be changed.
-const LOCKED_POSITION_RULES = new Set(["370 Touches", "Handcuff RB"]);
+import type { Rule, PositionRuleOverride } from "@/api/types";
 
 interface RuleItemProps {
-  rule: Rule;
-  onChange: (next: Rule) => void;
+  rule: Rule;                  // full canonical rule (for description, effect, category)
+  override: PositionRuleOverride;  // current enabled/weight for this position
+  onChange: (next: PositionRuleOverride) => void;
 }
 
 type ImpactInfo = {
@@ -54,40 +50,40 @@ function formatMagnitude(m: number): string {
   return fixed.endsWith(".0") ? fixed.slice(0, -2) : fixed;
 }
 
-export function RuleItem({ rule, onChange }: RuleItemProps) {
+export function RuleItem({ rule, override, onChange }: RuleItemProps) {
   const [expanded, setExpanded] = useState(false);
   const impact = getImpactInfo(rule);
   const [inputValue, setInputValue] = useState<string>(
-    impact ? formatMagnitude(impact.magnitudeFor(rule.weight)) : "",
+    impact ? formatMagnitude(impact.magnitudeFor(override.weight)) : "",
   );
 
   useEffect(() => {
     if (impact) {
-      setInputValue(formatMagnitude(impact.magnitudeFor(rule.weight)));
+      setInputValue(formatMagnitude(impact.magnitudeFor(override.weight)));
     }
-    // Re-sync only when external rule state changes — not on every render.
-  }, [rule.weight, rule.effect.type, rule.effect.value]);
+    // Re-sync only when external override state changes — not on every render.
+  }, [override.weight, rule.effect.type, rule.effect.value]);
 
   function commit(magnitudeStr: string) {
     if (!impact) return;
     const m = parseFloat(magnitudeStr);
     if (Number.isNaN(m) || m < 0) {
-      setInputValue(formatMagnitude(impact.magnitudeFor(rule.weight)));
+      setInputValue(formatMagnitude(impact.magnitudeFor(override.weight)));
       return;
     }
-    onChange({ ...rule, weight: impact.weightFor(m) });
+    onChange({ ...override, weight: impact.weightFor(m) });
   }
 
   function applySuggestion(weight: number) {
-    onChange({ ...rule, weight });
+    onChange({ ...override, weight });
   }
 
   return (
     <Collapsible open={expanded} onOpenChange={setExpanded}>
       <div className="flex items-center gap-2 py-1">
         <Switch
-          checked={rule.enabled}
-          onCheckedChange={(v) => onChange({ ...rule, enabled: v })}
+          checked={override.enabled}
+          onCheckedChange={(v) => onChange({ ...override, enabled: v })}
         />
         <span className="text-sm flex-1 break-words leading-snug">{rule.name}</span>
         <CollapsibleTrigger
@@ -103,78 +99,12 @@ export function RuleItem({ rule, onChange }: RuleItemProps) {
         {rule.description && (
           <p className="text-muted-foreground leading-snug">{rule.description}</p>
         )}
-        {/* Positions section */}
-        {LOCKED_POSITION_RULES.has(rule.name) ? (
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-muted-foreground">Positions:</span>
-            {(rule.positions ?? []).map((pos) => (
-              <span
-                key={pos}
-                className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground font-mono"
-              >
-                {pos}
-              </span>
-            ))}
-            <span className="text-muted-foreground">(locked)</span>
-          </div>
-        ) : (
-          <div role="group" aria-label="Position scope" className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-muted-foreground">Positions</span>
-            {/* "All" button — active when positions is null/[] */}
-            <button
-              type="button"
-              aria-label="Apply to all positions"
-              aria-pressed={!rule.positions || rule.positions.length === 0}
-              onClick={() => onChange({ ...rule, positions: null })}
-              className={cn(
-                "rounded border px-1.5 py-0.5 font-mono transition-colors",
-                (!rule.positions || rule.positions.length === 0)
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "bg-background text-foreground border-input hover:bg-accent hover:text-accent-foreground",
-              )}
-            >
-              All
-            </button>
-            {ALL_POSITIONS.map((pos) => {
-              const isActive = !!(rule.positions && rule.positions.includes(pos));
-              return (
-                <button
-                  key={pos}
-                  type="button"
-                  aria-label={`Toggle ${pos}`}
-                  aria-pressed={isActive}
-                  onClick={() => {
-                    const current = rule.positions ?? [];
-                    let next: string[];
-                    if (isActive) {
-                      next = current.filter((p) => p !== pos);
-                    } else {
-                      next = [...current, pos];
-                    }
-                    // If all positions are now selected, revert to null (= "All")
-                    const newPositions =
-                      next.length === ALL_POSITIONS.length ? null : next.length === 0 ? null : next;
-                    onChange({ ...rule, positions: newPositions });
-                  }}
-                  className={cn(
-                    "rounded border px-1.5 py-0.5 font-mono transition-colors",
-                    isActive
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-background text-foreground border-input hover:bg-accent hover:text-accent-foreground",
-                  )}
-                >
-                  {pos}
-                </button>
-              );
-            })}
-          </div>
-        )}
         {impact && (
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <button
               type="button"
               onClick={() => applySuggestion(0.5)}
-              disabled={!rule.enabled}
+              disabled={!override.enabled}
               className="rounded border bg-background px-2 py-0.5 text-foreground shadow-sm hover:bg-muted hover:border-foreground/30 active:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-background disabled:hover:border-input font-mono transition-colors"
             >
               Low: {impact.sign}{formatMagnitude(impact.magnitudeFor(0.5))}{impact.unit}
@@ -186,7 +116,7 @@ export function RuleItem({ rule, onChange }: RuleItemProps) {
                 step="any"
                 min="0"
                 value={inputValue}
-                disabled={!rule.enabled}
+                disabled={!override.enabled}
                 onChange={(e) => setInputValue(e.target.value)}
                 onBlur={() => commit(inputValue)}
                 onKeyDown={(e) => {
@@ -200,7 +130,7 @@ export function RuleItem({ rule, onChange }: RuleItemProps) {
             <button
               type="button"
               onClick={() => applySuggestion(2.0)}
-              disabled={!rule.enabled}
+              disabled={!override.enabled}
               className="rounded border bg-background px-2 py-0.5 text-foreground shadow-sm hover:bg-muted hover:border-foreground/30 active:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-background disabled:hover:border-input font-mono transition-colors"
             >
               High: {impact.sign}{formatMagnitude(impact.magnitudeFor(2.0))}{impact.unit}

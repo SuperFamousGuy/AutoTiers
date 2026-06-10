@@ -30,9 +30,10 @@ const PROFILE_ONE = {
     bonus_first_downs: false,
     weights: { prior: 30, consensus: 70 },
   },
-  rules_json: [
-    { name: "Target Share Premium", enabled: false, weight: 1.0 },
-  ],
+  // New dict format: per-position overrides keyed by position string.
+  rules_json: {
+    RB: [{ name: "RB Committee Penalty", enabled: false, weight: 1.0 }],
+  },
 };
 
 const PROFILE_TWO = {
@@ -48,7 +49,7 @@ const PROFILE_TWO = {
     bonus_first_downs: false,
     weights: { prior: 50, consensus: 50 },
   },
-  rules_json: [],
+  rules_json: {},
 };
 
 function renderApp() {
@@ -148,7 +149,7 @@ describe("App (authenticated integration)", () => {
           id: "p-new",
           name: createBody.name,
           settings_json: PROFILE_ONE.settings_json,
-          rules_json: [],
+          rules_json: {},
         });
       }),
       http.post(`${API_URL}/api/profiles/:id/activate`, () => new HttpResponse(null, { status: 204 })),
@@ -222,7 +223,7 @@ describe("App (authenticated integration)", () => {
   it("Undo button appears after a save lands and rewinds to the prior save point", async () => {
     mockAuthenticated();
     // Track the most recent payload sent to the server.
-    let lastPatchPayload: { rules_json?: Array<{ name: string; enabled: boolean; weight: number }> } = {};
+    let lastPatchPayload: { rules_json?: Record<string, Array<{ name: string; enabled: boolean; weight: number }>> } = {};
     server.use(
       http.patch(`${API_URL}/api/profiles/:id`, async ({ request }) => {
         lastPatchPayload = (await request.json()) as typeof lastPatchPayload;
@@ -342,7 +343,7 @@ describe("App (authenticated integration)", () => {
       http.patch(`${API_URL}/api/profiles/:id`, async ({ params, request }) => {
         const body = (await request.json()) as {
           settings_json?: Record<string, unknown>;
-          rules_json?: Array<{ name: string; enabled: boolean; weight: number }>;
+          rules_json?: Record<string, Array<{ name: string; enabled: boolean; weight: number }>>;
         };
         const base = (params.id as string) === "p1" ? PROFILE_ONE : PROFILE_TWO;
         return HttpResponse.json({
@@ -359,7 +360,7 @@ describe("App (authenticated integration)", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("Target Share Premium")).toBeInTheDocument());
 
-    // Edit profile 1: toggle Target Share Premium on (it starts disabled in PROFILE_ONE).
+    // Edit profile 1: toggle the first rule switch (RB Committee Penalty starts disabled in PROFILE_ONE).
     const switches = screen.getAllByRole("switch");
     await user.click(switches[0]);
     const editedState = screen.getAllByRole("switch").map((s) => s.getAttribute("data-state"));

@@ -16,7 +16,7 @@ import { createProfile, updateProfile, deleteProfile, activateProfile } from "@/
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { weightsAreValid } from "@/lib/weights";
 import { buildResolvedTierNames } from "@/lib/tiers";
-import type { Rule, GenerateRequest } from "@/api/types";
+import type { Rule, GenerateRequest, PositionRulesState } from "@/api/types";
 
 const DEFAULT_SETTINGS: SettingsState = {
   scoring_format: "standard",
@@ -35,7 +35,11 @@ export default function App() {
   const { showOnboarding, dismiss: dismissOnboarding, reopen: reopenOnboarding } = useOnboarding();
   const { user, profiles, setProfiles, refresh } = useAuth();
   const [settings, setSettings] = useState<SettingsState>(DEFAULT_SETTINGS);
-  const [rules, setRules] = useState<Rule[]>([]);
+  // Canonical rule definitions from GET /rules (used to seed defaults and display).
+  // Never mutated directly by the user — the user's changes go into positionRules.
+  const [canonicalRules, setCanonicalRules] = useState<Rule[]>([]);
+  // Per-position override state — what gets saved and sent to generate.
+  const [positionRules, setPositionRules] = useState<PositionRulesState>({});
   const [seeded, setSeeded] = useState(false);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const [manageOpen, setManageOpen] = useState(false);
@@ -46,7 +50,7 @@ export default function App() {
   // Undo pops the tip and re-PATCHes the prior tip, so undo also persists.
   type Snapshot = {
     settings_json: Record<string, unknown>;
-    rules_json: Array<Record<string, unknown>>;
+    rules_json: Record<string, unknown>;
   };
   const HISTORY_CAP = 10;
   const [history, setHistory] = useState<Record<string, Snapshot[]>>({});
@@ -63,7 +67,7 @@ export default function App() {
   // Seed canonical rules list once.
   useEffect(() => {
     if (fetchedRules && !seeded) {
-      setRules(fetchedRules);
+      setCanonicalRules(fetchedRules);
       setSeeded(true);
     }
   }, [fetchedRules, seeded]);
@@ -92,7 +96,7 @@ export default function App() {
     setActiveProfileId(user?.last_active_profile_id ?? null);
   }, [user]);
 
-  // When activeProfileId changes, hydrate settings + rules from that profile.
+  // When activeProfileId changes, hydrate settings + positionRules from that profile.
   // Also seed undo history with the loaded snapshot — but only on the first
   // hydration for the profile, so existing in-memory history survives
   // profile-switch round-trips.
@@ -102,29 +106,26 @@ export default function App() {
     if (!active) return;
 
     setSettings(active.settings_json as unknown as SettingsState);
-    if (fetchedRules) {
-      const overrides = new Map(active.rules_json.map((r) => [r.name, r]));
-      setRules(fetchedRules.map((r) => {
-        const o = overrides.get(r.name);
-        return o ? { ...r, enabled: o.enabled, weight: o.weight, positions: "positions" in o ? o.positions : r.positions } : r;
-      }));
-    }
+    // Profile rules_json is already in the new dict format (position-keyed overrides).
+    // Backend guarantees dict format (model_validator migrates old list format to {}).
+    setPositionRules(active.rules_json as unknown as PositionRulesState);
+
     setHistory((prev) => {
       if ((prev[activeProfileId]?.length ?? 0) > 0) return prev;
       return {
         ...prev,
         [activeProfileId]: [{
           settings_json: active.settings_json as Record<string, unknown>,
-          rules_json: active.rules_json as unknown as Array<Record<string, unknown>>,
+          rules_json: active.rules_json as unknown as Record<string, unknown>,
         }],
       };
     });
-  }, [activeProfileId, profiles, fetchedRules]);
+  }, [activeProfileId, profiles]);
 
   const autosavePayload = useMemo(() => ({
     settings_json: settings as unknown as Record<string, unknown>,
-    rules_json: rules.map((r) => ({ name: r.name, enabled: r.enabled, weight: r.weight, positions: r.positions })) as unknown as Array<Record<string, unknown>>,
-  }), [settings, rules]);
+    rules_json: positionRules as unknown as Record<string, unknown>,
+  }), [settings, positionRules]);
 
   useAutoSave({
     activeId: user ? activeProfileId : null,
@@ -164,12 +165,12 @@ export default function App() {
     const created = await createProfile({
       name: `Profile ${profiles.length + 1}`,
       settings_json: settings as unknown as Record<string, unknown>,
-      rules_json: rules.map((r) => ({ name: r.name, enabled: r.enabled, weight: r.weight, positions: r.positions })),
+      rules_json: positionRules as unknown as Record<string, Array<{ name: string; enabled: boolean; weight: number }>>,
     });
     setProfiles([...profiles, created]);
     setActiveProfileId(created.id);
     await activateProfile(created.id);
-  }, [profiles, settings, rules, setProfiles]);
+  }, [profiles, settings, positionRules, setProfiles]);
 
   const handleRenameProfile = useCallback(async (id: string, name: string) => {
     const updated = await updateProfile(id, { name });
@@ -183,7 +184,7 @@ export default function App() {
   }, [profiles, activeProfileId, setProfiles]);
 
   const handleUndo = useCallback(async () => {
-    if (!activeProfileId || !fetchedRules) return;
+    if (!activeProfileId) return;
     const current = history[activeProfileId];
     if (!current || current.length < 2) return;
     // Drop the current tip; the entry before it becomes the new tip.
@@ -193,13 +194,7 @@ export default function App() {
     // Apply to local state immediately so the UI updates without waiting
     // for the server round-trip.
     setSettings(newTip.settings_json as unknown as SettingsState);
-    const overrides = new Map(
-      (newTip.rules_json as Array<{ name: string; enabled: boolean; weight: number; positions: string[] | null }>).map((r) => [r.name, r]),
-    );
-    setRules(fetchedRules.map((r) => {
-      const o = overrides.get(r.name);
-      return o ? { ...r, enabled: o.enabled, weight: o.weight, positions: "positions" in o ? o.positions : r.positions } : r;
-    }));
+    setPositionRules(newTip.rules_json as unknown as PositionRulesState);
 
     // Drop the popped entry from history. The autosave guard ("bail if payload
     // matches tip") now blocks the debounced save from firing redundantly —
@@ -207,7 +202,7 @@ export default function App() {
     setHistory((prev) => ({ ...prev, [activeProfileId]: trimmed }));
     const updated = await updateProfile(activeProfileId, newTip);
     setProfiles(profiles.map((p) => (p.id === activeProfileId ? updated : p)));
-  }, [activeProfileId, fetchedRules, history, profiles, setProfiles]);
+  }, [activeProfileId, history, profiles, setProfiles]);
 
   const buildRequest = (): GenerateRequest => {
     const active = profiles.find((p) => p.id === activeProfileId);
@@ -225,13 +220,13 @@ export default function App() {
       weight_consensus: settings.weights.consensus / 100,
       draft_rounds: settings.draft_rounds,
       overall_tier_count: settings.tier_count ?? settings.league_size,
-      rules,
+      rules: positionRules,
       keepers: linked?.keepers_json?.map((k) => k.player_name) ?? undefined,
       league_adp: linked?.adp_json ?? undefined,
     };
   };
 
-  const canGenerate = weightsAreValid(settings.weights) && rules.length > 0;
+  const canGenerate = weightsAreValid(settings.weights) && canonicalRules.length > 0;
 
   return (
     <div className="flex flex-col h-screen">
@@ -239,7 +234,7 @@ export default function App() {
         generateDisabled={!canGenerate}
         generateIsPending={generate.isPending}
         onGenerate={() => generate.mutate(buildRequest())}
-        currentState={{ settings, rules }}
+        currentState={{ settings, rules: canonicalRules }}
         isDark={isDark}
         onToggleDark={toggleDark}
         onShowOnboarding={reopenOnboarding}
@@ -280,7 +275,11 @@ export default function App() {
           profileId={activeProfileId}
           onRefreshLink={refresh}
         />
-        <RulesPanel rules={rules} onChange={setRules} />
+        <RulesPanel
+          canonicalRules={canonicalRules}
+          positionRules={positionRules}
+          onChange={setPositionRules}
+        />
         <TiersPanel
           result={generate.data ?? null}
           isPending={generate.isPending}

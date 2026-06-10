@@ -11,7 +11,7 @@ async def _make_user_and_profile(test_db, email="u@example.com"):
     test_db.add(u)
     await test_db.commit()
     await test_db.refresh(u)
-    p = Profile(user_id=u.id, name="My", settings_json={}, rules_json=[])
+    p = Profile(user_id=u.id, name="My", settings_json={}, rules_json={})
     test_db.add(p)
     await test_db.commit()
     await test_db.refresh(p)
@@ -172,7 +172,7 @@ async def test_pre_linked_sleeper_survives_profile_patch_and_me_refetch(async_cl
     # separate table).
     r = await async_client.patch(
         f"/api/profiles/{p.id}",
-        json={"settings_json": {"scoring_format": "ppr"}, "rules_json": []},
+        json={"settings_json": {"scoring_format": "ppr"}, "rules_json": {}},
     )
     assert r.status_code == 200, r.text
 

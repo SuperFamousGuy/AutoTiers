@@ -29,7 +29,7 @@ async def test_create_profile_persists_and_returns(async_client):
     r = await async_client.post("/api/profiles", json={
         "name": "PPR 12-team",
         "settings_json": {"scoring_format": "ppr", "league_size": 12},
-        "rules_json": [{"name": "X", "enabled": True, "weight": 1.0}],
+        "rules_json": {"RB": [{"name": "X", "enabled": True, "weight": 1.0}]},
     })
     assert r.status_code == 201
     body = r.json()
@@ -43,13 +43,13 @@ async def test_create_profile_rejects_when_at_cap(async_client):
         r = await async_client.post("/api/profiles", json={
             "name": f"Slot {i}",
             "settings_json": {},
-            "rules_json": [],
+            "rules_json": {},
         })
         assert r.status_code == 201
     r = await async_client.post("/api/profiles", json={
         "name": "Sixth",
         "settings_json": {},
-        "rules_json": [],
+        "rules_json": {},
     })
     assert r.status_code == 409
     assert "limit" in r.json()["detail"].lower() or "max" in r.json()["detail"].lower()
@@ -61,7 +61,7 @@ async def test_patch_profile_updates_fields(async_client):
     create = await async_client.post("/api/profiles", json={
         "name": "Original",
         "settings_json": {"league_size": 10},
-        "rules_json": [],
+        "rules_json": {},
     })
     pid = create.json()["id"]
 
@@ -73,14 +73,14 @@ async def test_patch_profile_updates_fields(async_client):
     body = r.json()
     assert body["name"] == "Renamed"
     assert body["settings_json"]["league_size"] == 14
-    assert body["rules_json"] == []
+    assert body["rules_json"] == {}
 
 
 @pytest.mark.asyncio
 async def test_patch_profile_403_when_other_user(async_client):
     await _signup(async_client, "alice@x.com")
     create = await async_client.post("/api/profiles", json={
-        "name": "Alice's profile", "settings_json": {}, "rules_json": [],
+        "name": "Alice's profile", "settings_json": {}, "rules_json": {},
     })
     pid = create.json()["id"]
 
@@ -94,7 +94,7 @@ async def test_patch_profile_403_when_other_user(async_client):
 async def test_delete_profile_removes_row(async_client):
     await _signup(async_client)
     create = await async_client.post("/api/profiles", json={
-        "name": "Doomed", "settings_json": {}, "rules_json": [],
+        "name": "Doomed", "settings_json": {}, "rules_json": {},
     })
     pid = create.json()["id"]
 
@@ -109,7 +109,7 @@ async def test_delete_profile_removes_row(async_client):
 async def test_delete_profile_403_when_other_user(async_client):
     await _signup(async_client, "alice@x.com")
     create = await async_client.post("/api/profiles", json={
-        "name": "Alice's", "settings_json": {}, "rules_json": [],
+        "name": "Alice's", "settings_json": {}, "rules_json": {},
     })
     pid = create.json()["id"]
 
@@ -123,7 +123,7 @@ async def test_delete_profile_403_when_other_user(async_client):
 async def test_activate_sets_last_active_profile_id(async_client):
     await _signup(async_client)
     create = await async_client.post("/api/profiles", json={
-        "name": "First", "settings_json": {}, "rules_json": [],
+        "name": "First", "settings_json": {}, "rules_json": {},
     })
     pid = create.json()["id"]
 
@@ -166,7 +166,7 @@ async def test_activate_unknown_profile_returns_404(async_client):
 async def test_activate_403_when_other_user(async_client):
     await _signup(async_client, "alice@x.com")
     create = await async_client.post("/api/profiles", json={
-        "name": "Alice's", "settings_json": {}, "rules_json": [],
+        "name": "Alice's", "settings_json": {}, "rules_json": {},
     })
     pid = create.json()["id"]
 
@@ -181,8 +181,8 @@ async def test_activate_surfaces_profile_to_top_of_list(async_client):
     """Activating a profile bumps updated_at so the list (ordered by
     updated_at desc) shows it first."""
     await _signup(async_client)
-    a = await async_client.post("/api/profiles", json={"name": "A", "settings_json": {}, "rules_json": []})
-    b = await async_client.post("/api/profiles", json={"name": "B", "settings_json": {}, "rules_json": []})
+    a = await async_client.post("/api/profiles", json={"name": "A", "settings_json": {}, "rules_json": {}})
+    b = await async_client.post("/api/profiles", json={"name": "B", "settings_json": {}, "rules_json": {}})
     a_id = a.json()["id"]
 
     # B was created last so it currently sorts first

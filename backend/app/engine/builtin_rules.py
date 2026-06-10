@@ -3,8 +3,9 @@ from app.engine.rules import Rule, RuleCondition, RuleEffect, EffectType
 
 # Position-aware age thresholds for the "Over the Hill" rule.
 # Players at or above these ages are considered past their production peak.
-# K/DST excluded (kickers age weirdly; DST has no age).
-OVER_THE_HILL_AGE = {"RB": 28, "WR": 30, "TE": 31, "QB": 36}
+# DST excluded (no individual age). K threshold is 40 — elite kickers play
+# into their late 30s but accuracy typically begins declining around age 40.
+OVER_THE_HILL_AGE = {"RB": 28, "WR": 30, "TE": 31, "QB": 36, "K": 40}
 
 
 BUILTIN_RULES: list[Rule] = [
@@ -19,14 +20,15 @@ BUILTIN_RULES: list[Rule] = [
         name="Target Share Premium",
         conditions=[RuleCondition(field="target_share", operator=">=", value=0.25)],
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=1.07),
-        description="Boosts WR/TE with elite target share (>=25% of team targets). +7% at default weight.",
-        positions=["WR", "TE"],
+        description="Boosts WR/TE/RB with elite target share (>=25% of team targets). +7% at default weight. Particularly relevant for RBs in PPR formats.",
+        positions=["RB", "WR", "TE"],
     ),
     Rule(
         name="Declining Snap%",
         conditions=[RuleCondition(field="snap_pct", operator="<", value=0.55)],
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.90),
         description="Penalizes players whose offensive snap share dropped under 55%. -10% at default weight.",
+        positions=["RB", "WR", "TE"],
     ),
     Rule(
         name="New Team Penalty",
@@ -107,8 +109,8 @@ BUILTIN_RULES: list[Rule] = [
         name="Over the Hill",
         conditions=[RuleCondition(field="is_over_the_hill", operator="==", value=True)],
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.85),
-        description="Penalizes players past their position's typical decline age: RB >=28, WR >=30, TE >=31, QB >=36. K and DST excluded. -15% at default weight.",
-        positions=["QB", "RB", "WR", "TE"],
+        description="Penalizes players past their position's typical decline age: RB >=28, WR >=30, TE >=31, QB >=36, K >=40. DST excluded. -15% at default weight.",
+        positions=["QB", "RB", "WR", "TE", "K"],
     ),
     Rule(
         name="Projection Unavailable",
@@ -132,8 +134,8 @@ BUILTIN_RULES: list[Rule] = [
             RuleCondition(field="injured_two_years_ago", operator="==", value=True),
         ],
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=1.10),
-        description="Boosts RBs and WRs returning to full health two years after an injury-shortened season (under 12 games played). Soft-tissue injuries take a full year to fully recover; year two is when players are truly back. +10% at default weight.",
-        positions=["RB", "WR"],
+        description="Boosts skill players returning to full health two years after an injury-shortened season (under 12 games played). Soft-tissue injuries take a full year to fully recover; year two is when players are truly back. +10% at default weight.",
+        positions=["QB", "RB", "WR", "TE", "K"],
     ),
     Rule(
         name="Bad Offense",

@@ -1,41 +1,139 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { RuleCategory } from "./RuleCategory";
-import type { Rule } from "@/api/types";
+import type { Rule, PositionRulesState, PositionRuleOverride } from "@/api/types";
+import { POSITIONS, POSITION_RULES_MAP, type Position } from "@/lib/positionRulesMap";
+import { cn } from "@/lib/utils";
 
 interface RulesPanelProps {
-  rules: Rule[];
-  onChange: (next: Rule[]) => void;
+  canonicalRules: Rule[];
+  positionRules: PositionRulesState;
+  onChange: (next: PositionRulesState) => void;
 }
 
-export function RulesPanel({ rules, onChange }: RulesPanelProps) {
-  const visibleRules = useMemo(
-    () => rules.filter((r) => r.effect.type !== "flag"),
-    [rules],
-  );
+export function RulesPanel({ canonicalRules, positionRules, onChange }: RulesPanelProps) {
+  const [activePosition, setActivePosition] = useState<Position>("RB");
 
+  const isLoading = canonicalRules.length === 0;
+
+  // Filter canonical rules to those in the active position's mapping, in mapping order.
+  const positionRuleNames = POSITION_RULES_MAP[activePosition];
+  const rulesForPosition = useMemo(() => {
+    const byName = new Map(canonicalRules.map((r) => [r.name, r]));
+    return positionRuleNames
+      .map((name) => byName.get(name))
+      .filter((r): r is Rule => r !== undefined && r.effect.type !== "flag");
+  }, [canonicalRules, positionRuleNames]);
+
+  // Group by category.
   const grouped = useMemo(() => {
     const m = new Map<string, Rule[]>();
-    for (const r of visibleRules) {
+    for (const r of rulesForPosition) {
       const cat = r.category || "Other";
       if (!m.has(cat)) m.set(cat, []);
       m.get(cat)!.push(r);
     }
     return [...m.entries()];
-  }, [visibleRules]);
+  }, [rulesForPosition]);
 
-  const updateRule = (updated: Rule) =>
-    onChange(rules.map((r) => (r.name === updated.name ? updated : r)));
+  // Build an overrides lookup for the active position, keyed by rule name.
+  const overridesForPosition = useMemo<Record<string, PositionRuleOverride>>(() => {
+    const overrides = positionRules[activePosition] ?? [];
+    return Object.fromEntries(overrides.map((o) => [o.name, o]));
+  }, [positionRules, activePosition]);
 
-  if (rules.length === 0) {
-    return <aside className="p-6 border-r bg-card min-h-0 overflow-y-auto"><span className="text-sm text-muted-foreground">Loading rules…</span></aside>;
+  function updateRule(positionName: string, updated: PositionRuleOverride) {
+    const current = positionRules[positionName] ?? [];
+    const existsIdx = current.findIndex((r) => r.name === updated.name);
+    let next: PositionRuleOverride[];
+    if (existsIdx >= 0) {
+      next = current.map((r, i) => (i === existsIdx ? updated : r));
+    } else {
+      next = [...current, updated];
+    }
+    onChange({ ...positionRules, [positionName]: next });
+  }
+
+  if (isLoading) {
+    return (
+      <aside className="p-6 border-r bg-card min-h-0 overflow-y-auto">
+        <div role="tablist" aria-label="Position" className="flex gap-1 mb-4">
+          {POSITIONS.map((pos) => (
+            <button
+              key={pos}
+              role="tab"
+              aria-selected={false}
+              aria-controls="rules-tabpanel"
+              id={`tab-${pos}`}
+              disabled
+              className="rounded px-2.5 py-1 text-xs font-semibold font-mono bg-muted text-muted-foreground opacity-50 cursor-not-allowed"
+            >
+              {pos}
+            </button>
+          ))}
+        </div>
+        <span className="text-sm text-muted-foreground">Loading rules…</span>
+      </aside>
+    );
   }
 
   return (
     <aside className="space-y-3 border-r bg-card p-6 overflow-y-auto min-h-0">
       <h2 className="text-lg font-semibold">Rules</h2>
-      {grouped.map(([cat, rs]) => (
-        <RuleCategory key={cat} name={cat} rules={rs} onChangeRule={updateRule} />
-      ))}
+
+      {/* Position tab strip */}
+      <div role="tablist" aria-label="Position" className="flex gap-1 flex-nowrap overflow-x-auto pb-1">
+        {POSITIONS.map((pos) => {
+          const isActive = pos === activePosition;
+          return (
+            <button
+              key={pos}
+              role="tab"
+              aria-selected={isActive}
+              aria-controls="rules-tabpanel"
+              id={`tab-${pos}`}
+              onClick={() => setActivePosition(pos)}
+              onKeyDown={(e) => {
+                const posIdx = POSITIONS.indexOf(pos);
+                if (e.key === "ArrowRight") {
+                  const next = POSITIONS[(posIdx + 1) % POSITIONS.length];
+                  setActivePosition(next);
+                  document.getElementById(`tab-${next}`)?.focus();
+                } else if (e.key === "ArrowLeft") {
+                  const prev = POSITIONS[(posIdx - 1 + POSITIONS.length) % POSITIONS.length];
+                  setActivePosition(prev);
+                  document.getElementById(`tab-${prev}`)?.focus();
+                }
+              }}
+              className={cn(
+                "rounded px-2.5 py-1 text-xs font-semibold font-mono flex-shrink-0 transition-colors",
+                isActive
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:bg-muted/80",
+              )}
+            >
+              {pos}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Rule list for active position */}
+      <div
+        role="tabpanel"
+        id="rules-tabpanel"
+        aria-labelledby={`tab-${activePosition}`}
+        className="space-y-3"
+      >
+        {grouped.map(([cat, rs]) => (
+          <RuleCategory
+            key={cat}
+            name={cat}
+            rules={rs}
+            overrides={overridesForPosition}
+            onChangeRule={(next) => updateRule(activePosition, next)}
+          />
+        ))}
+      </div>
     </aside>
   );
 }

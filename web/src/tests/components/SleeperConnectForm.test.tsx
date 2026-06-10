@@ -17,7 +17,7 @@ const baseProfile: Profile = {
   id: "p1",
   name: "My",
   settings_json: {},
-  rules_json: [],
+  rules_json: {},
   linked_league: null,
 };
 

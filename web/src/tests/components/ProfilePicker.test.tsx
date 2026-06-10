@@ -4,8 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { ProfilePicker } from "@/components/ProfilePicker";
 
 const profiles = [
-  { id: "p1", name: "PPR 12-team", settings_json: {}, rules_json: [], linked_league: null },
-  { id: "p2", name: "Standard Keeper", settings_json: {}, rules_json: [], linked_league: null },
+  { id: "p1", name: "PPR 12-team", settings_json: {}, rules_json: {}, linked_league: null },
+  { id: "p2", name: "Standard Keeper", settings_json: {}, rules_json: {}, linked_league: null },
 ];
 
 describe("ProfilePicker", () => {

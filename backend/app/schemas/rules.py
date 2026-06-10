@@ -36,3 +36,15 @@ class RuleSchema(BaseModel):
     category: str = "Custom"
     description: str = ""
     positions: list[str] | None = None  # None (or []) = apply to all positions
+
+
+class RuleOverrideSchema(BaseModel):
+    """Minimal per-position rule override sent by the frontend in generate requests.
+
+    The frontend sends only the rules that differ from built-in defaults,
+    keyed by position in the GenerateRequest.rules dict. The backend applies
+    these overrides on top of BUILTIN_RULES for each player's position.
+    """
+    name: str
+    enabled: bool
+    weight: float = 1.0

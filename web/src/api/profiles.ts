@@ -14,13 +14,13 @@ async function _voidFetch(path: string, method: string): Promise<void> {
 export interface ProfileCreateBody {
   name: string;
   settings_json: Record<string, unknown>;
-  rules_json: Array<Record<string, unknown>>;
+  rules_json: Record<string, Array<{ name: string; enabled: boolean; weight: number }>>;
 }
 
 export interface ProfileUpdateBody {
   name?: string;
   settings_json?: Record<string, unknown>;
-  rules_json?: Array<Record<string, unknown>>;
+  rules_json?: Record<string, unknown>;
 }
 
 export function listProfiles(): Promise<ProfilesListResponse> {

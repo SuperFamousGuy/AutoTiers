@@ -61,7 +61,7 @@ _GENERATE_BODY = {
     "weight_prior_year": 0.30,
     "weight_espn": 0.0,
     "weight_consensus": 0.70,
-    "rules": [],
+    "rules": {},
 }
 
 
@@ -383,7 +383,7 @@ async def test_generate_caps_players_by_draft_rounds(async_client, test_db):
         "scoring_format": "ppr", "league_type": "standard", "league_size": 10,
         "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
         "bonus_first_downs": False, "weight_prior_year": 0.0, "weight_espn": 0.0,
-        "weight_consensus": 1.0, "draft_rounds": 3, "rules": [],
+        "weight_consensus": 1.0, "draft_rounds": 3, "rules": {},
     }
     resp = await async_client.post("/api/generate", json=payload)
     assert resp.status_code == 200
@@ -423,7 +423,7 @@ async def test_generate_guarantees_position_coverage(async_client, test_db):
         "scoring_format": "ppr", "league_type": "standard", "league_size": 10,
         "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
         "bonus_first_downs": False, "weight_prior_year": 0.0, "weight_espn": 0.0,
-        "weight_consensus": 1.0, "draft_rounds": 15, "rules": [],
+        "weight_consensus": 1.0, "draft_rounds": 15, "rules": {},
     }
     resp = await async_client.post("/api/generate", json=payload)
     assert resp.status_code == 200
@@ -449,7 +449,7 @@ async def test_generate_validates_draft_rounds_range(async_client):
         "scoring_format": "ppr", "league_type": "standard", "league_size": 12,
         "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
         "bonus_first_downs": False, "weight_prior_year": 0.40, "weight_espn": 0.30,
-        "weight_consensus": 0.30, "rules": [],
+        "weight_consensus": 0.30, "rules": {},
     }
     # Too low
     resp = await async_client.post("/api/generate", json={**base_payload, "draft_rounds": 0})
@@ -464,7 +464,7 @@ async def test_generate_validates_draft_rounds_range(async_client):
 
 @pytest.mark.asyncio
 async def test_over_the_hill_position_aware_thresholds(async_client, test_db):
-    """is_over_the_hill should be position-aware: 28 for RB, 30 for WR, 31 for TE, 36 for QB."""
+    """is_over_the_hill should be position-aware: 28 for RB, 30 for WR, 31 for TE, 36 for QB, 40 for K."""
     from app.models import Player, Projection
     from datetime import date
 
@@ -478,7 +478,8 @@ async def test_over_the_hill_position_aware_thresholds(async_client, test_db):
         ("te_31", "TE", 31, True),
         ("qb_35", "QB", 35, False),
         ("qb_36", "QB", 36, True),
-        ("k_45",  "K",  45, False),  # K excluded — no threshold even at high age
+        ("k_39",  "K",  39, False),  # K under threshold (threshold is 40)
+        ("k_40",  "K",  40, True),   # K at threshold
         ("rb_no_age", "RB", None, False),  # missing age
     ]
     for pid, pos, age, _ in cases:
@@ -495,7 +496,7 @@ async def test_over_the_hill_position_aware_thresholds(async_client, test_db):
         "scoring_format": "ppr", "league_type": "standard", "league_size": 10,
         "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
         "bonus_first_downs": False, "weight_prior_year": 0.0, "weight_espn": 0.0,
-        "weight_consensus": 1.0, "draft_rounds": 15, "rules": [],
+        "weight_consensus": 1.0, "draft_rounds": 15, "rules": {},
     }
     resp = await async_client.post("/api/generate", json=payload)
     assert resp.status_code == 200
@@ -525,7 +526,7 @@ async def test_generate_response_includes_score_breakdown(async_client, test_db)
         "scoring_format": "ppr", "league_type": "standard", "league_size": 10,
         "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
         "bonus_first_downs": False, "weight_prior_year": 0.0, "weight_espn": 0.0,
-        "weight_consensus": 1.0, "draft_rounds": 15, "rules": [],
+        "weight_consensus": 1.0, "draft_rounds": 15, "rules": {},
     }
     resp = await async_client.post("/api/generate", json=payload)
     assert resp.status_code == 200
@@ -566,7 +567,7 @@ async def test_partial_data_player_does_not_outrank_complete_data_player(async_c
         "scoring_format": "ppr", "league_type": "standard", "league_size": 10,
         "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
         "bonus_first_downs": False,
-        "weight_prior_year": 0.20, "weight_espn": 0.0, "weight_consensus": 0.80, "draft_rounds": 15, "rules": [],
+        "weight_prior_year": 0.20, "weight_espn": 0.0, "weight_consensus": 0.80, "draft_rounds": 15, "rules": {},
     }
     resp = await async_client.post("/api/generate", json=payload)
     assert resp.status_code == 200
@@ -599,7 +600,7 @@ async def test_generate_csv_returns_csv_file(async_client, test_db):
         "weight_prior_year": 0.40,
         "weight_espn": 0.30,
         "weight_consensus": 0.30,
-        "rules": []
+        "rules": {}
     }
     response = await async_client.post("/api/generate/csv", json=payload)
     assert response.status_code == 200
@@ -656,7 +657,7 @@ async def test_vbd_top_rb_outranks_top_qb_in_standard(async_client, test_db):
         "scoring_format": "ppr", "league_type": "standard", "league_size": 12,
         "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
         "bonus_first_downs": False,
-        "weight_prior_year": 0.0, "weight_espn": 0.0, "weight_consensus": 1.0, "draft_rounds": 15, "rules": [],
+        "weight_prior_year": 0.0, "weight_espn": 0.0, "weight_consensus": 1.0, "draft_rounds": 15, "rules": {},
     }
     resp = await async_client.post("/api/generate", json=payload)
     assert resp.status_code == 200
@@ -700,7 +701,7 @@ async def test_overall_tier_count_fallback_uses_league_size(async_client, test_d
         # draft_rounds intentionally differs so a regression to draft_rounds is detectable.
         "draft_rounds": 25,
         # overall_tier_count intentionally omitted — exercises the fallback path.
-        "rules": [],
+        "rules": {},
     }
     resp = await async_client.post("/api/generate", json=payload)
     assert resp.status_code == 200

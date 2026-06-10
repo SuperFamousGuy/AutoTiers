@@ -47,9 +47,9 @@ async def test_favorited_player_gets_rule_applied_in_generate(async_client, test
         "qb_td_points": 4.0,
         "bonus_100yd_rushing": False, "bonus_100yd_receiving": False, "bonus_first_downs": False,
         "weight_prior_year": 0.0, "weight_espn": 0.0, "weight_consensus": 1.0,
-        "rules": [{"name": "Favorites", "enabled": True, "weight": 1.0,
-                      "conditions": [{"field": "is_favorite", "operator": "==", "value": True}],
-                      "effect": {"type": "multiplier", "value": 1.05}}],
+        "rules": {
+            "WR": [{"name": "Favorites", "enabled": True, "weight": 1.0}],
+        },
         "keepers": [],
     })
     assert r.status_code == 200, r.text
@@ -77,9 +77,9 @@ async def test_favorite_team_boosts_all_team_players(async_client, test_db):
         "qb_td_points": 4.0,
         "bonus_100yd_rushing": False, "bonus_100yd_receiving": False, "bonus_first_downs": False,
         "weight_prior_year": 0.0, "weight_espn": 0.0, "weight_consensus": 1.0,
-        "rules": [{"name": "Favorites", "enabled": True, "weight": 1.0,
-                      "conditions": [{"field": "is_favorite", "operator": "==", "value": True}],
-                      "effect": {"type": "multiplier", "value": 1.05}}],
+        "rules": {
+            "WR": [{"name": "Favorites", "enabled": True, "weight": 1.0}],
+        },
         "keepers": [],
     })
     by_id = {p["player_id"]: p for p in r.json()["players"]}
@@ -98,9 +98,9 @@ async def test_anonymous_generate_does_not_apply_favorites(async_client, test_db
         "qb_td_points": 4.0,
         "bonus_100yd_rushing": False, "bonus_100yd_receiving": False, "bonus_first_downs": False,
         "weight_prior_year": 0.0, "weight_espn": 0.0, "weight_consensus": 1.0,
-        "rules": [{"name": "Favorites", "enabled": True, "weight": 1.0,
-                      "conditions": [{"field": "is_favorite", "operator": "==", "value": True}],
-                      "effect": {"type": "multiplier", "value": 1.05}}],
+        "rules": {
+            "WR": [{"name": "Favorites", "enabled": True, "weight": 1.0}],
+        },
         "keepers": [],
     })
     assert r.status_code == 200, r.text

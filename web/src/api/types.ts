@@ -29,6 +29,16 @@ export interface Rule {
   positions: string[] | null;  // null (or []) = apply to all positions
 }
 
+// Per-position rule override map. Outer key: position string ("QB", "RB", etc.)
+// Inner array: only rules whose settings differ from built-in defaults.
+export type PositionRulesState = Record<string, PositionRuleOverride[]>;
+
+export interface PositionRuleOverride {
+  name: string;
+  enabled: boolean;
+  weight: number;
+}
+
 export interface GenerateRequest {
   scoring_format: ScoringFormat;
   league_type: LeagueType;
@@ -42,7 +52,7 @@ export interface GenerateRequest {
   weight_consensus: number;
   draft_rounds: number;
   overall_tier_count?: number;
-  rules: Rule[];
+  rules: Record<string, Array<{ name: string; enabled: boolean; weight: number }>>;
   keepers?: string[];
   league_adp?: Record<string, number>;
 }
@@ -129,7 +139,7 @@ export interface Profile {
   id: string;
   name: string;
   settings_json: Record<string, unknown>;
-  rules_json: Array<{ name: string; enabled: boolean; weight: number; positions?: string[] | null }>;
+  rules_json: Record<string, Array<{ name: string; enabled: boolean; weight: number }>>;
   linked_league: LinkedLeague | null;
 }
 
