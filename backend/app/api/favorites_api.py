@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import User, UserFavorites, Profile
+from app.models import User, UserFavorites
 from app.auth.dependencies import require_user
 from app.schemas.favorites import FavoritesUpdate, FavoritesOut
 from app.data.teams import is_valid_team
@@ -55,14 +55,6 @@ def _validate_and_normalize(body: FavoritesUpdate) -> tuple[list[str], list[str]
     return player_ids, teams
 
 
-async def _maybe_enable_favorites_rule(db: AsyncSession, user: User) -> None:
-    """No-op. Previously auto-injected a 'Favorites' rule entry into the active
-    profile's rules_json list.  With the position-first rules model, rules_json
-    is a dict keyed by position, and BUILTIN_RULES already include Favorites
-    with enabled=True for every position.  No side-effect is required."""
-    return
-
-
 @router.get("", response_model=FavoritesOut)
 async def get_favorites(
     user: User = require_user,
@@ -88,11 +80,6 @@ async def put_favorites(
         select(UserFavorites).where(UserFavorites.user_id == user.id)
     )).one_or_none()
 
-    had_any_before = (
-        row is not None
-        and (bool(row.favorite_player_ids) or bool(row.favorite_teams))
-    )
-
     if row is None:
         row = UserFavorites(
             user_id=user.id,
@@ -103,13 +90,6 @@ async def put_favorites(
     else:
         row.favorite_player_ids = player_ids
         row.favorite_teams = teams
-
-    has_any_now = bool(player_ids) or bool(teams)
-
-    # Auto-enable the Favorites rule on the user's transition from 0 → 1+,
-    # in the same transaction so a partial failure can't desync.
-    if has_any_now and not had_any_before:
-        await _maybe_enable_favorites_rule(db, user)
 
     await db.commit()
     await db.refresh(row)
