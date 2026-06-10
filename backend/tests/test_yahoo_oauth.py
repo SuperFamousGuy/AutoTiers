@@ -1,7 +1,8 @@
 import pytest
 import respx
+import httpx
 from httpx import Response
-from app.auth.yahoo import build_authorize_url, exchange_code, fetch_identity
+from app.auth.yahoo import build_authorize_url, exchange_code, fetch_identity, refresh_access_token
 
 
 def test_build_authorize_url_includes_required_params():
@@ -13,14 +14,59 @@ def test_build_authorize_url_includes_required_params():
     assert "scope=openid+email" in url or "scope=openid%20email" in url
 
 
+def test_build_authorize_url_identity_scope():
+    url = build_authorize_url("state123")
+    assert "fspt-r" not in url
+    assert "openid" in url
+    assert "email" in url
+
+
+def test_build_authorize_url_fantasy_scope():
+    url = build_authorize_url("state123", fantasy=True)
+    assert "fspt-r" in url
+    assert "openid" in url
+
+
+@pytest.mark.asyncio
+async def test_exchange_code_returns_tuple():
+    with respx.mock(base_url="https://api.login.yahoo.com") as router:
+        router.post("/oauth2/get_token").mock(
+            return_value=Response(200, json={"access_token": "acc123", "refresh_token": "ref456"})
+        )
+        access, refresh = await exchange_code("mycode")
+    assert access == "acc123"
+    assert refresh == "ref456"
+
+
+@pytest.mark.asyncio
+async def test_exchange_code_no_refresh_token():
+    with respx.mock(base_url="https://api.login.yahoo.com") as router:
+        router.post("/oauth2/get_token").mock(
+            return_value=Response(200, json={"access_token": "acc123"})
+        )
+        access, refresh = await exchange_code("mycode")
+    assert access == "acc123"
+    assert refresh is None
+
+
+@pytest.mark.asyncio
+async def test_refresh_access_token():
+    with respx.mock(base_url="https://api.login.yahoo.com") as router:
+        router.post("/oauth2/get_token").mock(
+            return_value=Response(200, json={"access_token": "new_acc"})
+        )
+        new_token = await refresh_access_token("old_refresh")
+    assert new_token == "new_acc"
+
+
 @pytest.mark.asyncio
 async def test_exchange_code_returns_access_token():
     with respx.mock(base_url="https://api.login.yahoo.com") as router:
         router.post("/oauth2/get_token").mock(return_value=Response(
             200, json={"access_token": "the-access-token", "token_type": "bearer", "expires_in": 3600}
         ))
-        token = await exchange_code("the-code")
-    assert token == "the-access-token"
+        access, _ = await exchange_code("the-code")
+    assert access == "the-access-token"
 
 
 @pytest.mark.asyncio
