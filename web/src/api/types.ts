@@ -111,7 +111,7 @@ export interface User {
 
 export interface LinkedLeague {
   profile_id: string;
-  provider: "sleeper" | "espn";
+  provider: "sleeper" | "espn" | "yahoo";
   // Null when the user pre-linked a provider account without selecting a league.
   league_id: string | null;
   league_metadata_json: { name: string; season: number } | null;
