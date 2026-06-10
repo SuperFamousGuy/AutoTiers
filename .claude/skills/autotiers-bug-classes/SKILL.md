@@ -24,6 +24,7 @@ Every entry below is a real bug that reached the user. Use these as the QA check
 - For each connect-form-style endpoint (`/link/sleeper`, `/link/espn`, `/profiles`, `/auth/signup`), submit with every required field blank. Does the backend persist anything? If yes, that's likely a bug.
 - Submit with whitespace-only strings — they pass `min_length` checks because they have non-zero length but mean nothing semantically.
 - The frontend pair of this validation: `EspnConnectForm`'s `disabled={busy || (leagueId.trim() === "" && (!isPrivate || swid.trim() === "" || espnS2.trim() === ""))}`. Frontend and backend validation must agree.
+- **Partial credential checks**: when a feature requires N credentials (e.g., `yahoo_access_token` AND `yahoo_refresh_token`), validate all N before the first API call. Checking only one lets a partially-initialized state reach the refresh path, which crashes on `decrypt(None)` or equivalent. Pattern: `if not user.yahoo_access_token or not user.yahoo_refresh_token: raise HTTPException(400, ...)`. Canonical case: `get_yahoo_leagues`, `post_yahoo`, and the Yahoo `refresh` branch all originally checked only `yahoo_access_token` — any DB row with one token absent would 500 on the first expired-token 401.
 
 ## 3. Identity / session loss → phantom account
 
@@ -80,6 +81,7 @@ The fix in that file builds the `Cookie:` header by hand and sends a Chrome `Use
 - For new `if/else` or `try/except`, both branches need a test that fails when the branch is deleted.
 - Treat a weak-bound assertion on the feature-under-test as a **blocker**, not a non-blocker — this one slipped to an external reviewer precisely because it was deferred.
 - Coverage tools confirm the line executed; only inspection confirms the test actually verified behaviour.
+- **Spy-mock tests don't cover function bodies for diff-cover**: `vi.spyOn(module, "fn").mockResolvedValue(...)` replaces the function, so the original body is never executed. A test that spies on `listYahooLeagues` at the call site never runs the `apiFetch(...)` line inside it. Diff-cover CI will flag the uncovered lines. Fix: add a separate `fetch`-level mock test that calls the function directly (see `web/src/tests/api/linkedLeague.test.ts` — the Yahoo Fantasy section). Canonical case: `listYahooLeagues` and `connectYahoo` in `linkedLeague.ts` had zero body coverage because every test spy-mocked them.
 
 ## 8. Git hygiene
 
