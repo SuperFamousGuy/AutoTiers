@@ -184,7 +184,7 @@ def _set_oauth_state_cookies(response, state_cookie_name: str, state: str, inten
     if intent in ("link", "yahoo_fantasy"):
         response.set_cookie(
             key=_OAUTH_INTENT_COOKIE,
-            value=intent,
+            value="yahoo_fantasy" if intent == "yahoo_fantasy" else "link",
             max_age=600,
             httponly=True,
             secure=not settings.debug,

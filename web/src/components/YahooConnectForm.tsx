@@ -111,12 +111,34 @@ export function YahooConnectForm({ profile, user, onLinked, onRefresh }: Props) 
         setLeagues(data);
         if (data.length > 0) setChosenKey(data[0].league_key);
       })
-      .catch(() => setError("Couldn't reach Yahoo. Please try again."))
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Couldn't reach Yahoo. Please try again."))
       .finally(() => setLoading(false));
   }, [profile.id, showPicker]);
 
   if (linked?.provider === "yahoo") {
     return <YahooConnectedState linked={linked} profileId={profile.id} onRefresh={onRefresh} />;
+  }
+
+  if (!user.yahoo_subject) {
+    return (
+      <div className="space-y-3 py-2">
+        <p className="text-sm text-muted-foreground">
+          Connect via Yahoo OAuth. We'll find your Yahoo Fantasy leagues automatically after you
+          authorize.
+        </p>
+        <Button
+          className="w-full"
+          onClick={() => {
+            window.location.href = `${yahooAuthorizeUrl()}?intent=link`;
+          }}
+        >
+          Continue with Yahoo
+        </Button>
+        <p className="text-center text-xs text-muted-foreground">
+          You'll be redirected to Yahoo, then brought back here.
+        </p>
+      </div>
+    );
   }
 
   if (!user.yahoo_fantasy_connected) {

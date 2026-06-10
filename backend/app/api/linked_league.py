@@ -270,7 +270,7 @@ async def get_yahoo_leagues(
     db: AsyncSession = Depends(get_db),
 ) -> list[YahooLeagueSummaryOut]:
     await _check_ownership(profile_id, user, db)
-    if not user.yahoo_access_token:
+    if not user.yahoo_access_token or not user.yahoo_refresh_token:
         raise HTTPException(
             status_code=400,
             detail="Yahoo Fantasy is not connected. Re-authorize with Yahoo to enable Fantasy Sports access.",
@@ -297,7 +297,7 @@ async def post_yahoo(
     user: User = require_user,
     db: AsyncSession = Depends(get_db),
 ) -> LinkedLeagueResponse:
-    if not user.yahoo_access_token:
+    if not user.yahoo_access_token or not user.yahoo_refresh_token:
         raise HTTPException(
             status_code=400,
             detail="Yahoo Fantasy is not connected. Re-authorize with Yahoo to enable Fantasy Sports access.",
@@ -365,7 +365,7 @@ async def refresh(
             raise _provider_http_error("ESPN", e)
         mapped = espn_to_settings(data.raw_scoring, league_size=data.league_size)
     elif ll.provider == "yahoo":
-        if not user.yahoo_access_token:
+        if not user.yahoo_access_token or not user.yahoo_refresh_token:
             raise HTTPException(status_code=400, detail="Yahoo Fantasy token missing — reconnect Yahoo.")
         try:
             data = await fetch_yahoo_league(ll.league_id, user, db)

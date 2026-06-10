@@ -103,14 +103,14 @@ describe("LinkedAccountsDialog", () => {
     expect(await screen.findByTestId("yahoo-connect-form")).toBeInTheDocument();
   });
 
-  it("Yahoo tab shows 'Select a profile' when no activeProfile is provided", () => {
+  it("Yahoo tab shows 'Select a profile' when no activeProfile is provided", async () => {
     render(
       <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
         onRefresh={noop} initialError={null} />,
     );
     const u = userEvent.setup();
-    u.click(screen.getByRole("button", { name: /^yahoo$/i }));
-    expect(screen.getByText(/select a profile/i)).toBeInTheDocument();
+    await u.click(screen.getByRole("button", { name: /^yahoo$/i }));
+    expect(await screen.findByText(/select a profile/i)).toBeInTheDocument();
   });
 
   it("shows 'Select a profile' when Sleeper tab is active but no activeProfile is provided", () => {
