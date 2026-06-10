@@ -181,4 +181,38 @@ describe("RuleItem", () => {
     // Should spread the whole override, only toggling enabled
     expect(onChange).toHaveBeenCalledWith({ name: "Test Rule", enabled: false, weight: 1.5 });
   });
+
+  it("invalid magnitude input (NaN) reverts to previous value without calling onChange", async () => {
+    const onChange = vi.fn();
+    render(<RuleItem rule={baseRule} override={defaultOverride} onChange={onChange} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByLabelText(/toggle details for test rule/i));
+
+    const input = screen.getByLabelText(/test rule adjustment magnitude/i) as HTMLInputElement;
+    // rule: -10% multiplier, weight 1.0 → magnitude 10
+    expect(input.value).toBe("10");
+
+    await user.clear(input);
+    await user.type(input, "abc");
+    await user.tab(); // blur triggers commit
+
+    // onChange must NOT have been called — input resets to original
+    expect(onChange).not.toHaveBeenCalled();
+    expect(input.value).toBe("10");
+  });
+
+  it("negative magnitude input reverts to previous value without calling onChange", async () => {
+    const onChange = vi.fn();
+    render(<RuleItem rule={baseRule} override={defaultOverride} onChange={onChange} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByLabelText(/toggle details for test rule/i));
+
+    const input = screen.getByLabelText(/test rule adjustment magnitude/i) as HTMLInputElement;
+    await user.clear(input);
+    await user.type(input, "-5");
+    await user.tab();
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(input.value).toBe("10");
+  });
 });
