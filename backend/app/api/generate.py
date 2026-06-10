@@ -264,6 +264,16 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
             favorite_teams_set = set(fav_row.favorite_teams or [])
     has_any_favorites = bool(favorite_pids_set or favorite_teams_set)
 
+    # Pre-compute per-position rule lists once before the player loop.
+    # _build_rules_for_position is O(len(BUILTIN_RULES)) per call; calling it
+    # per player would rebuild the same override_map for every player of the
+    # same position. With up to 6 distinct positions in a player pool, this
+    # reduces total rule-list builds from O(players) to O(positions).
+    position_rules_cache: dict[str, list[Rule]] = {
+        pos: _build_rules_for_position(pos, req)
+        for pos in {p.position for p in players}
+    }
+
     tiered: list[TieredPlayer] = []
     for player in players:
         if keepers_normalized and normalize_name(player.name) in keepers_normalized:
@@ -378,7 +388,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
             is_favorite=is_favorite_player or is_favorite_team,
         )
 
-        rules_for_player = _build_rules_for_position(player.position, req)
+        rules_for_player = position_rules_cache[player.position]
         rule_result = apply_rules(blended, ctx, rules_for_player)
         rule_result.flags.extend(flags_list)
 

@@ -38,9 +38,16 @@ class ProfileOut(BaseModel):
         rj = values.get("rules_json") if isinstance(values, dict) else getattr(values, "rules_json", None)
         if isinstance(rj, list):
             if isinstance(values, dict):
-                values["rules_json"] = {}
+                return {**values, "rules_json": {}}
             else:
-                object.__setattr__(values, "rules_json", {})
+                # Do not mutate the ORM instance (object.__setattr__ bypasses
+                # SQLAlchemy instrumentation but still affects the Python object,
+                # which can cause surprising behaviour if the same instance is
+                # accessed again later in the same request). Instead, extract all
+                # field values into a plain dict and reset rules_json there.
+                out = {field: getattr(values, field, None) for field in cls.model_fields}
+                out["rules_json"] = {}
+                return out
         return values
 
 

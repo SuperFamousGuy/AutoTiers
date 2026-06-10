@@ -25,8 +25,9 @@ export function RuleCategory({ name, rules, overrides, onChangeRule }: RuleCateg
       </CollapsibleTrigger>
       <CollapsibleContent className="px-3 py-2 space-y-1 divide-y divide-border/50">
         {rules.map((r) => {
-          // Build the override for this rule from the overrides map, or default
-          // to enabled=true, weight=1.0 if no override exists.
+          // Build the override for this rule from the overrides map, or fall
+          // back to the canonical rule's built-in enabled/weight values when no
+          // per-position override has been saved yet.
           const override: PositionRuleOverride = overrides[r.name] ?? {
             name: r.name,
             enabled: r.enabled,
