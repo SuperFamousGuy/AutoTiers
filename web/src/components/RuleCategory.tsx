@@ -3,15 +3,16 @@ import { ChevronDown } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { RuleItem } from "./RuleItem";
-import type { Rule } from "@/api/types";
+import type { Rule, PositionRuleOverride } from "@/api/types";
 
 interface RuleCategoryProps {
   name: string;
   rules: Rule[];
-  onChangeRule: (next: Rule) => void;
+  overrides: Record<string, PositionRuleOverride>;  // keyed by rule name
+  onChangeRule: (next: PositionRuleOverride) => void;
 }
 
-export function RuleCategory({ name, rules, onChangeRule }: RuleCategoryProps) {
+export function RuleCategory({ name, rules, overrides, onChangeRule }: RuleCategoryProps) {
   const [open, setOpen] = useState(true);
 
   return (
@@ -23,9 +24,24 @@ export function RuleCategory({ name, rules, onChangeRule }: RuleCategoryProps) {
         />
       </CollapsibleTrigger>
       <CollapsibleContent className="px-3 py-2 space-y-1 divide-y divide-border/50">
-        {rules.map((r) => (
-          <RuleItem key={r.name} rule={r} onChange={onChangeRule} />
-        ))}
+        {rules.map((r) => {
+          // Build the override for this rule from the overrides map, or fall
+          // back to the canonical rule's built-in enabled/weight values when no
+          // per-position override has been saved yet.
+          const override: PositionRuleOverride = overrides[r.name] ?? {
+            name: r.name,
+            enabled: r.enabled,
+            weight: r.weight,
+          };
+          return (
+            <RuleItem
+              key={r.name}
+              rule={r}
+              override={override}
+              onChange={onChangeRule}
+            />
+          );
+        })}
       </CollapsibleContent>
     </Collapsible>
   );

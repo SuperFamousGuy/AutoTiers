@@ -26,7 +26,7 @@ def _base_body() -> dict:
         "weight_espn": 0.0,
         "weight_consensus": 0.70,
         "draft_rounds": 15,
-        "rules": [],
+        "rules": {},
     }
 
 

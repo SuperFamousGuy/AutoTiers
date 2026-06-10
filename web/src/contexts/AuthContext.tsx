@@ -6,7 +6,7 @@ interface AuthContextValue {
   loading: boolean;
   user: User | null;
   profiles: Profile[];
-  signup: (body: { email: string; password: string; initial_settings?: Record<string, unknown>; initial_rules?: Array<Record<string, unknown>> }) => Promise<void>;
+  signup: (body: { email: string; password: string; initial_settings?: Record<string, unknown>; initial_rules?: Record<string, Array<{ name: string; enabled: boolean; weight: number }>> }) => Promise<void>;
   login: (body: { email: string; password: string }) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;

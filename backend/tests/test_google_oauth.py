@@ -338,7 +338,7 @@ async def test_me_returns_null_linked_league_when_profile_has_none(async_client,
     test_db.add(u)
     await test_db.commit()
     await test_db.refresh(u)
-    p = Profile(user_id=u.id, name="P1", settings_json={"scoring_format": "ppr"}, rules_json=[])
+    p = Profile(user_id=u.id, name="P1", settings_json={"scoring_format": "ppr"}, rules_json={})
     test_db.add(p)
     await test_db.commit()
 

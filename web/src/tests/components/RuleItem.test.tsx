@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { RuleItem } from "@/components/RuleItem";
-import type { Rule } from "@/api/types";
+import type { Rule, PositionRuleOverride } from "@/api/types";
 
 const baseRule: Rule = {
   name: "Test Rule",
@@ -16,58 +16,103 @@ const baseRule: Rule = {
   positions: null,
 };
 
+const defaultOverride: PositionRuleOverride = {
+  name: "Test Rule",
+  enabled: true,
+  weight: 1.0,
+};
+
 describe("RuleItem", () => {
   it("renders the rule name", () => {
-    render(<RuleItem rule={baseRule} onChange={() => {}} />);
+    render(<RuleItem rule={baseRule} override={defaultOverride} onChange={() => {}} />);
     expect(screen.getByText("Test Rule")).toBeInTheDocument();
   });
 
-  it("calls onChange when the switch is toggled", async () => {
+  it("switch reflects override.enabled state", () => {
+    render(<RuleItem rule={baseRule} override={{ ...defaultOverride, enabled: false }} onChange={() => {}} />);
+    const sw = screen.getByRole("switch");
+    expect(sw).toHaveAttribute("data-state", "unchecked");
+  });
+
+  it("calls onChange with enabled toggled when the switch is clicked", async () => {
     const onChange = vi.fn();
-    render(<RuleItem rule={baseRule} onChange={onChange} />);
+    render(<RuleItem rule={baseRule} override={defaultOverride} onChange={onChange} />);
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("switch"));
 
-    expect(onChange).toHaveBeenCalledWith({ ...baseRule, enabled: false });
+    expect(onChange).toHaveBeenCalledWith({ ...defaultOverride, enabled: false });
+  });
+
+  it("calls onChange with enabled=true when disabled switch is toggled on", async () => {
+    const onChange = vi.fn();
+    const disabledOverride: PositionRuleOverride = { ...defaultOverride, enabled: false };
+    render(<RuleItem rule={baseRule} override={disabledOverride} onChange={onChange} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("switch"));
+
+    expect(onChange).toHaveBeenCalledWith({ ...disabledOverride, enabled: true });
   });
 
   it("does not show description or adjustment row until expanded", () => {
-    render(<RuleItem rule={baseRule} onChange={() => {}} />);
+    render(<RuleItem rule={baseRule} override={defaultOverride} onChange={() => {}} />);
     expect(screen.queryByText(baseRule.description!)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/adjustment magnitude/i)).not.toBeInTheDocument();
   });
 
   it("shows description and adjustment row when expanded", async () => {
-    render(<RuleItem rule={baseRule} onChange={() => {}} />);
+    render(<RuleItem rule={baseRule} override={defaultOverride} onChange={() => {}} />);
     const user = userEvent.setup();
     await user.click(screen.getByLabelText(/toggle details for test rule/i));
     expect(screen.getByText(baseRule.description!)).toBeInTheDocument();
     expect(screen.getByLabelText(/test rule adjustment magnitude/i)).toBeInTheDocument();
   });
 
-  it("clicking the High suggestion sets weight to 2.0", async () => {
+  it("does NOT render position toggle section", async () => {
+    render(<RuleItem rule={baseRule} override={defaultOverride} onChange={() => {}} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByLabelText(/toggle details for test rule/i));
+
+    // No position scope group, no All button, no individual position buttons
+    expect(screen.queryByRole("group", { name: /position scope/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /apply to all positions/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /toggle rb/i })).not.toBeInTheDocument();
+  });
+
+  it("impact input reflects override.weight not rule.weight", async () => {
+    // rule.weight is 1.0 (default), override.weight is 2.0 (user-customized)
+    const weightedOverride: PositionRuleOverride = { ...defaultOverride, weight: 2.0 };
+    render(<RuleItem rule={baseRule} override={weightedOverride} onChange={() => {}} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByLabelText(/toggle details for test rule/i));
+    // For a -10% rule (effect.value=0.9) at weight 2.0 → 20%
+    const input = screen.getByLabelText(/test rule adjustment magnitude/i) as HTMLInputElement;
+    expect(input.value).toBe("20");
+  });
+
+  it("clicking the High suggestion sets weight to 2.0 via override", async () => {
     const onChange = vi.fn();
-    render(<RuleItem rule={baseRule} onChange={onChange} />);
+    render(<RuleItem rule={baseRule} override={defaultOverride} onChange={onChange} />);
     const user = userEvent.setup();
     await user.click(screen.getByLabelText(/toggle details for test rule/i));
     // For a -10% rule (effect.value=0.9), High shows -20%.
     await user.click(screen.getByRole("button", { name: /high: −20%/i }));
-    expect(onChange).toHaveBeenCalledWith({ ...baseRule, weight: 2.0 });
+    expect(onChange).toHaveBeenCalledWith({ ...defaultOverride, weight: 2.0 });
   });
 
-  it("clicking the Low suggestion sets weight to 0.5", async () => {
+  it("clicking the Low suggestion sets weight to 0.5 via override", async () => {
     const onChange = vi.fn();
-    render(<RuleItem rule={baseRule} onChange={onChange} />);
+    render(<RuleItem rule={baseRule} override={defaultOverride} onChange={onChange} />);
     const user = userEvent.setup();
     await user.click(screen.getByLabelText(/toggle details for test rule/i));
     await user.click(screen.getByRole("button", { name: /low: −5%/i }));
-    expect(onChange).toHaveBeenCalledWith({ ...baseRule, weight: 0.5 });
+    expect(onChange).toHaveBeenCalledWith({ ...defaultOverride, weight: 0.5 });
   });
 
   it("typing a custom magnitude updates weight on blur", async () => {
     const onChange = vi.fn();
-    render(<RuleItem rule={baseRule} onChange={onChange} />);
+    render(<RuleItem rule={baseRule} override={defaultOverride} onChange={onChange} />);
     const user = userEvent.setup();
     await user.click(screen.getByLabelText(/toggle details for test rule/i));
 
@@ -80,13 +125,13 @@ describe("RuleItem", () => {
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ weight: 1.5 }));
   });
 
-  it("input reflects external weight changes (suggestion clicks persist visually)", async () => {
-    const { rerender } = render(<RuleItem rule={baseRule} onChange={() => {}} />);
+  it("input re-syncs when override.weight changes externally", async () => {
+    const { rerender } = render(<RuleItem rule={baseRule} override={defaultOverride} onChange={() => {}} />);
     const user = userEvent.setup();
     await user.click(screen.getByLabelText(/toggle details for test rule/i));
 
-    // Simulate parent updating the rule after a High click — weight becomes 2.0
-    rerender(<RuleItem rule={{ ...baseRule, weight: 2.0 }} onChange={() => {}} />);
+    // Simulate parent updating the override weight to 2.0
+    rerender(<RuleItem rule={baseRule} override={{ ...defaultOverride, weight: 2.0 }} onChange={() => {}} />);
     const input = screen.getByLabelText(/test rule adjustment magnitude/i) as HTMLInputElement;
     expect(input.value).toBe("20");
   });
@@ -98,7 +143,7 @@ describe("RuleItem", () => {
       description: "Flat penalty of 5 points.",
     };
     const onChange = vi.fn();
-    render(<RuleItem rule={flatRule} onChange={onChange} />);
+    render(<RuleItem rule={flatRule} override={defaultOverride} onChange={onChange} />);
     const user = userEvent.setup();
     await user.click(screen.getByLabelText(/toggle details for test rule/i));
 
@@ -114,8 +159,9 @@ describe("RuleItem", () => {
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ weight: 1.6 }));
   });
 
-  it("disables suggestion buttons and input when the rule is disabled", async () => {
-    render(<RuleItem rule={{ ...baseRule, enabled: false }} onChange={() => {}} />);
+  it("disables suggestion buttons and input when override.enabled is false", async () => {
+    const disabledOverride: PositionRuleOverride = { ...defaultOverride, enabled: false };
+    render(<RuleItem rule={baseRule} override={disabledOverride} onChange={() => {}} />);
     const user = userEvent.setup();
     await user.click(screen.getByLabelText(/toggle details for test rule/i));
 
@@ -124,131 +170,49 @@ describe("RuleItem", () => {
     expect(screen.getByLabelText(/test rule adjustment magnitude/i)).toBeDisabled();
   });
 
-  describe("positions toggle", () => {
-    it("shows the positions group when expanded", async () => {
-      render(<RuleItem rule={baseRule} onChange={() => {}} />);
-      const user = userEvent.setup();
-      await user.click(screen.getByLabelText(/toggle details for test rule/i));
+  it("onChange receives the full override object with all fields", async () => {
+    const onChange = vi.fn();
+    const customOverride: PositionRuleOverride = { name: "Test Rule", enabled: true, weight: 1.5 };
+    render(<RuleItem rule={baseRule} override={customOverride} onChange={onChange} />);
 
-      expect(screen.getByRole("group", { name: /position scope/i })).toBeInTheDocument();
-    });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("switch"));
 
-    it("'All' button is active by default when positions is null", async () => {
-      render(<RuleItem rule={{ ...baseRule, positions: null }} onChange={() => {}} />);
-      const user = userEvent.setup();
-      await user.click(screen.getByLabelText(/toggle details for test rule/i));
+    // Should spread the whole override, only toggling enabled
+    expect(onChange).toHaveBeenCalledWith({ name: "Test Rule", enabled: false, weight: 1.5 });
+  });
 
-      const allBtn = screen.getByRole("button", { name: /apply to all positions/i });
-      expect(allBtn).toHaveAttribute("aria-pressed", "true");
-    });
+  it("invalid magnitude input (NaN) reverts to previous value without calling onChange", async () => {
+    const onChange = vi.fn();
+    render(<RuleItem rule={baseRule} override={defaultOverride} onChange={onChange} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByLabelText(/toggle details for test rule/i));
 
-    it("'All' button is active when positions is empty array", async () => {
-      render(<RuleItem rule={{ ...baseRule, positions: [] }} onChange={() => {}} />);
-      const user = userEvent.setup();
-      await user.click(screen.getByLabelText(/toggle details for test rule/i));
+    const input = screen.getByLabelText(/test rule adjustment magnitude/i) as HTMLInputElement;
+    // rule: -10% multiplier, weight 1.0 → magnitude 10
+    expect(input.value).toBe("10");
 
-      const allBtn = screen.getByRole("button", { name: /apply to all positions/i });
-      expect(allBtn).toHaveAttribute("aria-pressed", "true");
-    });
+    await user.clear(input);
+    await user.type(input, "abc");
+    await user.tab(); // blur triggers commit
 
-    it("position button shows as active when that position is in the array", async () => {
-      render(<RuleItem rule={{ ...baseRule, positions: ["WR", "TE"] }} onChange={() => {}} />);
-      const user = userEvent.setup();
-      await user.click(screen.getByLabelText(/toggle details for test rule/i));
+    // onChange must NOT have been called — input resets to original
+    expect(onChange).not.toHaveBeenCalled();
+    expect(input.value).toBe("10");
+  });
 
-      expect(screen.getByRole("button", { name: /toggle wr/i })).toHaveAttribute("aria-pressed", "true");
-      expect(screen.getByRole("button", { name: /toggle te/i })).toHaveAttribute("aria-pressed", "true");
-      expect(screen.getByRole("button", { name: /toggle rb/i })).toHaveAttribute("aria-pressed", "false");
-    });
+  it("negative magnitude input reverts to previous value without calling onChange", async () => {
+    const onChange = vi.fn();
+    render(<RuleItem rule={baseRule} override={defaultOverride} onChange={onChange} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByLabelText(/toggle details for test rule/i));
 
-    it("clicking a position button adds it to positions and calls onChange", async () => {
-      const onChange = vi.fn();
-      render(<RuleItem rule={{ ...baseRule, positions: null }} onChange={onChange} />);
-      const user = userEvent.setup();
-      await user.click(screen.getByLabelText(/toggle details for test rule/i));
+    const input = screen.getByLabelText(/test rule adjustment magnitude/i) as HTMLInputElement;
+    await user.clear(input);
+    await user.type(input, "-5");
+    await user.tab();
 
-      await user.click(screen.getByRole("button", { name: /toggle rb/i }));
-
-      expect(onChange).toHaveBeenCalledWith(
-        expect.objectContaining({ positions: ["RB"] }),
-      );
-    });
-
-    it("clicking an active position button removes it from positions", async () => {
-      const onChange = vi.fn();
-      render(<RuleItem rule={{ ...baseRule, positions: ["WR", "TE"] }} onChange={onChange} />);
-      const user = userEvent.setup();
-      await user.click(screen.getByLabelText(/toggle details for test rule/i));
-
-      await user.click(screen.getByRole("button", { name: /toggle wr/i }));
-
-      expect(onChange).toHaveBeenCalledWith(
-        expect.objectContaining({ positions: ["TE"] }),
-      );
-    });
-
-    it("clicking 'All' sets positions to null", async () => {
-      const onChange = vi.fn();
-      render(<RuleItem rule={{ ...baseRule, positions: ["WR"] }} onChange={onChange} />);
-      const user = userEvent.setup();
-      await user.click(screen.getByLabelText(/toggle details for test rule/i));
-
-      await user.click(screen.getByRole("button", { name: /apply to all positions/i }));
-
-      expect(onChange).toHaveBeenCalledWith(
-        expect.objectContaining({ positions: null }),
-      );
-    });
-
-    it("selecting all individual positions reverts positions to null", async () => {
-      const onChange = vi.fn();
-      // Start with 5 positions (missing DST)
-      render(
-        <RuleItem
-          rule={{ ...baseRule, positions: ["QB", "RB", "WR", "TE", "K"] }}
-          onChange={onChange}
-        />,
-      );
-      const user = userEvent.setup();
-      await user.click(screen.getByLabelText(/toggle details for test rule/i));
-
-      // Adding DST completes all 6 — should revert to null
-      await user.click(screen.getByRole("button", { name: /toggle dst/i }));
-
-      expect(onChange).toHaveBeenCalledWith(
-        expect.objectContaining({ positions: null }),
-      );
-    });
-
-    it("locked rule renders positions as plain text badges with (locked) label", async () => {
-      const lockedRule: Rule = {
-        ...baseRule,
-        name: "370 Touches",
-        positions: ["RB"],
-        is_builtin: true,
-      };
-      render(<RuleItem rule={lockedRule} onChange={() => {}} />);
-      const user = userEvent.setup();
-      await user.click(screen.getByLabelText(/toggle details for 370 touches/i));
-
-      expect(screen.getByText("RB")).toBeInTheDocument();
-      expect(screen.getByText("(locked)")).toBeInTheDocument();
-      // No interactive toggle group
-      expect(screen.queryByRole("group", { name: /position scope/i })).not.toBeInTheDocument();
-    });
-
-    it("locked rule does not render position toggle buttons", async () => {
-      const lockedRule: Rule = {
-        ...baseRule,
-        name: "Handcuff RB",
-        positions: ["RB"],
-        is_builtin: true,
-      };
-      render(<RuleItem rule={lockedRule} onChange={() => {}} />);
-      const user = userEvent.setup();
-      await user.click(screen.getByLabelText(/toggle details for handcuff rb/i));
-
-      expect(screen.queryByRole("button", { name: /toggle rb/i })).not.toBeInTheDocument();
-    });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(input.value).toBe("10");
   });
 });

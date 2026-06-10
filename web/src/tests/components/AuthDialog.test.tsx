@@ -102,9 +102,10 @@ describe("AuthDialog", () => {
       .mockResolvedValueOnce(new Response("", { status: 401 })) // /me on mount
       .mockResolvedValueOnce(new Response(JSON.stringify(me), { status: 201 })); // signup
 
+    // initialState.rules is now a PositionRulesState dict, not a Rule array.
     const initialState = {
       settings: { scoring_format: "ppr" } as any,
-      rules: [{ name: "Test Rule" } as any],
+      rules: { RB: [{ name: "RB Committee Penalty", enabled: false, weight: 1.0 }] },
     };
 
     render(
@@ -128,7 +129,7 @@ describe("AuthDialog", () => {
       email: "new@example.com",
       password: "correct horse battery",
       initial_settings: { scoring_format: "ppr" },
-      initial_rules: [{ name: "Test Rule" }],
+      initial_rules: { RB: [{ name: "RB Committee Penalty", enabled: false, weight: 1.0 }] },
     });
   });
 

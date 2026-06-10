@@ -8,12 +8,12 @@ import { YahooIcon, GoogleIcon } from "@/components/BrandIcons";
 import { ApiError } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import type { SettingsState } from "@/components/SettingsPanel";
-import type { Rule } from "@/api/types";
+import type { PositionRulesState } from "@/api/types";
 
 interface AuthDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  initialState: { settings: SettingsState; rules: Rule[] } | null;
+  initialState: { settings: SettingsState; rules: PositionRulesState } | null;
 }
 
 export function AuthDialog({ open, onOpenChange, initialState }: AuthDialogProps) {
@@ -62,7 +62,7 @@ export function AuthDialog({ open, onOpenChange, initialState }: AuthDialogProps
         email,
         password,
         initial_settings: initialState ? (initialState.settings as unknown as Record<string, unknown>) : undefined,
-        initial_rules: initialState ? (initialState.rules as unknown as Array<Record<string, unknown>>) : undefined,
+        initial_rules: initialState ? initialState.rules : undefined,
       });
       onOpenChange(false);
     } catch (err) {

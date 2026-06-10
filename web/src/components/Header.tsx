@@ -9,10 +9,10 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import type { SettingsState } from "./SettingsPanel";
-import type { Rule } from "@/api/types";
+import type { PositionRulesState } from "@/api/types";
 
 interface HamburgerProps {
-  currentState: { settings: SettingsState; rules: Rule[] } | null;
+  currentState: { settings: SettingsState; rules: PositionRulesState } | null;
   onOpenLinkedAccounts?: () => void;
 }
 
@@ -57,7 +57,7 @@ interface HeaderProps {
   generateDisabled: boolean;
   generateIsPending: boolean;
   onGenerate: () => void;
-  currentState: { settings: SettingsState; rules: Rule[] } | null;
+  currentState: { settings: SettingsState; rules: PositionRulesState } | null;
   profilePicker?: React.ReactNode;
   onOpenLinkedAccounts?: () => void;
   isDark: boolean;

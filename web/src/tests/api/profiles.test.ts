@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { listProfiles, createProfile, updateProfile, deleteProfile, activateProfile } from "@/api/profiles";
 import { ApiError } from "@/api/client";
 
-const sample = { id: "p1", name: "x", settings_json: {}, rules_json: [] };
+const sample = { id: "p1", name: "x", settings_json: {}, rules_json: {} };
 
 describe("profiles API", () => {
   afterEach(() => vi.restoreAllMocks());
@@ -20,7 +20,7 @@ describe("profiles API", () => {
     const spy = vi.spyOn(global, "fetch").mockResolvedValueOnce(
       new Response(JSON.stringify(sample), { status: 201 }),
     );
-    await createProfile({ name: "x", settings_json: {}, rules_json: [] });
+    await createProfile({ name: "x", settings_json: {}, rules_json: {} });
     expect(spy.mock.calls[0][1]?.method).toBe("POST");
   });
 

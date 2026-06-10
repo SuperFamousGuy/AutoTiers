@@ -43,7 +43,7 @@ async def test_signup_with_anonymous_state_creates_first_profile(async_client, t
         "email": "alice@example.com",
         "password": "correct horse battery",
         "initial_settings": {"scoring_format": "ppr", "league_size": 12},
-        "initial_rules": [{"name": "RB Committee Penalty", "enabled": True, "weight": 1.0}],
+        "initial_rules": {"RB": [{"name": "RB Committee Penalty", "enabled": True, "weight": 1.0}]},
     })
     assert r.status_code == 201
 
@@ -143,7 +143,7 @@ async def test_me_returns_user_and_profiles_when_authenticated(async_client):
         "email": "alice@example.com",
         "password": "correct horse battery",
         "initial_settings": {"scoring_format": "ppr", "league_size": 12},
-        "initial_rules": [],
+        "initial_rules": {},
     })
     assert signup.status_code == 201
 

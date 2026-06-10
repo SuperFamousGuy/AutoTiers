@@ -2,7 +2,7 @@ from typing import Optional
 from pydantic import BaseModel, Field, field_validator
 from app.engine.scoring import ScoringFormat, LeagueType
 from app.engine.rules import EffectType
-from app.schemas.rules import RuleSchema
+from app.schemas.rules import RuleOverrideSchema
 
 
 class GenerateRequest(BaseModel):
@@ -17,7 +17,7 @@ class GenerateRequest(BaseModel):
     weight_espn: float = 0.0
     weight_consensus: float = 0.70
     draft_rounds: int = 15
-    rules: list[RuleSchema] = Field(default_factory=list)
+    rules: dict[str, list[RuleOverrideSchema]] = Field(default_factory=dict)
     keepers: Optional[list[str]] = None
     league_adp: Optional[dict[str, float]] = None
 

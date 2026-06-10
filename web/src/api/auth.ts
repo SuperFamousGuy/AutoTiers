@@ -5,7 +5,7 @@ export interface SignupBody {
   email: string;
   password: string;
   initial_settings?: Record<string, unknown>;
-  initial_rules?: Array<Record<string, unknown>>;
+  initial_rules?: Record<string, Array<{ name: string; enabled: boolean; weight: number }>>;
 }
 
 export interface LoginBody {

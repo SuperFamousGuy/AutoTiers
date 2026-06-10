@@ -2,7 +2,7 @@ import csv
 import dataclasses
 import io
 import statistics
-from datetime import date, datetime
+from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends
 from fastapi.responses import Response
@@ -16,7 +16,7 @@ from app.models.adp import ADPData
 from app.models import TeamSeason, PlayerContract, UserFavorites, User
 from app.auth.dependencies import _get_current_user_impl
 from app.engine.scoring import LeagueSettings, PlayerStats, calculate_fantasy_points, blend_scores, _score_receiving, _score_rushing, _score_tds_only
-from app.engine.rules import Rule, RuleCondition, RuleEffect, PlayerContext, apply_rules
+from app.engine.rules import Rule, PlayerContext, apply_rules
 from app.engine.builtin_rules import BUILTIN_RULES, OVER_THE_HILL_AGE
 from app.engine.xfp import (
     compute_league_averages,
@@ -31,12 +31,6 @@ from app.schemas.generate import GenerateRequest, GenerateResponse, TieredPlayer
 from app.data.matching import normalize_name
 
 router = APIRouter()
-
-# Rules whose positions field is fixed to the built-in value and cannot be
-# overridden by the client. Changing positions for these rules would be
-# misleading because their conditions reference position-specific semantics
-# (e.g. "370 Touches" has position=="RB" as an explicit condition).
-LOCKED_POSITIONS: set[str] = {"370 Touches", "Handcuff RB"}
 
 
 async def _compute_data_as_of(db: AsyncSession) -> Optional[str]:
@@ -64,35 +58,27 @@ def _build_league_settings(req: GenerateRequest) -> LeagueSettings:
     )
 
 
-def _merge_positions(builtin: Rule, override_schema) -> "list[str] | None":
-    """Return the positions to use after merging a client override into a built-in rule.
+def _build_rules_for_position(position: str, req: "GenerateRequest") -> list[Rule]:
+    """Return the full BUILTIN_RULES list with per-position overrides applied.
 
-    For locked rules the built-in positions are always used, regardless of
-    what the client sent. For all other rules:
-    - If the client explicitly provided the `positions` field (even as null/[]),
-      that value is used. null means "apply to all positions"; [] is equivalent.
-    - If the client omitted the field entirely, the built-in default is kept.
+    For each built-in rule, apply the client's enabled/weight for this position
+    if an override exists. Otherwise use the built-in default. The built-in
+    `positions` field on each Rule is preserved unchanged — the engine's
+    position gate still applies.
 
-    Pydantic's model_fields_set tracks which fields were explicitly supplied on
-    construction, so we can distinguish "sent null" from "field absent".
+    Unknown rule names in the override are silently ignored (they simply won't
+    match any built-in and the built-in defaults are used for all rules).
+    Unknown position strings return built-in defaults (no crash).
     """
-    if builtin.name in LOCKED_POSITIONS:
-        return builtin.positions
-    if "positions" in override_schema.model_fields_set:
-        return override_schema.positions
-    return builtin.positions
-
-
-def _schema_to_rule(schema) -> Rule:
-    return Rule(
-        name=schema.name,
-        conditions=[RuleCondition(field=c.field, operator=c.operator, value=c.value) for c in schema.conditions],
-        effect=RuleEffect(type=schema.effect.type, value=schema.effect.value),
-        enabled=schema.enabled,
-        weight=schema.weight,
-        description=schema.description,
-        positions=schema.positions,
-    )
+    override_map = {o.name: o for o in req.rules.get(position, [])}
+    result: list[Rule] = []
+    for builtin in BUILTIN_RULES:
+        o = override_map.get(builtin.name)
+        if o is not None:
+            result.append(dataclasses.replace(builtin, enabled=o.enabled, weight=o.weight))
+        else:
+            result.append(builtin)
+    return result
 
 
 def _get_stat(stats: list[PlayerStat]) -> Optional[PlayerStat]:
@@ -203,37 +189,6 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
     settings = _build_league_settings(req)
     scoring_fmt = req.scoring_format.value
 
-    # Merge built-in + user-provided rules, deduplicating by name.
-    # For each built-in: apply user's enabled/weight overrides if submitted.
-    # Custom rules (names not in BUILTIN_RULES) are appended after.
-    # User-submitted values always take precedence; last write wins for any
-    # remaining duplicates via the merged dict.
-    builtin_by_name = {r.name: r for r in BUILTIN_RULES}
-    user_rule_map = {
-        schema.name: dataclasses.replace(
-            builtin_by_name[schema.name],
-            enabled=schema.enabled,
-            weight=schema.weight,
-            positions=_merge_positions(builtin_by_name[schema.name], schema),
-        )
-        for schema in req.rules
-        if schema.name in builtin_by_name
-    }
-    custom_rules = [
-        _schema_to_rule(schema)
-        for schema in req.rules
-        if schema.name not in builtin_by_name
-    ]
-    merged: dict[str, Rule] = {}
-    for br in BUILTIN_RULES:
-        if br.name in user_rule_map:
-            merged[br.name] = user_rule_map[br.name]
-        else:
-            merged[br.name] = br
-    for cr in custom_rules:
-        merged[cr.name] = cr  # custom always wins (already deduplicated by name)
-    rules = list(merged.values())
-
     keepers_normalized: set[str] = (
         {normalize_name(n) for n in req.keepers} if req.keepers else set()
     )
@@ -309,6 +264,16 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
             favorite_teams_set = set(fav_row.favorite_teams or [])
     has_any_favorites = bool(favorite_pids_set or favorite_teams_set)
 
+    # Pre-compute per-position rule lists once before the player loop.
+    # _build_rules_for_position is O(len(BUILTIN_RULES)) per call; calling it
+    # per player would rebuild the same override_map for every player of the
+    # same position. With up to 6 distinct positions in a player pool, this
+    # reduces total rule-list builds from O(players) to O(positions).
+    position_rules_cache: dict[str, list[Rule]] = {
+        pos: _build_rules_for_position(pos, req)
+        for pos in {p.position for p in players}
+    }
+
     tiered: list[TieredPlayer] = []
     for player in players:
         if keepers_normalized and normalize_name(player.name) in keepers_normalized:
@@ -371,7 +336,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
             above_market_contract = player.id in above_market_pids
 
         injured_two_years_ago: Optional[bool] = None
-        if player.position in ("RB", "WR"):
+        if player.position in ("QB", "RB", "WR", "TE", "K"):
             two_seasons_ago = datetime.utcnow().year - 2
             two_yrs_ago_stat = next(
                 (s for s in player.stats if s.season == two_seasons_ago),
@@ -423,7 +388,8 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
             is_favorite=is_favorite_player or is_favorite_team,
         )
 
-        rule_result = apply_rules(blended, ctx, rules)
+        rules_for_player = position_rules_cache[player.position]
+        rule_result = apply_rules(blended, ctx, rules_for_player)
         rule_result.flags.extend(flags_list)
 
         tiered.append(TieredPlayer(
