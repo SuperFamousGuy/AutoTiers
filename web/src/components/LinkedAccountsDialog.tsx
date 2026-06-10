@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { googleAuthorizeUrl, yahooAuthorizeUrl, unlinkGoogle, unlinkYahoo } from "@/api/auth";
+import { googleAuthorizeUrl, unlinkGoogle } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { SleeperConnectForm } from "@/components/SleeperConnectForm";
 import { EspnConnectForm } from "@/components/EspnConnectForm";
+import { YahooConnectForm } from "@/components/YahooConnectForm";
 import {
   GoogleIcon,
   YahooIcon,
@@ -51,7 +52,6 @@ export function LinkedAccountsDialog({
   const [error, setError] = useState<string | null>(initialError);
   const [activeTab, setActiveTab] = useState<PlatformTab>("sleeper");
   const [googleBusy, setGoogleBusy] = useState(false);
-  const [yahooBusy, setYahooBusy] = useState(false);
 
   useEffect(() => {
     setError(initialError);
@@ -74,25 +74,8 @@ export function LinkedAccountsDialog({
     }
   }
 
-  async function handleYahooDisconnect() {
-    setError(null);
-    setYahooBusy(true);
-    try {
-      await unlinkYahoo();
-      await onRefresh();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Disconnect failed. Please try again.");
-    } finally {
-      setYahooBusy(false);
-    }
-  }
-
   function handleGoogleConnect() {
     window.location.href = `${googleAuthorizeUrl()}?intent=link`;
-  }
-
-  function handleYahooConnect() {
-    window.location.href = `${yahooAuthorizeUrl()}?intent=link`;
   }
 
   function renderTabPanel() {
@@ -123,45 +106,20 @@ export function LinkedAccountsDialog({
           />
         );
       case "yahoo":
-        if (user.yahoo_subject) {
+        if (!activeProfile) {
           return (
-            <div className="space-y-3">
-              <div className="rounded-lg border-2 border-green-500 bg-green-50/50 dark:bg-green-900/30 p-3">
-                <div className="mb-1 flex items-center gap-2">
-                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-green-500">
-                    <span className="text-[10px] font-bold text-white">&#10003;</span>
-                  </div>
-                  <span className="text-sm font-bold text-green-700 dark:text-green-400">Connected!</span>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Yahoo account linked · Fantasy league import coming soon
-                </p>
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={yahooBusy}
-                aria-label="Disconnect Yahoo"
-                onClick={handleYahooDisconnect}
-              >
-                Disconnect
-              </Button>
-            </div>
+            <p className="py-4 text-center text-xs text-muted-foreground">
+              Select a profile above to connect a fantasy league.
+            </p>
           );
         }
         return (
-          <div className="space-y-3 py-2">
-            <p className="text-sm text-muted-foreground">
-              Connect via Yahoo OAuth. We'll find your Yahoo Fantasy leagues automatically after
-              you authorize.
-            </p>
-            <Button className="w-full" onClick={handleYahooConnect}>
-              Continue with Yahoo
-            </Button>
-            <p className="text-center text-xs text-muted-foreground">
-              You'll be redirected to Yahoo, then brought back here.
-            </p>
-          </div>
+          <YahooConnectForm
+            profile={activeProfile}
+            user={user}
+            onLinked={() => onRefresh()}
+            onRefresh={onRefresh}
+          />
         );
       case "nfl":
       case "cbs": {

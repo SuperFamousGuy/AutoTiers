@@ -23,6 +23,12 @@ vi.mock("@/api/linkedLeague", () => ({
   disconnectLink: vi.fn(),
 }));
 
+vi.mock("@/components/YahooConnectForm", () => ({
+  YahooConnectForm: ({ profile }: any) => (
+    <div data-testid="yahoo-connect-form">Yahoo Connect Form for {profile.name}</div>
+  ),
+}));
+
 const baseUser: User = {
   id: "u1",
   email: "alice@example.com",
@@ -84,42 +90,24 @@ describe("LinkedAccountsDialog", () => {
     expect(await screen.findByLabelText(/league id/i)).toBeInTheDocument();
   });
 
-  it("clicking the Yahoo tab shows the Yahoo OAuth button", async () => {
+  it("clicking the Yahoo tab shows the YahooConnectForm when activeProfile is set", async () => {
     render(
       <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
         onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
     );
     const u = userEvent.setup();
     await u.click(screen.getByRole("button", { name: /^yahoo$/i }));
-    expect(await screen.findByRole("button", { name: /continue with yahoo/i })).toBeInTheDocument();
+    expect(await screen.findByTestId("yahoo-connect-form")).toBeInTheDocument();
   });
 
-  it("Yahoo tab shows connected state when user.yahoo_subject is set", async () => {
+  it("Yahoo tab shows 'Select a profile' when no activeProfile is provided", () => {
     render(
-      <LinkedAccountsDialog open={true} onOpenChange={noop}
-        user={{ ...baseUser, yahoo_subject: "y-sub" }}
-        onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} />,
     );
     const u = userEvent.setup();
-    await u.click(screen.getByRole("button", { name: /^yahoo$/i }));
-    expect(await screen.findByText(/connected!/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /disconnect yahoo/i })).toBeInTheDocument();
-  });
-
-  it("Disconnect Yahoo calls unlinkYahoo then onRefresh", async () => {
-    const { unlinkYahoo } = await import("@/api/auth");
-    (unlinkYahoo as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
-    const refresh = vi.fn().mockResolvedValueOnce(undefined);
-    render(
-      <LinkedAccountsDialog open={true} onOpenChange={noop}
-        user={{ ...baseUser, yahoo_subject: "y-sub" }}
-        onRefresh={refresh} initialError={null} activeProfile={activeProfile} />,
-    );
-    const u = userEvent.setup();
-    await u.click(screen.getByRole("button", { name: /^yahoo$/i }));
-    await u.click(await screen.findByRole("button", { name: /disconnect yahoo/i }));
-    await waitFor(() => expect(unlinkYahoo).toHaveBeenCalled());
-    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    u.click(screen.getByRole("button", { name: /^yahoo$/i }));
+    expect(screen.getByText(/select a profile/i)).toBeInTheDocument();
   });
 
   it("shows 'Select a profile' when Sleeper tab is active but no activeProfile is provided", () => {
