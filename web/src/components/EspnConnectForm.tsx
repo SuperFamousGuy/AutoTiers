@@ -182,36 +182,12 @@ export function EspnConnectForm({ profile, onLinked, onRefresh }: Props) {
         <div className="space-y-2 rounded border bg-muted/40 p-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium">🍪 Private credentials</span>
-            <a
-              href="https://chromewebstore.google.com/detail/gameday-bot/nkplmhgeegmlfpkiiakfjpmhbinibojc"
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs underline"
-            >
-              How to find these ↗
-            </a>
           </div>
           <p className="text-xs text-muted-foreground">
-            Use the{" "}
-            <a
-              href="https://chromewebstore.google.com/detail/gameday-bot/nkplmhgeegmlfpkiiakfjpmhbinibojc"
-              target="_blank"
-              rel="noreferrer"
-              className="underline"
-            >
-              GameDayBot
-            </a>{" "}
-            or{" "}
-            <a
-              href="https://www.pff.com/fantasy"
-              target="_blank"
-              rel="noreferrer"
-              className="underline"
-            >
-              PFF
-            </a>{" "}
-            browser extension to copy these values automatically, or find them manually via
-            DevTools → Application → Cookies → fantasy.espn.com.
+            Open fantasy.espn.com, press F12, then navigate to Cookies:
+            Chrome uses <strong>Application → Cookies → fantasy.espn.com</strong>,
+            Firefox uses <strong>Storage → Cookies → fantasy.espn.com</strong>.
+            Copy the values for <code>SWID</code> and <code>espn_s2</code>.
           </p>
           <label className="block text-xs">
             <span>SWID</span>
