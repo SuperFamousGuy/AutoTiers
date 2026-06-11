@@ -184,9 +184,10 @@ export function EspnConnectForm({ profile, onLinked, onRefresh }: Props) {
             <span className="text-xs font-medium">🍪 Private credentials</span>
           </div>
           <p className="text-xs text-muted-foreground">
-            In Chrome or Firefox: open fantasy.espn.com, press F12, go to{" "}
-            <strong>Application → Cookies → fantasy.espn.com</strong> and copy
-            the values for <code>SWID</code> and <code>espn_s2</code>.
+            Open fantasy.espn.com, press F12, then navigate to Cookies:
+            Chrome uses <strong>Application → Cookies → fantasy.espn.com</strong>,
+            Firefox uses <strong>Storage → Cookies → fantasy.espn.com</strong>.
+            Copy the values for <code>SWID</code> and <code>espn_s2</code>.
           </p>
           <label className="block text-xs">
             <span>SWID</span>
