@@ -29,6 +29,7 @@ name: deploy
 on:
   release:
     types: [published]
+  workflow_dispatch: # allow manual re-runs via gh workflow run or GitHub UI
 
 # Limit GITHUB_TOKEN to the minimum needed. AWS calls use explicit IAM credentials.
 permissions:
