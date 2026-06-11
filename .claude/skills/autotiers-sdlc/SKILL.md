@@ -357,6 +357,7 @@ To trigger from a future session, the user asks: "clean up after <feature>" or i
 - If `git branch -d` refuses (branch not fully merged), investigate before using `-D`. The unmerged commits may be work that needs saving.
 - The `docs/superpowers/specs/` and `docs/superpowers/plans/` files are **intentionally kept** on the main branch — they are searchable history, not litter.
 - Remote feature branches on `origin` are left for GitHub to prune via the repo's "delete branch on merge" setting. Do not force-delete remote branches manually.
+- **Before teardown, check for untracked/uncommitted artifacts**: spec files (`docs/superpowers/specs/`), researcher knowledge updates (`.claude/skills/autotiers-ff-knowledge/SKILL.md`), and plan files must be committed — either to the feature branch (before merge) or to main directly if the PR is already merged. Untracked files left on the base branch are litter that `/learn-from-experience` must clean up later. Check `git status` before removing the worktree.
 
 ### What counts as litter
 
@@ -383,7 +384,7 @@ Scan the full SDLC run — Design Artifact, Implementation Report, QA Verdict, a
 |--------|----------------|
 | A bug type appeared that has no entry in `autotiers-bug-classes` | Add a new bug class |
 | A bug class entry proved too vague to catch the actual failure | Sharpen it |
-| Researcher surfaced a validated FF heuristic that isn't in the knowledge base | Append to `autotiers-ff-knowledge` |
+| Researcher surfaced a validated FF heuristic that isn't in the knowledge base | Append to `autotiers-ff-knowledge` AND commit the file before the PR merges |
 | A triage rule (Design/QA apply/skip) fired incorrectly — stage was skipped when it shouldn't have been, or ran unnecessarily | Update the triage section of this file |
 | A pushback trigger arose that isn't on the Manager's pushback list | Add it |
 | An agent overstepped or understepped its stated role | Update `.claude/agents/<agent>.md` |
