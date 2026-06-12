@@ -87,7 +87,7 @@ export function RuleItem({ rule, override, onChange }: RuleItemProps) {
         />
         <span className="text-sm flex-1 break-words leading-snug">{rule.name}</span>
         <CollapsibleTrigger
-          className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0 p-1 -m-1"
+          className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0 p-2 -m-2"
           aria-label={`Toggle details for ${rule.name}`}
         >
           <ChevronDown
@@ -105,7 +105,7 @@ export function RuleItem({ rule, override, onChange }: RuleItemProps) {
               type="button"
               onClick={() => applySuggestion(0.5)}
               disabled={!override.enabled}
-              className="rounded border bg-background px-2 py-0.5 text-foreground shadow-sm hover:bg-muted hover:border-foreground/30 active:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-background disabled:hover:border-input font-mono transition-colors"
+              className="rounded border bg-background px-2 py-2 text-foreground shadow-sm hover:bg-muted hover:border-foreground/30 active:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-background disabled:hover:border-input font-mono transition-colors"
             >
               Low: {impact.sign}{formatMagnitude(impact.magnitudeFor(0.5))}{impact.unit}
             </button>
@@ -131,7 +131,7 @@ export function RuleItem({ rule, override, onChange }: RuleItemProps) {
               type="button"
               onClick={() => applySuggestion(2.0)}
               disabled={!override.enabled}
-              className="rounded border bg-background px-2 py-0.5 text-foreground shadow-sm hover:bg-muted hover:border-foreground/30 active:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-background disabled:hover:border-input font-mono transition-colors"
+              className="rounded border bg-background px-2 py-2 text-foreground shadow-sm hover:bg-muted hover:border-foreground/30 active:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-background disabled:hover:border-input font-mono transition-colors"
             >
               High: {impact.sign}{formatMagnitude(impact.magnitudeFor(2.0))}{impact.unit}
             </button>

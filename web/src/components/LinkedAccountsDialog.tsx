@@ -158,7 +158,7 @@ export function LinkedAccountsDialog({
                 disabled={comingSoon}
                 onClick={() => setActiveTab(id)}
                 className={cn(
-                  "flex items-center gap-1.5 whitespace-nowrap border-b-2 px-4 py-2.5 text-xs font-medium transition-colors",
+                  "flex items-center gap-1.5 whitespace-nowrap border-b-2 px-4 py-3 text-xs font-medium transition-colors",
                   activeTab === id
                     ? "border-primary text-primary"
                     : "border-transparent text-muted-foreground hover:text-foreground",
@@ -180,7 +180,7 @@ export function LinkedAccountsDialog({
         <div className="px-6 py-4">{renderTabPanel()}</div>
 
         {/* Google footer — sign-in only, no fantasy league */}
-        <div className="flex items-center justify-between border-t border-border px-6 py-3">
+        <div className="flex items-center justify-between border-t border-border px-4 py-3">
           <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <GoogleIcon />
             Google · Sign-in only, no fantasy league

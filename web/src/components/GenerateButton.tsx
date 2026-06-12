@@ -12,8 +12,8 @@ export function GenerateButton({ disabled, isPending, onClick }: GenerateButtonP
     <Button
       onClick={onClick}
       disabled={disabled || isPending}
-      size="lg"
-      className="bg-amber-500 hover:bg-amber-600 text-white border-0 disabled:opacity-70"
+      size="default"
+      className="bg-amber-500 hover:bg-amber-600 text-white border-0 disabled:opacity-70 lg:h-11 lg:px-8 lg:text-base"
     >
       {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
       Generate
