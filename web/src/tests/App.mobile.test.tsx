@@ -2,8 +2,11 @@ import { describe, it, expect } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { http, HttpResponse } from "msw";
 import App from "@/App";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { server } from "./setup";
+import generateResponse from "./fixtures/generate-response.json";
 
 function renderApp() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -95,5 +98,46 @@ describe("App mobile tab bar", () => {
 
     const rulesPanel = screen.getByRole("tabpanel", { name: "Rules" });
     expect(rulesPanel.className).not.toContain("hidden");
+  });
+
+  it("second generate does not auto-switch away from a manually chosen tab", async () => {
+    // The auto-switch guard (hasAutoSwitchedToTiers ref) must fire only once.
+    // After the first generate switches to Tiers, the user navigates back to
+    // Settings; a second generate must leave the tab on Settings.
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Target Share Premium")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+
+    // First generate — auto-switches to Tiers
+    await user.click(screen.getByRole("button", { name: /^generate$/i }));
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "Tiers" })).toHaveAttribute("aria-selected", "true");
+    });
+
+    // User manually navigates back to Settings
+    await user.click(screen.getByRole("tab", { name: "Settings" }));
+    expect(screen.getByRole("tab", { name: "Settings" })).toHaveAttribute("aria-selected", "true");
+
+    // Override handler so the second generate returns a new object reference
+    // (simulating real TanStack Query v5 behavior where each mutate call
+    // replaces mutation.data with a fresh object, re-triggering the effect)
+    server.use(
+      http.post("http://localhost:8000/api/generate", () =>
+        HttpResponse.json({ ...generateResponse }),
+      ),
+    );
+
+    // Second generate — tab must stay on Settings
+    await user.click(screen.getByRole("button", { name: /^generate$/i }));
+    // Give the effect time to run if it were going to switch
+    await waitFor(() => {
+      expect(screen.getByText("Ja'Marr Chase")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("tab", { name: "Settings" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Tiers" })).toHaveAttribute("aria-selected", "false");
   });
 });

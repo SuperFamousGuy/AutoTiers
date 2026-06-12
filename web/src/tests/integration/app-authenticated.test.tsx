@@ -334,6 +334,30 @@ describe("App (authenticated integration)", () => {
     expect(window.location.search).toBe("");
   });
 
+  it("switching profiles resets mobile panel to Settings", async () => {
+    mockAuthenticated();
+    server.use(
+      http.post(`${API_URL}/api/profiles/:id/activate`, () => new HttpResponse(null, { status: 204 })),
+    );
+
+    renderApp();
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument());
+
+    // Manually navigate to the Rules tab
+    await user.click(screen.getByRole("tab", { name: "Rules" }));
+    expect(screen.getByRole("tab", { name: "Rules" })).toHaveAttribute("aria-selected", "true");
+
+    // Switch profiles
+    await user.click(screen.getByRole("button", { name: /PPR 12-team/i }));
+    await user.click(screen.getByRole("menuitem", { name: /Standard Keeper/i }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Standard Keeper/i })).toBeInTheDocument());
+
+    // After profile switch, Settings tab should be active
+    expect(screen.getByRole("tab", { name: "Settings" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Rules" })).toHaveAttribute("aria-selected", "false");
+  });
+
   it("autosave updates AuthContext profiles so switching away and back preserves edits", async () => {
     // Bug regression: autosave PATCHed the server but discarded the returned
     // profile, so local `profiles` stayed stale. Switching profiles then

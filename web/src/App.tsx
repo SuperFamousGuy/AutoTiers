@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { Header } from "@/components/Header";
 import { useDarkMode } from "@/hooks/useDarkMode";
 import { useOnboarding } from "@/hooks/useOnboarding";
@@ -48,6 +48,10 @@ export default function App() {
   const [linkingError, setLinkingError] = useState<string | null>(null);
   // Mobile panel state: "settings" when no result exists yet, "tiers" once a result exists.
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>("settings");
+  // Guard: auto-switch to Tiers only on the FIRST generate result after app load
+  // (or after a profile switch). Reset to false on profile change so the next
+  // generate result after switching profiles auto-switches again.
+  const hasAutoSwitchedToTiers = useRef(false);
   // Per-profile undo history. Each entry is a snapshot of a moment when state
   // was committed to the server. Tip (last entry) is the current server state.
   // Undo pops the tip and re-PATCHes the prior tip, so undo also persists.
@@ -67,9 +71,12 @@ export default function App() {
   const { data: fetchedRules } = useRules();
   const generate = useGenerateMutation();
 
-  // Smart mobile default: switch to "tiers" tab once a generate result is available.
+  // Smart mobile default: switch to "tiers" tab on the FIRST generate result after
+  // app load or profile switch. Subsequent generates leave the user's current tab
+  // selection intact so manually navigating away stays respected.
   useEffect(() => {
-    if (generate.data) {
+    if (generate.data && !hasAutoSwitchedToTiers.current) {
+      hasAutoSwitchedToTiers.current = true;
       setMobilePanel("tiers");
     }
   }, [generate.data]);
@@ -167,6 +174,11 @@ export default function App() {
 
   const handleSelectProfile = useCallback(async (id: string) => {
     setActiveProfileId(id);
+    // Return the mobile view to Settings on profile switch so the user sees
+    // the newly-loaded settings, and reset the auto-switch guard so the next
+    // generate result after switching will auto-navigate to Tiers again.
+    setMobilePanel("settings");
+    hasAutoSwitchedToTiers.current = false;
     await activateProfile(id);
   }, []);
 
