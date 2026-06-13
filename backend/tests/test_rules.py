@@ -175,7 +175,8 @@ def test_projection_unavailable_halves_score():
 
 
 def test_projection_unavailable_skipped_when_false():
-    rule = next(r for r in BUILTIN_RULES if r.name == "Projection Unavailable")
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Projection Unavailable"), enabled=True)
     ctx = make_ctx(projection_unavailable=False)
     result = apply_rules(100.0, ctx, [rule])
     assert result.adjusted_score == 100.0
@@ -192,7 +193,8 @@ def test_over_the_hill_fires_when_age_at_threshold():
 
 
 def test_over_the_hill_does_not_fire_when_false():
-    rule = next(r for r in BUILTIN_RULES if r.name == "Over the Hill")
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Over the Hill"), enabled=True)
     ctx = make_ctx(is_over_the_hill=False)
     result = apply_rules(100.0, ctx, [rule])
     assert result.adjusted_score == 100.0
@@ -201,7 +203,8 @@ def test_over_the_hill_does_not_fire_when_false():
 
 def test_over_the_hill_skipped_when_none():
     """K/DST/missing age have is_over_the_hill=None — rule shouldn't fire."""
-    rule = next(r for r in BUILTIN_RULES if r.name == "Over the Hill")
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Over the Hill"), enabled=True)
     ctx = make_ctx(is_over_the_hill=None)
     result = apply_rules(100.0, ctx, [rule])
     assert result.adjusted_score == 100.0
@@ -216,7 +219,8 @@ def test_td_regression_positive_fires_above_threshold():
 
 
 def test_td_regression_positive_does_not_fire_below_threshold():
-    rule = next(r for r in BUILTIN_RULES if r.name == "TD Regression")
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "TD Regression"), enabled=True)
     ctx = make_ctx(actual_tds_above_expected=2.0)  # below threshold of 3.0
     result = apply_rules(100.0, ctx, [rule])
     assert result.adjusted_score == 100.0
@@ -232,7 +236,8 @@ def test_red_zone_premium_fires_above_25():
 
 
 def test_red_zone_premium_skipped_when_none():
-    rule = next(r for r in BUILTIN_RULES if r.name == "Red Zone Usage Premium")
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Red Zone Usage Premium"), enabled=True)
     ctx = make_ctx(red_zone_looks=None)
     result = apply_rules(100.0, ctx, [rule])
     assert result.adjusted_score == 100.0
@@ -268,7 +273,8 @@ def test_370_touches_rule_fires_on_rb_with_high_touches():
 
 
 def test_370_touches_rule_does_not_fire_under_threshold():
-    rule = next(r for r in BUILTIN_RULES if r.name == "370 Touches")
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "370 Touches"), enabled=True)
     ctx = _ctx(prior_touches=369)
     result = apply_rules(200.0, ctx, [rule])
     assert "370 Touches" not in result.rules_applied
@@ -304,7 +310,8 @@ def test_year_after_rule_fires_on_wr_injured_two_seasons_ago():
 
 
 def test_year_after_rule_does_not_fire_when_false():
-    rule = next(r for r in BUILTIN_RULES if r.name == "Year After the Year After")
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Year After the Year After"), enabled=True)
     ctx = _ctx(position="WR", injured_two_years_ago=False)
     result = apply_rules(200.0, ctx, [rule])
     assert "Year After the Year After" not in result.rules_applied
@@ -320,7 +327,8 @@ def test_bad_offense_rule_fires():
 
 
 def test_bad_offense_rule_does_not_fire_when_none():
-    rule = next(r for r in BUILTIN_RULES if r.name == "Bad Offense")
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Bad Offense"), enabled=True)
     ctx = _ctx(position="K", bad_offense_team=None)
     result = apply_rules(200.0, ctx, [rule])
     assert "Bad Offense" not in result.rules_applied
@@ -336,7 +344,8 @@ def test_follow_the_money_rule_fires():
 
 
 def test_follow_the_money_rule_does_not_fire():
-    rule = next(r for r in BUILTIN_RULES if r.name == "Follow the Money")
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Follow the Money"), enabled=True)
     ctx = _ctx(position="WR", above_market_contract=False)
     result = apply_rules(200.0, ctx, [rule])
     assert "Follow the Money" not in result.rules_applied
@@ -534,7 +543,8 @@ def test_dome_kicker_fires_on_k_with_plays_in_dome_true():
 
 def test_dome_kicker_does_not_fire_on_non_k_position():
     """plays_in_dome=True on a QB → position gate blocks Dome Kicker."""
-    rule = next(r for r in BUILTIN_RULES if r.name == "Dome Kicker")
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Dome Kicker"), enabled=True)
     ctx = make_ctx(position="QB", plays_in_dome=True)
     result = apply_rules(100.0, ctx, [rule])
     assert "Dome Kicker" not in result.rules_applied
@@ -543,7 +553,8 @@ def test_dome_kicker_does_not_fire_on_non_k_position():
 
 def test_dome_kicker_does_not_fire_when_plays_in_dome_false():
     """plays_in_dome=False on a K → condition fails, rule skipped."""
-    rule = next(r for r in BUILTIN_RULES if r.name == "Dome Kicker")
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Dome Kicker"), enabled=True)
     ctx = make_ctx(position="K", plays_in_dome=False)
     result = apply_rules(100.0, ctx, [rule])
     assert "Dome Kicker" not in result.rules_applied
@@ -552,7 +563,8 @@ def test_dome_kicker_does_not_fire_when_plays_in_dome_false():
 
 def test_dome_kicker_does_not_fire_when_plays_in_dome_none():
     """plays_in_dome=None on a K → _evaluate short-circuits to False."""
-    rule = next(r for r in BUILTIN_RULES if r.name == "Dome Kicker")
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Dome Kicker"), enabled=True)
     ctx = make_ctx(position="K", plays_in_dome=None)
     result = apply_rules(100.0, ctx, [rule])
     assert "Dome Kicker" not in result.rules_applied
@@ -571,7 +583,8 @@ def test_mile_high_kicker_fires_on_k_with_is_denver_kicker_true():
 
 def test_mile_high_kicker_does_not_fire_on_non_k_position():
     """is_denver_kicker=True on a WR → position gate blocks Mile High Kicker."""
-    rule = next(r for r in BUILTIN_RULES if r.name == "Mile High Kicker")
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Mile High Kicker"), enabled=True)
     ctx = make_ctx(position="WR", is_denver_kicker=True)
     result = apply_rules(100.0, ctx, [rule])
     assert "Mile High Kicker" not in result.rules_applied
