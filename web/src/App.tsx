@@ -10,9 +10,14 @@ import { ProfilePicker } from "@/components/ProfilePicker";
 import { ManageProfilesDialog } from "@/components/ManageProfilesDialog";
 import { LinkedAccountsDialog } from "@/components/LinkedAccountsDialog";
 import { MobilePanelTabBar, type MobilePanel } from "@/components/MobilePanelTabBar";
+import { PasswordResetPanel } from "@/components/PasswordResetPanel";
+import { EmailVerificationBanner, shouldShowVerificationBanner, dismissVerificationBanner } from "@/components/EmailVerificationBanner";
+import { AuthDialog } from "@/components/AuthDialog";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
 import { useRules, useGenerateMutation, downloadCsv } from "@/api/hooks";
 import { useAuth } from "@/contexts/AuthContext";
+import { verifyEmail } from "@/api/auth";
 import { createProfile, updateProfile, deleteProfile, activateProfile } from "@/api/profiles";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { weightsAreValid } from "@/lib/weights";
@@ -35,6 +40,7 @@ export default function App() {
   const [isDark, toggleDark] = useDarkMode();
   const { showOnboarding, dismiss: dismissOnboarding, reopen: reopenOnboarding } = useOnboarding();
   const { user, profiles, setProfiles, refresh } = useAuth();
+  const { toast } = useToast();
   const [settings, setSettings] = useState<SettingsState>(DEFAULT_SETTINGS);
   // Canonical rule definitions from GET /rules (used to seed defaults and display).
   // Never mutated directly by the user — the user's changes go into positionRules.
@@ -46,6 +52,12 @@ export default function App() {
   const [manageOpen, setManageOpen] = useState(false);
   const [linkedOpen, setLinkedOpen] = useState(false);
   const [linkingError, setLinkingError] = useState<string | null>(null);
+  // Password-reset token extracted from ?reset_token= query param.
+  const [resetToken, setResetToken] = useState<string | null>(null);
+  // Controls the forgot-password dialog opened from the reset panel "Request new link" button.
+  const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
+  // Email verification banner — shown until dismissed or email is verified.
+  const [showVerifyBanner, setShowVerifyBanner] = useState(false);
   // Mobile panel state: "settings" when no result exists yet, "tiers" once a result exists.
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>("settings");
   // Guard: auto-switch to Tiers only on the FIRST generate result after app load
@@ -89,9 +101,11 @@ export default function App() {
     }
   }, [fetchedRules, seeded]);
 
-  // On first mount, surface OAuth linking failures the backend signalled via query param.
+  // On first mount, read all query params (OAuth errors, password-reset token, verify token).
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+
+    // OAuth linking errors
     const code = params.get("linking_error");
     let message: string | null = null;
     if (code === "already_linked_elsewhere") {
@@ -102,15 +116,52 @@ export default function App() {
     if (message !== null) {
       setLinkingError(message);
       setLinkedOpen(true);
-      params.delete("linking_error");
-      const rest = params.toString();
-      window.history.replaceState({}, "", window.location.pathname + (rest ? `?${rest}` : ""));
     }
+
+    // Password-reset token — show inline panel
+    const rt = params.get("reset_token");
+    if (rt) {
+      setResetToken(rt);
+    }
+
+    // Email-verification token — call the endpoint immediately
+    const vt = params.get("verify_token");
+    if (vt) {
+      verifyEmail(vt)
+        .then(() => {
+          refresh();
+          toast({ title: "Email verified. Thank you!", variant: "success" });
+        })
+        .catch(() => {
+          toast({
+            title: "This verification link is invalid or has expired.",
+            description: "You can request a new one from the banner below.",
+            variant: "error",
+          });
+          // Surface the banner so the user can resend.
+          setShowVerifyBanner(true);
+        });
+    }
+
+    // Strip handled params from the URL.
+    ["linking_error", "reset_token", "verify_token"].forEach((k) => params.delete(k));
+    const rest = params.toString();
+    window.history.replaceState({}, "", window.location.pathname + (rest ? `?${rest}` : ""));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // On user change, set activeProfileId from the user's last-active.
   useEffect(() => {
     setActiveProfileId(user?.last_active_profile_id ?? null);
+  }, [user]);
+
+  // Show verification banner when user is logged in with unverified email.
+  useEffect(() => {
+    if (user && user.email && !user.email_verified && shouldShowVerificationBanner()) {
+      setShowVerifyBanner(true);
+    } else {
+      setShowVerifyBanner(false);
+    }
   }, [user]);
 
   // When activeProfileId changes, hydrate settings + positionRules from that profile.
@@ -279,7 +330,29 @@ export default function App() {
           </div>
         ) : null}
       />
-      {showOnboarding && <OnboardingCard onDismiss={dismissOnboarding} />}
+      {/* Email verification banner — shown below header when email is unverified */}
+      {showVerifyBanner && user?.email && (
+        <EmailVerificationBanner
+          email={user.email}
+          onDismiss={() => {
+            dismissVerificationBanner();
+            setShowVerifyBanner(false);
+          }}
+        />
+      )}
+      {/* Password-reset panel — replaces onboarding card slot when reset_token present */}
+      {resetToken ? (
+        <PasswordResetPanel
+          token={resetToken}
+          onDismiss={() => setResetToken(null)}
+          onRequestNewLink={() => {
+            setResetToken(null);
+            setForgotPasswordOpen(true);
+          }}
+        />
+      ) : (
+        showOnboarding && <OnboardingCard onDismiss={dismissOnboarding} />
+      )}
       <MobilePanelTabBar active={mobilePanel} onChange={setMobilePanel} />
       <main className="flex-1 grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_minmax(0,1.5fr)] lg:grid-rows-1 overflow-hidden">
         <div
@@ -365,6 +438,13 @@ export default function App() {
           activeProfile={profiles.find((p) => p.id === activeProfileId) ?? null}
         />
       )}
+      {/* Standalone forgot-password dialog — opened from the reset panel's "Request new link" */}
+      <AuthDialog
+        open={forgotPasswordOpen}
+        onOpenChange={setForgotPasswordOpen}
+        initialState={null}
+        initialView="forgot_password"
+      />
     </div>
   );
 }

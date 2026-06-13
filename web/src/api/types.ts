@@ -117,6 +117,9 @@ export interface User {
   yahoo_fantasy_connected: boolean;
   google_subject: string | null;
   last_active_profile_id: string | null;
+  has_password: boolean;
+  email_verified: boolean;
+  password_changed_at: string | null;  // ISO 8601
 }
 
 export interface LinkedLeague {

@@ -38,6 +38,9 @@ const baseUser: User = {
   yahoo_fantasy_connected: false,
   google_subject: null,
   last_active_profile_id: null,
+  has_password: true,
+  email_verified: true,
+  password_changed_at: null,
 };
 
 const activeProfile: Profile = {
