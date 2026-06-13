@@ -264,13 +264,16 @@ async def forgot_password(
     This endpoint is non-enumerating — the same response is returned whether
     the email is registered, unregistered, OAuth-only, or unverified.
     """
-    email_lower = body.email.lower()
+    # Pydantic EmailStr normalises the domain to lowercase (RFC 5321 domains
+    # are case-insensitive); local parts are left as provided. Match what the
+    # signup stored — do NOT add extra lowercasing that signup doesn't do.
+    email = str(body.email)
 
-    if not reset_rate_limiter.check_and_record(email_lower):
+    if not reset_rate_limiter.check_and_record(email.lower()):
         raise HTTPException(status_code=429, detail="Too many requests; please wait before trying again")
 
     # Look up the user silently — do NOT branch on existence in the response.
-    user = await db.scalar(select(User).where(User.email == email_lower))
+    user = await db.scalar(select(User).where(User.email == email))
 
     if user is not None:
         raw_token = await _issue_auth_token(db, user.id, "password_reset", _RESET_TOKEN_TTL)
@@ -279,7 +282,7 @@ async def forgot_password(
         background_tasks.add_task(
             _send_reset_email_task,
             email_sender=email_sender,
-            to=email_lower,
+            to=email,
             reset_url=reset_url,
         )
 
