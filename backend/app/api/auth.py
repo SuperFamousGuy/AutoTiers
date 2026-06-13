@@ -1,37 +1,148 @@
 """Email/password auth endpoints. Yahoo OAuth lives in this same router but is added in phase 3."""
+import hashlib
+import logging
 import secrets
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response
+from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, HTTPException, Query, Response
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.database import get_db
 from app.models import User, Profile
+from app.models.auth_token import AuthToken
 from app.auth.hashing import hash_password, verify_password
 from app.auth.jwt import set_auth_cookie, clear_auth_cookie
 from app.auth.dependencies import require_user, _resolve_user
-from app.auth.rate_limit import login_rate_limiter
+from app.auth.rate_limit import login_rate_limiter, reset_rate_limiter, verify_rate_limiter
 from app.auth.yahoo import build_authorize_url, exchange_code, fetch_identity
+from app.auth.email_dep import get_email_sender
+from app.email.sender import EmailSender
+from app.email.templates import reset_password_email, verify_email_email
 from app.security.fernet import encrypt
 from app.auth.google import (
     build_authorize_url as build_google_authorize_url,
     exchange_code as exchange_google_code,
     fetch_identity as fetch_google_identity,
 )
-from app.schemas.auth import SignupRequest, LoginRequest, UserOut, MeResponse, ProfileOut
+from app.schemas.auth import (
+    SignupRequest,
+    LoginRequest,
+    UserOut,
+    MeResponse,
+    ProfileOut,
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
+    ChangePasswordRequest,
+    SetPasswordRequest,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+# --- Token TTLs ---
+_RESET_TOKEN_TTL = timedelta(hours=1)
+_VERIFY_TOKEN_TTL = timedelta(hours=72)
+
+
+def _hash_token(raw_token: str) -> str:
+    """Return the SHA-256 hex digest of a raw token. Never stored raw."""
+    return hashlib.sha256(raw_token.encode()).hexdigest()
+
+
+def _make_reset_url(raw_token: str) -> str:
+    """Build the password-reset deep-link for the frontend."""
+    return _frontend_url_with_param("reset_token", raw_token)
+
+
+def _make_verify_url(raw_token: str) -> str:
+    """Build the email-verification deep-link for the frontend."""
+    return _frontend_url_with_param("verify_token", raw_token)
+
+
+async def _issue_auth_token(
+    db: AsyncSession,
+    user_id,
+    token_type: str,
+    ttl: timedelta,
+) -> str:
+    """Create a new single-use auth token, deleting any prior unused tokens of
+    the same type for this user (one-active-per-user-per-type policy).
+
+    Returns the raw (unhashed) token — the caller must send this to the user
+    and must NOT persist it.
+    """
+    # Delete any existing unused tokens of this type for this user.
+    await db.execute(
+        delete(AuthToken).where(
+            AuthToken.user_id == user_id,
+            AuthToken.token_type == token_type,
+            AuthToken.used_at.is_(None),
+        )
+    )
+
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = _hash_token(raw_token)
+    now = datetime.now(timezone.utc)
+
+    auth_token = AuthToken(
+        user_id=user_id,
+        token_hash=token_hash,
+        token_type=token_type,
+        expires_at=now + ttl,
+        created_at=now,
+    )
+    db.add(auth_token)
+    await db.flush()
+    return raw_token
+
+
+async def _consume_auth_token(
+    db: AsyncSession,
+    raw_token: str,
+    expected_type: str,
+) -> AuthToken:
+    """Look up, validate, and mark a token as used.
+
+    Raises HTTPException(400) for any invalid state (not found, wrong type,
+    already used, expired). On success, sets used_at and returns the token.
+    """
+    token_hash = _hash_token(raw_token)
+    record = await db.scalar(
+        select(AuthToken).where(AuthToken.token_hash == token_hash)
+    )
+
+    if record is None:
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+    if record.token_type != expected_type:
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+    if record.used_at is not None:
+        raise HTTPException(status_code=400, detail="This link has already been used")
+    now = datetime.now(timezone.utc)
+    # SQLite stores datetimes as timezone-naive; PostgreSQL preserves tz info.
+    # Normalise to UTC for comparison regardless of backend.
+    expires_at = record.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at < now:
+        raise HTTPException(status_code=400, detail="This link has expired")
+
+    record.used_at = now
+    return record
 
 
 @router.post("/signup", status_code=201, response_model=MeResponse)
 async def signup(
     body: SignupRequest,
     response: Response,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    email_sender: EmailSender = Depends(get_email_sender),
 ) -> MeResponse:
     existing = await db.scalar(select(User).where(User.email == body.email))
     if existing is not None:
@@ -53,15 +164,44 @@ async def signup(
         await db.flush()
         user.last_active_profile_id = profile.id
 
+    # Issue a verification token and enqueue the email as a background task.
+    raw_verify_token = await _issue_auth_token(db, user.id, "email_verify", _VERIFY_TOKEN_TTL)
     await db.commit()
     await db.refresh(user)
 
     set_auth_cookie(response, user.id)
 
+    verify_url = _make_verify_url(raw_verify_token)
+    background_tasks.add_task(
+        _send_verification_email_task,
+        email_sender=email_sender,
+        to=body.email,
+        verify_url=verify_url,
+    )
+
     profiles = (await db.scalars(
         select(Profile).where(Profile.user_id == user.id).options(selectinload(Profile.linked_league))
     )).all()
     return MeResponse(user=UserOut.model_validate(user), profiles=[ProfileOut.model_validate(p) for p in profiles])
+
+
+async def _send_verification_email_task(
+    *,
+    email_sender: EmailSender,
+    to: str,
+    verify_url: str,
+) -> None:
+    """Background task: send the verification email. Errors are logged but not raised."""
+    try:
+        html, text = verify_email_email(verify_url)
+        await email_sender.send(
+            to=to,
+            subject="Verify your AutoTiers email",
+            html=html,
+            text=text,
+        )
+    except Exception:
+        logger.exception("Failed to send verification email to %s", to)
 
 
 @router.post("/login", response_model=MeResponse)
@@ -107,6 +247,208 @@ async def me(
         profiles=[ProfileOut.model_validate(p) for p in profiles],
     )
 
+
+# ---------------------------------------------------------------------------
+# Forgot / Reset password (Slice 3)
+# ---------------------------------------------------------------------------
+
+@router.post("/password/forgot", status_code=202)
+async def forgot_password(
+    body: ForgotPasswordRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    email_sender: EmailSender = Depends(get_email_sender),
+) -> dict:
+    """Always returns 202 regardless of whether the email exists.
+
+    This endpoint is non-enumerating — the same response is returned whether
+    the email is registered, unregistered, OAuth-only, or unverified.
+    """
+    email_lower = body.email.lower()
+
+    if not reset_rate_limiter.check_and_record(email_lower):
+        raise HTTPException(status_code=429, detail="Too many requests; please wait before trying again")
+
+    # Look up the user silently — do NOT branch on existence in the response.
+    user = await db.scalar(select(User).where(User.email == email_lower))
+
+    if user is not None:
+        raw_token = await _issue_auth_token(db, user.id, "password_reset", _RESET_TOKEN_TTL)
+        await db.commit()
+        reset_url = _make_reset_url(raw_token)
+        background_tasks.add_task(
+            _send_reset_email_task,
+            email_sender=email_sender,
+            to=email_lower,
+            reset_url=reset_url,
+        )
+
+    return {"detail": "If that email is registered, a reset link is on its way."}
+
+
+async def _send_reset_email_task(
+    *,
+    email_sender: EmailSender,
+    to: str,
+    reset_url: str,
+) -> None:
+    """Background task: send the password-reset email. Errors are logged but not raised."""
+    try:
+        html, text = reset_password_email(reset_url)
+        await email_sender.send(
+            to=to,
+            subject="Reset your AutoTiers password",
+            html=html,
+            text=text,
+        )
+    except Exception:
+        logger.exception("Failed to send password-reset email to %s", to)
+
+
+@router.post("/password/reset", response_model=MeResponse)
+async def reset_password(
+    body: ResetPasswordRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> MeResponse:
+    """Consume a password-reset token and set a new password.
+
+    On success, issues a session cookie (the user is logged in after reset).
+    Password reset also sets email_verified=True (inbox control proven).
+    """
+    token_record = await _consume_auth_token(db, body.token, "password_reset")
+
+    user = await db.get(User, token_record.user_id)
+    if user is None:
+        # Should not happen (CASCADE delete would remove tokens with user), but be safe.
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+
+    user.password_hash = hash_password(body.new_password)
+    user.password_changed_at = datetime.now(timezone.utc)
+    user.email_verified = True  # inbox control proven by reset link
+
+    await db.commit()
+    await db.refresh(user)
+
+    set_auth_cookie(response, user.id)
+
+    profiles = (await db.scalars(
+        select(Profile).where(Profile.user_id == user.id).options(selectinload(Profile.linked_league))
+    )).all()
+    return MeResponse(
+        user=UserOut.model_validate(user),
+        profiles=[ProfileOut.model_validate(p) for p in profiles],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Email verification (Slice 4)
+# ---------------------------------------------------------------------------
+
+@router.post("/email/resend-verification", status_code=202)
+async def resend_verification(
+    background_tasks: BackgroundTasks,
+    user: User = require_user,
+    db: AsyncSession = Depends(get_db),
+    email_sender: EmailSender = Depends(get_email_sender),
+) -> dict:
+    """Resend the email-verification link to the authenticated user."""
+    if not verify_rate_limiter.check_and_record(str(user.id)):
+        raise HTTPException(status_code=429, detail="Too many requests; please wait before trying again")
+
+    if user.email is None:
+        raise HTTPException(status_code=400, detail="No email address on this account")
+    if user.email_verified:
+        raise HTTPException(status_code=400, detail="Email is already verified")
+
+    raw_token = await _issue_auth_token(db, user.id, "email_verify", _VERIFY_TOKEN_TTL)
+    await db.commit()
+
+    verify_url = _make_verify_url(raw_token)
+    background_tasks.add_task(
+        _send_verification_email_task,
+        email_sender=email_sender,
+        to=user.email,
+        verify_url=verify_url,
+    )
+
+    return {"detail": "Verification email sent."}
+
+
+@router.get("/email/verify", status_code=204)
+async def verify_email(
+    token: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Verify an email address using a verification token."""
+    token_record = await _consume_auth_token(db, token, "email_verify")
+
+    user = await db.get(User, token_record.user_id)
+    if user is None:
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+
+    user.email_verified = True
+    await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Change / Set password (Slice 5)
+# ---------------------------------------------------------------------------
+
+@router.post("/password/change", status_code=204)
+async def change_password(
+    body: ChangePasswordRequest,
+    user: User = require_user,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Change the password for an authenticated user who already has one."""
+    if user.password_hash is None:
+        raise HTTPException(
+            status_code=400,
+            detail="No password set on this account — use set-password instead",
+        )
+
+    if not verify_password(user.password_hash, body.current_password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+    if verify_password(user.password_hash, body.new_password):
+        raise HTTPException(
+            status_code=400,
+            detail="New password must differ from current password",
+        )
+
+    user.password_hash = hash_password(body.new_password)
+    user.password_changed_at = datetime.now(timezone.utc)
+    await db.commit()
+
+
+@router.post("/password/set", status_code=204)
+async def set_password(
+    body: SetPasswordRequest,
+    user: User = require_user,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Set a password on an OAuth-only account that currently has none."""
+    if user.password_hash is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="Account already has a password — use change-password instead",
+        )
+
+    if user.email is None:
+        raise HTTPException(
+            status_code=400,
+            detail="An email address is required to set a password",
+        )
+
+    user.password_hash = hash_password(body.new_password)
+    user.password_changed_at = datetime.now(timezone.utc)
+    await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# OAuth helpers (unchanged from original)
+# ---------------------------------------------------------------------------
 
 _OAUTH_STATE_COOKIE = "autotiers_oauth_state"
 

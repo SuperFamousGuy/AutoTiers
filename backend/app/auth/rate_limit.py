@@ -33,3 +33,11 @@ class LoginRateLimiter:
 
 # Module-level singleton used by the auth router.
 login_rate_limiter = LoginRateLimiter()
+
+# Rate limiter for password-reset requests — keyed by email address.
+# 3 requests per hour per email prevents inbox flooding.
+reset_rate_limiter = LoginRateLimiter(max_attempts=3, window_seconds=3600)
+
+# Rate limiter for email-verification resend requests — keyed by user ID.
+# 3 resends per hour per user.
+verify_rate_limiter = LoginRateLimiter(max_attempts=3, window_seconds=3600)
