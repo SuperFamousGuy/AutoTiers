@@ -30,7 +30,7 @@ class RuleSchema(BaseModel):
     name: str
     conditions: list[RuleConditionSchema]
     effect: RuleEffectSchema
-    enabled: bool = True
+    enabled: bool = False
     weight: float = 1.0
     is_builtin: bool = False
     category: str = "Custom"

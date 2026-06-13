@@ -29,7 +29,7 @@ class Rule:
     name: str
     conditions: list[RuleCondition]
     effect: RuleEffect
-    enabled: bool = True
+    enabled: bool = False
     weight: float = 1.0
     description: str = ""
     positions: list[str] | None = None  # None (or []) = apply to all positions

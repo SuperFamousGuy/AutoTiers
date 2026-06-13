@@ -166,7 +166,8 @@ def test_all_builtin_rules_have_descriptions():
 
 
 def test_projection_unavailable_halves_score():
-    rule = next(r for r in BUILTIN_RULES if r.name == "Projection Unavailable")
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Projection Unavailable"), enabled=True)
     ctx = make_ctx(projection_unavailable=True)
     result = apply_rules(100.0, ctx, [rule])
     assert result.adjusted_score == 50.0
@@ -182,7 +183,8 @@ def test_projection_unavailable_skipped_when_false():
 
 
 def test_over_the_hill_fires_when_age_at_threshold():
-    rule = next(r for r in BUILTIN_RULES if r.name == "Over the Hill")
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Over the Hill"), enabled=True)
     ctx = make_ctx(is_over_the_hill=True)
     result = apply_rules(100.0, ctx, [rule])
     assert result.adjusted_score < 100.0  # penalty applied
@@ -206,7 +208,8 @@ def test_over_the_hill_skipped_when_none():
 
 
 def test_td_regression_positive_fires_above_threshold():
-    rule = next(r for r in BUILTIN_RULES if r.name == "TD Regression")
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "TD Regression"), enabled=True)
     ctx = make_ctx(actual_tds_above_expected=4.0)
     result = apply_rules(100.0, ctx, [rule])
     assert result.adjusted_score < 100.0  # multiplier < 1.0
@@ -221,7 +224,8 @@ def test_td_regression_positive_does_not_fire_below_threshold():
 
 
 def test_red_zone_premium_fires_above_25():
-    rule = next(r for r in BUILTIN_RULES if r.name == "Red Zone Usage Premium")
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Red Zone Usage Premium"), enabled=True)
     ctx = make_ctx(red_zone_looks=30)
     result = apply_rules(100.0, ctx, [rule])
     assert result.adjusted_score > 100.0
@@ -241,6 +245,7 @@ def test_apply_rules_tracks_per_rule_applications():
         name="Test Bonus",
         conditions=[RuleCondition(field="position", operator="==", value="WR")],
         effect=RuleEffect(type=EffectType.FLAT_BONUS, value=20.0),
+        enabled=True,
     )
     ctx = make_ctx(position="WR", projected_score=100.0)
     result = apply_rules(100.0, ctx, [rule])
@@ -254,7 +259,8 @@ def test_apply_rules_tracks_per_rule_applications():
 
 
 def test_370_touches_rule_fires_on_rb_with_high_touches():
-    rule = next(r for r in BUILTIN_RULES if r.name == "370 Touches")
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "370 Touches"), enabled=True)
     ctx = _ctx(prior_touches=375)
     result = apply_rules(200.0, ctx, [rule])
     assert "370 Touches" in result.rules_applied
@@ -289,7 +295,8 @@ def test_player_context_accepts_above_market_contract():
 
 
 def test_year_after_rule_fires_on_wr_injured_two_seasons_ago():
-    rule = next(r for r in BUILTIN_RULES if r.name == "Year After the Year After")
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Year After the Year After"), enabled=True)
     ctx = _ctx(position="WR", injured_two_years_ago=True)
     result = apply_rules(200.0, ctx, [rule])
     assert "Year After the Year After" in result.rules_applied
@@ -304,7 +311,8 @@ def test_year_after_rule_does_not_fire_when_false():
 
 
 def test_bad_offense_rule_fires():
-    rule = next(r for r in BUILTIN_RULES if r.name == "Bad Offense")
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Bad Offense"), enabled=True)
     ctx = _ctx(position="WR", bad_offense_team=True)
     result = apply_rules(200.0, ctx, [rule])
     assert "Bad Offense" in result.rules_applied
@@ -319,7 +327,8 @@ def test_bad_offense_rule_does_not_fire_when_none():
 
 
 def test_follow_the_money_rule_fires():
-    rule = next(r for r in BUILTIN_RULES if r.name == "Follow the Money")
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Follow the Money"), enabled=True)
     ctx = _ctx(position="WR", above_market_contract=True)
     result = apply_rules(200.0, ctx, [rule])
     assert "Follow the Money" in result.rules_applied
@@ -340,6 +349,7 @@ def test_position_gate_skips_rule_when_position_not_in_list():
         conditions=[RuleCondition(field="carry_share", operator="<", value=0.50)],
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.85),
         positions=["RB"],
+        enabled=True,
     )
     # WR player with carry_share that would trigger the condition — rule should not fire.
     ctx = make_ctx(position="WR", carry_share=0.30)
@@ -355,6 +365,7 @@ def test_position_gate_fires_rule_when_position_matches():
         conditions=[RuleCondition(field="carry_share", operator="<", value=0.50)],
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.85),
         positions=["RB"],
+        enabled=True,
     )
     ctx = make_ctx(position="RB", carry_share=0.30)
     result = apply_rules(100.0, ctx, [rule])
@@ -369,6 +380,7 @@ def test_position_gate_none_fires_on_all_positions():
         conditions=[RuleCondition(field="carry_share", operator="<", value=0.50)],
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.85),
         positions=None,
+        enabled=True,
     )
     for pos in ["QB", "RB", "WR", "TE", "K", "DST"]:
         ctx = make_ctx(position=pos, carry_share=0.30)
@@ -383,6 +395,7 @@ def test_position_gate_empty_list_fires_on_all_positions():
         conditions=[RuleCondition(field="carry_share", operator="<", value=0.50)],
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.85),
         positions=[],
+        enabled=True,
     )
     ctx = make_ctx(position="WR", carry_share=0.30)
     result = apply_rules(100.0, ctx, [rule])
@@ -397,6 +410,7 @@ def test_position_gate_multi_position_list():
         conditions=[RuleCondition(field="target_share", operator=">=", value=0.25)],
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=1.07),
         positions=["WR", "TE"],
+        enabled=True,
     )
     wr_ctx = make_ctx(position="WR", target_share=0.30)
     te_ctx = make_ctx(position="TE", target_share=0.30)
@@ -473,11 +487,13 @@ def test_apply_rules_applications_track_sequential_state():
         name="Bonus A",
         conditions=[RuleCondition(field="position", operator="==", value="WR")],
         effect=RuleEffect(type=EffectType.FLAT_BONUS, value=10.0),
+        enabled=True,
     )
     rule_b = Rule(
         name="Multiplier B",
         conditions=[RuleCondition(field="position", operator="==", value="WR")],
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.5),
+        enabled=True,
     )
     ctx = make_ctx(position="WR")
     result = apply_rules(100.0, ctx, [rule_a, rule_b])
@@ -508,7 +524,8 @@ def test_elevation_team_is_den():
 
 def test_dome_kicker_fires_on_k_with_plays_in_dome_true():
     """plays_in_dome=True on a K → Dome Kicker fires (+4%)."""
-    rule = next(r for r in BUILTIN_RULES if r.name == "Dome Kicker")
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Dome Kicker"), enabled=True)
     ctx = make_ctx(position="K", plays_in_dome=True)
     result = apply_rules(100.0, ctx, [rule])
     assert "Dome Kicker" in result.rules_applied
@@ -544,7 +561,8 @@ def test_dome_kicker_does_not_fire_when_plays_in_dome_none():
 
 def test_mile_high_kicker_fires_on_k_with_is_denver_kicker_true():
     """is_denver_kicker=True on a K → Mile High Kicker fires (+5%)."""
-    rule = next(r for r in BUILTIN_RULES if r.name == "Mile High Kicker")
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Mile High Kicker"), enabled=True)
     ctx = make_ctx(position="K", is_denver_kicker=True)
     result = apply_rules(100.0, ctx, [rule])
     assert "Mile High Kicker" in result.rules_applied
@@ -562,8 +580,9 @@ def test_mile_high_kicker_does_not_fire_on_non_k_position():
 
 def test_both_dome_and_mile_high_rules_do_not_stack_for_den_k():
     """DEN is NOT a dome team — a Denver K gets only Mile High, not Dome Kicker."""
-    dome_rule = next(r for r in BUILTIN_RULES if r.name == "Dome Kicker")
-    mhk_rule = next(r for r in BUILTIN_RULES if r.name == "Mile High Kicker")
+    import dataclasses
+    dome_rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Dome Kicker"), enabled=True)
+    mhk_rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Mile High Kicker"), enabled=True)
     # DEN kicker: plays_in_dome=False (DEN not in DOME_TEAMS), is_denver_kicker=True
     ctx = make_ctx(position="K", plays_in_dome=False, is_denver_kicker=True)
     result = apply_rules(100.0, ctx, [dome_rule, mhk_rule])
@@ -574,8 +593,9 @@ def test_both_dome_and_mile_high_rules_do_not_stack_for_den_k():
 
 def test_both_dome_and_mile_high_rules_stack_when_both_true():
     """A hypothetical K with plays_in_dome=True AND is_denver_kicker=True gets both multipliers."""
-    dome_rule = next(r for r in BUILTIN_RULES if r.name == "Dome Kicker")
-    mhk_rule = next(r for r in BUILTIN_RULES if r.name == "Mile High Kicker")
+    import dataclasses
+    dome_rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Dome Kicker"), enabled=True)
+    mhk_rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Mile High Kicker"), enabled=True)
     ctx = make_ctx(position="K", plays_in_dome=True, is_denver_kicker=True)
     result = apply_rules(100.0, ctx, [dome_rule, mhk_rule])
     assert "Dome Kicker" in result.rules_applied
@@ -603,7 +623,8 @@ def test_den_not_in_dome_teams():
 
 def test_dome_kicker_applications_appear_in_rule_applications():
     """When Dome Kicker fires, its RuleApplication is present in result.applications."""
-    rule = next(r for r in BUILTIN_RULES if r.name == "Dome Kicker")
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Dome Kicker"), enabled=True)
     ctx = make_ctx(position="K", plays_in_dome=True)
     result = apply_rules(100.0, ctx, [rule])
     assert len(result.applications) == 1
@@ -616,7 +637,8 @@ def test_dome_kicker_applications_appear_in_rule_applications():
 
 def test_mile_high_kicker_applications_appear_in_rule_applications():
     """When Mile High Kicker fires, its RuleApplication is present in result.applications."""
-    rule = next(r for r in BUILTIN_RULES if r.name == "Mile High Kicker")
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Mile High Kicker"), enabled=True)
     ctx = make_ctx(position="K", is_denver_kicker=True)
     result = apply_rules(100.0, ctx, [rule])
     assert len(result.applications) == 1

@@ -22,7 +22,8 @@ def make_ctx(**overrides) -> PlayerContext:
 
 
 def _favorites_rule() -> Rule:
-    return next(r for r in BUILTIN_RULES if r.name == "Favorites")
+    import dataclasses
+    return dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Favorites"), enabled=True)
 
 
 def test_favorites_rule_fires_when_is_favorite_true():

@@ -29,11 +29,13 @@ def make_ctx(**overrides) -> PlayerContext:
 
 def _over_producer_rule() -> Rule:
     """Locate the over-producer rule from BUILTIN_RULES."""
-    return next(r for r in BUILTIN_RULES if r.name == "Opportunity Over-Producer")
+    import dataclasses
+    return dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Opportunity Over-Producer"), enabled=True)
 
 
 def _under_producer_rule() -> Rule:
-    return next(r for r in BUILTIN_RULES if r.name == "Opportunity Under-Producer")
+    import dataclasses
+    return dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Opportunity Under-Producer"), enabled=True)
 
 
 def test_over_producer_fires_at_threshold():
