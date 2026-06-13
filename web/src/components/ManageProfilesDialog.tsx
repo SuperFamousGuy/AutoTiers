@@ -50,7 +50,7 @@ export function ManageProfilesDialog({ open, onOpenChange, profiles, onRename, o
         ) : (
           <ul className="space-y-2">
             {profiles.map((p) => (
-              <li key={p.id} className="flex items-center justify-between gap-2 rounded border px-3 py-2">
+              <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded border px-3 py-2">
                 {editingId === p.id ? (
                   <>
                     <Input

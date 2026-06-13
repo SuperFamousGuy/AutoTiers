@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { Header } from "@/components/Header";
 import { useDarkMode } from "@/hooks/useDarkMode";
 import { useOnboarding } from "@/hooks/useOnboarding";
@@ -9,6 +9,7 @@ import { TiersPanel } from "@/components/TiersPanel";
 import { ProfilePicker } from "@/components/ProfilePicker";
 import { ManageProfilesDialog } from "@/components/ManageProfilesDialog";
 import { LinkedAccountsDialog } from "@/components/LinkedAccountsDialog";
+import { MobilePanelTabBar, type MobilePanel } from "@/components/MobilePanelTabBar";
 import { Button } from "@/components/ui/button";
 import { useRules, useGenerateMutation, downloadCsv } from "@/api/hooks";
 import { useAuth } from "@/contexts/AuthContext";
@@ -45,6 +46,12 @@ export default function App() {
   const [manageOpen, setManageOpen] = useState(false);
   const [linkedOpen, setLinkedOpen] = useState(false);
   const [linkingError, setLinkingError] = useState<string | null>(null);
+  // Mobile panel state: "settings" when no result exists yet, "tiers" once a result exists.
+  const [mobilePanel, setMobilePanel] = useState<MobilePanel>("settings");
+  // Guard: auto-switch to Tiers only on the FIRST generate result after app load
+  // (or after a profile switch). Reset to false on profile change so the next
+  // generate result after switching profiles auto-switches again.
+  const hasAutoSwitchedToTiers = useRef(false);
   // Per-profile undo history. Each entry is a snapshot of a moment when state
   // was committed to the server. Tip (last entry) is the current server state.
   // Undo pops the tip and re-PATCHes the prior tip, so undo also persists.
@@ -63,6 +70,16 @@ export default function App() {
 
   const { data: fetchedRules } = useRules();
   const generate = useGenerateMutation();
+
+  // Smart mobile default: switch to "tiers" tab on the FIRST generate result after
+  // app load or profile switch. Subsequent generates leave the user's current tab
+  // selection intact so manually navigating away stays respected.
+  useEffect(() => {
+    if (generate.data && !hasAutoSwitchedToTiers.current) {
+      hasAutoSwitchedToTiers.current = true;
+      setMobilePanel("tiers");
+    }
+  }, [generate.data]);
 
   // Seed canonical rules list once.
   useEffect(() => {
@@ -157,6 +174,11 @@ export default function App() {
 
   const handleSelectProfile = useCallback(async (id: string) => {
     setActiveProfileId(id);
+    // Return the mobile view to Settings on profile switch so the user sees
+    // the newly-loaded settings, and reset the auto-switch guard so the next
+    // generate result after switching will auto-navigate to Tiers again.
+    setMobilePanel("settings");
+    hasAutoSwitchedToTiers.current = false;
     await activateProfile(id);
   }, []);
 
@@ -238,6 +260,7 @@ export default function App() {
         onToggleDark={toggleDark}
         onShowOnboarding={reopenOnboarding}
         onOpenLinkedAccounts={user ? () => { setLinkingError(null); setLinkedOpen(true); } : undefined}
+        activeProfileName={profiles.find((p) => p.id === activeProfileId)?.name ?? null}
         profilePicker={user ? (
           <div className="flex items-center gap-2">
             <ProfilePicker
@@ -257,51 +280,73 @@ export default function App() {
         ) : null}
       />
       {showOnboarding && <OnboardingCard onDismiss={dismissOnboarding} />}
+      <MobilePanelTabBar active={mobilePanel} onChange={setMobilePanel} />
       <main className="flex-1 grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_minmax(0,1.5fr)] lg:grid-rows-1 overflow-hidden">
-        <SettingsPanel
-          value={settings}
-          onChange={setSettings}
-          linkedLeague={
-            (() => {
-              const active = profiles.find((p) => p.id === activeProfileId);
-              const ll = active?.linked_league;
-              // Only show the auto-detected chip when an actual league is selected.
-              return ll && ll.league_metadata_json
-                ? { provider: ll.provider, leagueName: ll.league_metadata_json.name }
-                : null;
-            })()
-          }
-          profileId={activeProfileId}
-          onRefreshLink={refresh}
-        />
-        <RulesPanel
-          canonicalRules={canonicalRules}
-          positionRules={positionRules}
-          onChange={setPositionRules}
-        />
-        <TiersPanel
-          result={generate.data ?? null}
-          isPending={generate.isPending}
-          onDownloadCsv={() => {
-            if (generate.data) {
-              downloadCsv(
-                generate.data.players,
-                buildResolvedTierNames(
-                  settings.tier_count ?? settings.league_size,
-                  settings.tier_labels,
-                ),
-              );
+        <div
+          id="panel-settings"
+          role="tabpanel"
+          aria-label="Settings"
+          className={mobilePanel === "settings" ? "contents lg:contents" : "hidden lg:contents"}
+        >
+          <SettingsPanel
+            value={settings}
+            onChange={setSettings}
+            linkedLeague={
+              (() => {
+                const active = profiles.find((p) => p.id === activeProfileId);
+                const ll = active?.linked_league;
+                // Only show the auto-detected chip when an actual league is selected.
+                return ll && ll.league_metadata_json
+                  ? { provider: ll.provider, leagueName: ll.league_metadata_json.name }
+                  : null;
+              })()
             }
-          }}
-          keepers={
-            profiles.find((p) => p.id === activeProfileId)?.linked_league?.keepers_json ?? undefined
-          }
-          scoringFormat={settings.scoring_format}
-          tierLabelOverrides={buildResolvedTierNames(
-            settings.tier_count ?? settings.league_size,
-            settings.tier_labels,
-          )}
-        />
+            profileId={activeProfileId}
+            onRefreshLink={refresh}
+          />
+        </div>
+        <div
+          id="panel-rules"
+          role="tabpanel"
+          aria-label="Rules"
+          className={mobilePanel === "rules" ? "contents lg:contents" : "hidden lg:contents"}
+        >
+          <RulesPanel
+            canonicalRules={canonicalRules}
+            positionRules={positionRules}
+            onChange={setPositionRules}
+          />
+        </div>
+        <div
+          id="panel-tiers"
+          role="tabpanel"
+          aria-label="Tiers"
+          className={mobilePanel === "tiers" ? "contents lg:contents" : "hidden lg:contents"}
+        >
+          <TiersPanel
+            result={generate.data ?? null}
+            isPending={generate.isPending}
+            onDownloadCsv={() => {
+              if (generate.data) {
+                downloadCsv(
+                  generate.data.players,
+                  buildResolvedTierNames(
+                    settings.tier_count ?? settings.league_size,
+                    settings.tier_labels,
+                  ),
+                );
+              }
+            }}
+            keepers={
+              profiles.find((p) => p.id === activeProfileId)?.linked_league?.keepers_json ?? undefined
+            }
+            scoringFormat={settings.scoring_format}
+            tierLabelOverrides={buildResolvedTierNames(
+              settings.tier_count ?? settings.league_size,
+              settings.tier_labels,
+            )}
+          />
+        </div>
       </main>
       <ManageProfilesDialog
         open={manageOpen}
