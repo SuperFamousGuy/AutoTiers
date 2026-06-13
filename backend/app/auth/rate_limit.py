@@ -17,8 +17,9 @@ class LoginRateLimiter:
     def check_and_record(self, key: str) -> bool:
         """Returns True if the request is allowed, False if rate-limited.
 
-        Records the attempt either way (so spamming a blocked key extends
-        the block — the standard sliding-window behavior).
+        Only records the attempt when it is allowed; a request that is
+        already over the limit returns False without extending the window,
+        so the block clears window_seconds after the last *allowed* attempt.
         """
         now = time.time()
         bucket = self._attempts[key]
