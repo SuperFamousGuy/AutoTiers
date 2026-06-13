@@ -2,22 +2,27 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from httpx import AsyncClient, ASGITransport
-from app.auth.rate_limit import login_rate_limiter
+from app.auth.rate_limit import login_rate_limiter, reset_rate_limiter, verify_rate_limiter
 from app.config import settings
 from app.database import Base, get_db
+from app.email.fake_sender import FakeSender
 from app.main import app
 
 
 @pytest.fixture(autouse=True)
-def _reset_login_rate_limiter():
-    """Hermetic per-test reset of the in-process login rate limiter.
+def _reset_rate_limiters():
+    """Hermetic per-test reset of all in-process rate limiters.
 
-    Without this, tests that submit failed logins accumulate attempts
+    Without this, tests that submit failed requests accumulate attempts
     across the test run and a future test can spuriously hit 429.
     """
     login_rate_limiter._attempts.clear()
+    reset_rate_limiter._attempts.clear()
+    verify_rate_limiter._attempts.clear()
     yield
     login_rate_limiter._attempts.clear()
+    reset_rate_limiter._attempts.clear()
+    verify_rate_limiter._attempts.clear()
 
 # Tests run over plain HTTP (http://test). The auth cookie defaults to
 # secure=True when settings.debug=False, which would cause httpx to drop
@@ -48,7 +53,18 @@ async def test_db(test_engine):
 
 
 @pytest_asyncio.fixture
-async def async_client(test_engine):
+async def fake_sender() -> FakeSender:
+    """A FakeSender wired into app.state for the duration of the test."""
+    sender = FakeSender()
+    app.state.email_sender = sender
+    yield sender
+    # Clean up so state doesn't leak between test files.
+    if hasattr(app.state, "email_sender"):
+        del app.state.email_sender
+
+
+@pytest_asyncio.fixture
+async def async_client(test_engine, fake_sender):
     session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
 
     async def override_get_db():
