@@ -69,7 +69,7 @@ async def test_over_producer_rule_fires_in_generate(test_db: AsyncSession):
         weight_prior_year=0.0,
         weight_espn=0.0,
         weight_consensus=1.0,
-        rules={},
+        rules={"WR": [{"name": "Opportunity Over-Producer", "enabled": True, "weight": 1.0}]},
         keepers=[],
     )
     tiered = await _run_generate(req, test_db)

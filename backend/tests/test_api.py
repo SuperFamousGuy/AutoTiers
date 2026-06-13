@@ -141,7 +141,8 @@ async def test_generate_computes_prior_touches_for_rbs(async_client, test_db):
                            scoring_format="ppr", projected_points=290.0, last_updated=date.today()))
     await test_db.commit()
 
-    resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
+    body = {**_GENERATE_BODY, "rules": {"RB": [{"name": "370 Touches", "enabled": True, "weight": 1.0}]}}
+    resp = await async_client.post("/api/generate", json=body)
     assert resp.status_code == 200
     players = resp.json()["players"]
     workhorse = next(p for p in players if p["player_id"] == "test-workhorse")
@@ -158,7 +159,8 @@ async def test_generate_computes_injured_two_years_ago_for_rb(async_client, test
     test_db.add(PlayerStat(player_id=rb.id, season=two_yrs_ago, games_played=8))
     await test_db.commit()
 
-    resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
+    body = {**_GENERATE_BODY, "rules": {"RB": [{"name": "Year After the Year After", "enabled": True, "weight": 1.0}]}}
+    resp = await async_client.post("/api/generate", json=body)
     assert resp.status_code == 200
     players = resp.json()["players"]
     bounceback = next(p for p in players if p["player_id"] == "test-bounceback")
@@ -191,7 +193,8 @@ async def test_generate_flags_bad_offense_team(async_client, test_db):
                            last_updated=date.today()))
     await test_db.commit()
 
-    resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
+    body = {**_GENERATE_BODY, "rules": {"WR": [{"name": "Bad Offense", "enabled": True, "weight": 1.0}]}}
+    resp = await async_client.post("/api/generate", json=body)
     assert resp.status_code == 200
     players = resp.json()["players"]
     bad = next(p for p in players if p["player_id"] == "bad-wr")
@@ -229,7 +232,8 @@ async def test_generate_flags_above_market_contract(async_client, test_db):
         ))
     await test_db.commit()
 
-    resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
+    body = {**_GENERATE_BODY, "rules": {"WR": [{"name": "Follow the Money", "enabled": True, "weight": 1.0}]}}
+    resp = await async_client.post("/api/generate", json=body)
     assert resp.status_code == 200
     players = resp.json()["players"]
     rich = next(p for p in players if p["player_id"] == "rich-wr")
@@ -271,7 +275,8 @@ async def test_generate_excludes_teams_with_insufficient_data_from_bad_offense(a
                            last_updated=date.today()))
     await test_db.commit()
 
-    resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
+    body = {**_GENERATE_BODY, "rules": {"WR": [{"name": "Bad Offense", "enabled": True, "weight": 1.0}]}}
+    resp = await async_client.post("/api/generate", json=body)
     assert resp.status_code == 200
     players = resp.json()["players"]
     player = next(p for p in players if p["player_id"] == "insufficient-wr")
@@ -496,7 +501,14 @@ async def test_over_the_hill_position_aware_thresholds(async_client, test_db):
         "scoring_format": "ppr", "league_type": "standard", "league_size": 10,
         "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
         "bonus_first_downs": False, "weight_prior_year": 0.0, "weight_espn": 0.0,
-        "weight_consensus": 1.0, "draft_rounds": 15, "rules": {},
+        "weight_consensus": 1.0, "draft_rounds": 15,
+        "rules": {
+            "RB": [{"name": "Over the Hill", "enabled": True, "weight": 1.0}],
+            "WR": [{"name": "Over the Hill", "enabled": True, "weight": 1.0}],
+            "TE": [{"name": "Over the Hill", "enabled": True, "weight": 1.0}],
+            "QB": [{"name": "Over the Hill", "enabled": True, "weight": 1.0}],
+            "K":  [{"name": "Over the Hill", "enabled": True, "weight": 1.0}],
+        },
     }
     resp = await async_client.post("/api/generate", json=payload)
     assert resp.status_code == 200
@@ -567,7 +579,8 @@ async def test_partial_data_player_does_not_outrank_complete_data_player(async_c
         "scoring_format": "ppr", "league_type": "standard", "league_size": 10,
         "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
         "bonus_first_downs": False,
-        "weight_prior_year": 0.20, "weight_espn": 0.0, "weight_consensus": 0.80, "draft_rounds": 15, "rules": {},
+        "weight_prior_year": 0.20, "weight_espn": 0.0, "weight_consensus": 0.80, "draft_rounds": 15,
+        "rules": {"QB": [{"name": "Projection Unavailable", "enabled": True, "weight": 1.0}]},
     }
     resp = await async_client.post("/api/generate", json=payload)
     assert resp.status_code == 200
@@ -750,7 +763,8 @@ async def _seed_kickers(db):
 async def test_dome_kicker_rule_fires_for_dome_team(async_client, test_db):
     """MIN kicker gets 'Dome Kicker' in rules_applied via player.team wiring."""
     await _seed_kickers(test_db)
-    resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
+    body = {**_GENERATE_BODY, "rules": {"K": [{"name": "Dome Kicker", "enabled": True, "weight": 1.0}]}}
+    resp = await async_client.post("/api/generate", json=body)
     assert resp.status_code == 200
     by_id = {p["player_id"]: p for p in resp.json()["players"]}
     assert "Dome Kicker" in by_id["k_min"]["rules_applied"]
@@ -759,7 +773,8 @@ async def test_dome_kicker_rule_fires_for_dome_team(async_client, test_db):
 async def test_dome_kicker_rule_does_not_fire_for_outdoor_team(async_client, test_db):
     """BUF kicker does NOT get 'Dome Kicker' — outdoor stadium."""
     await _seed_kickers(test_db)
-    resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
+    body = {**_GENERATE_BODY, "rules": {"K": [{"name": "Dome Kicker", "enabled": True, "weight": 1.0}]}}
+    resp = await async_client.post("/api/generate", json=body)
     assert resp.status_code == 200
     by_id = {p["player_id"]: p for p in resp.json()["players"]}
     assert "Dome Kicker" not in by_id["k_buf"]["rules_applied"]
@@ -768,7 +783,8 @@ async def test_dome_kicker_rule_does_not_fire_for_outdoor_team(async_client, tes
 async def test_mile_high_kicker_rule_fires_for_denver(async_client, test_db):
     """DEN kicker gets 'Mile High Kicker' in rules_applied via player.team wiring."""
     await _seed_kickers(test_db)
-    resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
+    body = {**_GENERATE_BODY, "rules": {"K": [{"name": "Mile High Kicker", "enabled": True, "weight": 1.0}]}}
+    resp = await async_client.post("/api/generate", json=body)
     assert resp.status_code == 200
     by_id = {p["player_id"]: p for p in resp.json()["players"]}
     assert "Mile High Kicker" in by_id["k_den"]["rules_applied"]
@@ -777,7 +793,8 @@ async def test_mile_high_kicker_rule_fires_for_denver(async_client, test_db):
 async def test_mile_high_kicker_rule_does_not_fire_for_non_denver(async_client, test_db):
     """MIN kicker does NOT get 'Mile High Kicker' — not Denver."""
     await _seed_kickers(test_db)
-    resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
+    body = {**_GENERATE_BODY, "rules": {"K": [{"name": "Mile High Kicker", "enabled": True, "weight": 1.0}]}}
+    resp = await async_client.post("/api/generate", json=body)
     assert resp.status_code == 200
     by_id = {p["player_id"]: p for p in resp.json()["players"]}
     assert "Mile High Kicker" not in by_id["k_min"]["rules_applied"]
@@ -786,7 +803,11 @@ async def test_mile_high_kicker_rule_does_not_fire_for_non_denver(async_client, 
 async def test_denver_kicker_does_not_get_dome_bonus(async_client, test_db):
     """DEN is not in DOME_TEAMS; DEN kicker gets Mile High only, not Dome Kicker."""
     await _seed_kickers(test_db)
-    resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
+    body = {**_GENERATE_BODY, "rules": {"K": [
+        {"name": "Dome Kicker", "enabled": True, "weight": 1.0},
+        {"name": "Mile High Kicker", "enabled": True, "weight": 1.0},
+    ]}}
+    resp = await async_client.post("/api/generate", json=body)
     assert resp.status_code == 200
     by_id = {p["player_id"]: p for p in resp.json()["players"]}
     assert "Dome Kicker" not in by_id["k_den"]["rules_applied"]
