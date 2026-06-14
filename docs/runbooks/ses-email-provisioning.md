@@ -8,13 +8,23 @@ The Terraform (`infra/ses.tf`, `infra/iam.tf`, `infra/ecs.tf`) does everything
 that can be expressed as code. The steps below are the parts that require a
 human with AWS console / DNS / support access — Terraform cannot do them.
 
-## What the Terraform already does
+## DNS mode — IMPORTANT
 
-- Verifies the apex domain `auto-tiers.com` as an SES identity, with Easy DKIM.
-- Publishes the verification TXT + 3 DKIM CNAMEs to Route 53 automatically, so
-  the identity self-verifies during `apply`.
-- Sets up a custom MAIL FROM domain (`bounce.auto-tiers.com`) with MX + SPF for
-  SPF/DMARC-aligned bounce handling.
+`auto-tiers.com` DNS is **not** in Route 53 in this account (verified: the account
+has zero hosted zones). So the default is **`manage_dns = false`** — Terraform
+creates the SES identity but you add the DNS records manually at your real
+provider (registrar/Cloudflare/wherever). Only set `manage_dns = true` if you
+later migrate the zone into this account's Route 53.
+
+## What the Terraform does
+
+- Creates the apex domain `auto-tiers.com` as an SES identity, with Easy DKIM,
+  and a custom MAIL FROM domain (`bounce.auto-tiers.com`).
+- `manage_dns = true`: publishes the verification TXT + 3 DKIM CNAMEs + MAIL FROM
+  MX/SPF to Route 53 and waits for verification during `apply`.
+- `manage_dns = false` (default): emits those records via the
+  `ses_dns_records_for_manual_entry` output for you to add manually; SES verifies
+  asynchronously once they propagate.
 - Creates an SNS topic for bounce/complaint notifications and wires it to the
   identity (optionally subscribes `var.ses_ops_email`).
 - Grants the ECS task role `ses:SendEmail` / `ses:SendRawEmail`, scoped to the
@@ -27,7 +37,8 @@ human with AWS console / DNS / support access — Terraform cannot do them.
 | Variable | Default | Notes |
 |----------|---------|-------|
 | `ses_domain` | `auto-tiers.com` | Apex sending domain. |
-| `ses_route53_zone_name` | `auto-tiers.com` | Hosted zone that owns the records. |
+| `manage_dns` | `false` | `true` only if the zone is in this account's Route 53. Default `false` = external DNS, add records manually. |
+| `ses_route53_zone_name` | `auto-tiers.com` | Hosted zone that owns the records (only used when `manage_dns = true`). |
 | `ses_from_email` | `noreply@auto-tiers.com` | Bare from-address; pinned in IAM. |
 | `ses_from_display_name` | `AutoTiers` | From-header display name. |
 | `ses_mail_from_subdomain` | `bounce` | → `bounce.auto-tiers.com`. |
@@ -36,18 +47,45 @@ human with AWS console / DNS / support access — Terraform cannot do them.
 
 ## Procedure
 
-### 1. Apply the identity + DNS (leave `enable_ses = false`)
+### 0. Heads-up: unrelated ALB/HTTPS drift in state
+
+The local Terraform state is behind `main`: an unrelated, unshipped HTTPS rollout
+(commit `60f07b6`) means a plain `terraform apply` also wants to **replace the
+production ALB security group** (its description changed to add HTTPS — an
+immutable attribute). That's a separate, deliberate action — do NOT let it ride
+along with SES. Until that drift is reconciled, apply SES with **`-target`** so
+only the SES/IAM/SNS resources change (commands below).
+
+### 1. Apply the identity (external DNS; leave `enable_ses = false`)
 
 ```bash
 cd infra
-terraform plan   # review: SES identity, DKIM, Route 53 records, IAM, SNS
-terraform apply
+# Targeted plan — only the SES/IAM/SNS resources, avoiding the ALB-SG drift.
+terraform plan -out=ses.tfplan \
+  -target=aws_ses_domain_identity.main \
+  -target=aws_ses_domain_dkim.main \
+  -target=aws_ses_domain_mail_from.main \
+  -target=aws_sns_topic.ses_notifications \
+  -target=aws_sns_topic_policy.ses_notifications \
+  -target=aws_ses_identity_notification_topic.bounce \
+  -target=aws_ses_identity_notification_topic.complaint \
+  -target=aws_iam_role.ecs_scheduler_task \
+  -target=aws_iam_role_policy.ecs_task_ses
+terraform apply ses.tfplan
 ```
 
-`aws_ses_domain_identity_verification.main` blocks until SES sees the records
-(usually a few minutes). If it times out, confirm the Route 53 records exist and
-re-run `apply`. The app is still on the `fake` sender at this point — no behavior
-change yet.
+The app stays on the `fake` sender (`enable_ses = false`) — no behavior change.
+
+Then publish DNS so SES can verify the domain:
+
+```bash
+terraform output -json ses_dns_records_for_manual_entry
+```
+
+Add every emitted record (1 verification TXT, 3 DKIM CNAMEs, 1 MAIL FROM MX,
+1 MAIL FROM SPF TXT) at your DNS provider. SES verifies asynchronously — watch
+**SES → Verified identities → auto-tiers.com** until status is *Verified* and
+DKIM is *Successful* (minutes to a couple hours depending on TTL/propagation).
 
 ### 2. Exit the SES sandbox  *(manual — AWS support request)*
 
