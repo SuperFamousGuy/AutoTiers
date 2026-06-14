@@ -82,6 +82,7 @@ The fix in that file builds the `Cookie:` header by hand and sends a Chrome `Use
 - Treat a weak-bound assertion on the feature-under-test as a **blocker**, not a non-blocker — this one slipped to an external reviewer precisely because it was deferred.
 - Coverage tools confirm the line executed; only inspection confirms the test actually verified behaviour.
 - **Spy-mock tests don't cover function bodies for diff-cover**: `vi.spyOn(module, "fn").mockResolvedValue(...)` replaces the function, so the original body is never executed. A test that spies on `listYahooLeagues` at the call site never runs the `apiFetch(...)` line inside it. Diff-cover CI will flag the uncovered lines. Fix: add a separate `fetch`-level mock test that calls the function directly (see `web/src/tests/api/linkedLeague.test.ts` — the Yahoo Fantasy section). Canonical case: `listYahooLeagues` and `connectYahoo` in `linkedLeague.ts` had zero body coverage because every test spy-mocked them.
+- **Asserting cleanup but not the action**: a test that verifies a *post-condition* (a URL param got stripped, a flag was reset) but never asserts the *action that produced it* (the request fired, with the right args) still passes if the action is deleted entirely. Canonical case (#240): a test titled "calls GET /api/auth/email/verify with the token" only asserted `?verify_token=` was stripped from the URL — dropping the verify request altogether would still pass it. Caught by a reviewer post-QA. Fix: capture the request (an MSW handler recording the token) and assert it fired with the expected argument, *in addition to* the post-condition.
 
 ## 8. Git hygiene
 
@@ -96,6 +97,18 @@ The fix updated `backend/.gitignore` to include `venv*/` and `coverage.xml` (rea
 - Reject any commit larger than 50 files unless every file was deliberately staged.
 - Known never-commit paths in this repo: `backend/venv/`, `backend/venv*/`, `backend/coverage.xml`, `backend/.coverage`, `backend/__pycache__/`, `web/node_modules/`, `web/.vite/`, `.claire/` (editor scratch), `.claude/worktrees/` (worktree state).
 
+## 9. Cloud resource-policy gaps (infra)
+
+**Canonical case:** `infra/ses.tf` initially created an SNS topic for SES bounce/complaint notifications and wired `aws_ses_identity_notification_topic` to it — but never attached an `aws_sns_topic_policy`. SES publishes as the `ses.amazonaws.com` service principal; without a topic policy granting it `sns:Publish`, SNS silently rejects every delivery. `terraform validate` passes, `terraform apply` succeeds, the app logs nothing — bounce/complaint events just never arrive. Caught in PR review (#245), not by QA. The fix added an `aws_sns_topic_policy` allowing `ses.amazonaws.com` to `sns:Publish`, scoped with `AWS:SourceAccount` + `AWS:SourceArn` conditions.
+
+**The general rule:** when one AWS service acts on another (SES→SNS, S3→SNS/SQS/Lambda, EventBridge→target, CloudWatch alarms→SNS), the *caller's* IAM identity policy is not enough — the *target* resource needs a **resource policy** granting the calling service principal the action. Identity policies govern what a role may do; resource policies govern who may act on the resource. Service-principal-initiated calls carry no IAM role, so only the resource policy gates them.
+
+**How to detect:**
+- For any new `aws_sns_topic`, `aws_sqs_queue`, `aws_s3_bucket`, KMS key, or `aws_lambda_function` that another AWS service publishes/writes/invokes into: is there a matching `aws_*_policy` (or `aws_lambda_permission`) granting the source service principal? If not, it fails silently at runtime.
+- `terraform validate` and `terraform plan` do NOT catch this — the resource policy is optional from Terraform's view but mandatory at runtime. Only tracing the data path catches it.
+- Scope every such grant with `AWS:SourceAccount` (and `AWS:SourceArn` where available) to avoid the confused-deputy problem.
+- Mirror least-privilege on the identity side: a role shared across services (e.g. one ECS task role for backend + scheduler) hands every consumer the union of permissions. Split the role when only one service needs a sensitive action — see the backend-vs-scheduler split in `infra/iam.tf`.
+
 ## Probe order (for the QA agent)
 
 When reviewing a change, walk these in this order:
@@ -108,5 +121,6 @@ When reviewing a change, walk these in this order:
 6. Identity / session (what happens when current_user is None mid-flow?)
 7. Persistence / migration (will this survive a DB restart, an Alembic chain, an FK cascade?)
 8. UI inconsistency (do all states show consistent affordances?)
+9. Cloud resource-policy gaps (for infra changes: does every service-to-service AWS integration have the target resource policy, and is the calling role least-privilege?)
 
 If a category clearly doesn't apply to the change, say so explicitly with reasoning. Don't skip silently.
