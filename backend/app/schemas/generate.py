@@ -13,9 +13,9 @@ class GenerateRequest(BaseModel):
     bonus_100yd_rushing: bool = False
     bonus_100yd_receiving: bool = False
     bonus_first_downs: bool = False
-    weight_prior_year: float = 0.30
-    weight_espn: float = 0.0
-    weight_consensus: float = 0.70
+    weight_prior_year: float = Field(0.30, ge=0.0)
+    weight_espn: float = Field(0.0, ge=0.0)
+    weight_consensus: float = Field(0.70, ge=0.0)
     draft_rounds: int = 15
     rules: dict[str, list[RuleOverrideSchema]] = Field(default_factory=dict)
     keepers: Optional[list[str]] = None
