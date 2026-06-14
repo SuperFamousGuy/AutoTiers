@@ -474,7 +474,7 @@ def test_builtin_rules_without_positions_default_to_none():
     """Rules not in the position-aware rules should have positions=None."""
     no_position_rule_names = {
         "New Team Penalty", "New Head Coach",
-        "Sophomore Leap", "Contract Year Flag", "Injury History",
+        "Contract Year Flag", "Injury History",
         "Availability Risk", "TD Regression", "Opportunity Over-Producer",
         "Opportunity Under-Producer", "Red Zone Usage Premium",
         "Projection Unavailable", "Favorites",
@@ -660,3 +660,170 @@ def test_mile_high_kicker_applications_appear_in_rule_applications():
     assert app.before_score == 100.0
     assert app.after_score == pytest.approx(105.0)
     assert app.delta == pytest.approx(5.0)
+
+
+# ---------------------------------------------------------------------------
+# FIX 1 — WR age threshold 30→31
+# ---------------------------------------------------------------------------
+
+def test_over_the_hill_age_wr_threshold_is_31():
+    """OVER_THE_HILL_AGE["WR"] must be 31 (raised from 30 per 2024-25 research)."""
+    from app.engine.builtin_rules import OVER_THE_HILL_AGE
+    assert OVER_THE_HILL_AGE["WR"] == 31
+
+
+def test_wr_age_30_does_not_trigger_over_the_hill():
+    """A 30-year-old WR must NOT have is_over_the_hill=True after the threshold raise."""
+    from app.engine.builtin_rules import OVER_THE_HILL_AGE
+    age = 30
+    position = "WR"
+    is_over_the_hill = age >= OVER_THE_HILL_AGE[position]
+    assert is_over_the_hill is False
+
+
+def test_wr_age_31_triggers_over_the_hill():
+    """A 31-year-old WR must have is_over_the_hill=True (new threshold)."""
+    from app.engine.builtin_rules import OVER_THE_HILL_AGE
+    import dataclasses
+    age = 31
+    position = "WR"
+    is_over_the_hill = age >= OVER_THE_HILL_AGE[position]
+    assert is_over_the_hill is True
+
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Over the Hill"), enabled=True)
+    ctx = make_ctx(position="WR", is_over_the_hill=True)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "Over the Hill" in result.rules_applied
+    assert result.adjusted_score < 100.0
+
+
+# ---------------------------------------------------------------------------
+# FIX 2 — Sophomore Leap positional gate
+# ---------------------------------------------------------------------------
+
+def test_sophomore_leap_fires_on_wr():
+    """Second-year WR must receive the Sophomore Leap boost."""
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Sophomore Leap"), enabled=True)
+    ctx = make_ctx(position="WR", years_exp=1)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "Sophomore Leap" in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0 * 1.08)
+
+
+def test_sophomore_leap_fires_on_te():
+    """Second-year TE must receive the Sophomore Leap boost."""
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Sophomore Leap"), enabled=True)
+    ctx = make_ctx(position="TE", years_exp=1)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "Sophomore Leap" in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0 * 1.08)
+
+
+def test_sophomore_leap_fires_on_qb():
+    """Second-year QB must receive the Sophomore Leap boost."""
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Sophomore Leap"), enabled=True)
+    ctx = make_ctx(position="QB", years_exp=1)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "Sophomore Leap" in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0 * 1.08)
+
+
+def test_sophomore_leap_does_not_fire_on_rb():
+    """Second-year RB must NOT receive the Sophomore Leap boost (no evidence base for RBs)."""
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Sophomore Leap"), enabled=True)
+    ctx = _ctx(position="RB", years_exp=1)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "Sophomore Leap" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0)
+
+
+def test_sophomore_leap_does_not_fire_on_k():
+    """Second-year K must NOT receive the Sophomore Leap boost."""
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Sophomore Leap"), enabled=True)
+    ctx = make_ctx(position="K", years_exp=1)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "Sophomore Leap" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0)
+
+
+def test_sophomore_leap_does_not_fire_on_dst():
+    """Second-year DST must NOT receive the Sophomore Leap boost."""
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Sophomore Leap"), enabled=True)
+    ctx = make_ctx(position="DST", years_exp=1)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "Sophomore Leap" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0)
+
+
+def test_builtin_sophomore_leap_has_wr_te_qb_positions():
+    """Sophomore Leap must carry positions=["WR", "TE", "QB"] — no RB, K, or DST."""
+    rule = next(r for r in BUILTIN_RULES if r.name == "Sophomore Leap")
+    assert set(rule.positions) == {"WR", "TE", "QB"}
+
+
+# ---------------------------------------------------------------------------
+# FIX 3 — Rule weight clamp [0.0, 2.0]
+# ---------------------------------------------------------------------------
+
+def test_rule_override_schema_rejects_weight_above_2():
+    """RuleOverrideSchema must reject weight > 2.0 with a validation error."""
+    from pydantic import ValidationError
+    from app.schemas.rules import RuleOverrideSchema
+    with pytest.raises(ValidationError):
+        RuleOverrideSchema(name="Projection Unavailable", enabled=True, weight=2.1)
+
+
+def test_rule_override_schema_rejects_weight_below_0():
+    """RuleOverrideSchema must reject weight < 0.0 with a validation error."""
+    from pydantic import ValidationError
+    from app.schemas.rules import RuleOverrideSchema
+    with pytest.raises(ValidationError):
+        RuleOverrideSchema(name="Projection Unavailable", enabled=True, weight=-0.1)
+
+
+def test_rule_override_schema_accepts_weight_at_bounds():
+    """RuleOverrideSchema must accept weights exactly at 0.0 and 2.0."""
+    from app.schemas.rules import RuleOverrideSchema
+    low = RuleOverrideSchema(name="Test", enabled=True, weight=0.0)
+    high = RuleOverrideSchema(name="Test", enabled=True, weight=2.0)
+    assert low.weight == 0.0
+    assert high.weight == 2.0
+
+
+def test_rule_schema_rejects_weight_above_2():
+    """RuleSchema must also reject weight > 2.0."""
+    from pydantic import ValidationError
+    from app.schemas.rules import RuleSchema, RuleConditionSchema, RuleEffectSchema
+    from app.engine.rules import EffectType
+    with pytest.raises(ValidationError):
+        RuleSchema(
+            name="Bad Weight Rule",
+            conditions=[RuleConditionSchema(field="age", operator=">=", value=30)],
+            effect=RuleEffectSchema(type=EffectType.MULTIPLIER, value=0.9),
+            weight=3.0,
+        )
+
+
+def test_weight_2_on_projection_unavailable_does_not_go_negative():
+    """weight=2.0 on Projection Unavailable (multiplier=0.50) must not produce negative score.
+
+    actual_multiplier = 1.0 + (0.50 - 1.0) * 2.0 = 1.0 + (-0.5 * 2.0) = 0.0
+    score = 100.0 * 0.0 = 0.0  (floor, not negative)
+    """
+    rule = Rule(
+        name="Projection Unavailable",
+        conditions=[RuleCondition(field="projection_unavailable", operator="==", value=True)],
+        effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.50),
+        enabled=True,
+        weight=2.0,
+    )
+    ctx = make_ctx(projection_unavailable=True)
+    result = apply_rules(100.0, ctx, [rule])
+    assert result.adjusted_score >= 0.0
+    assert result.adjusted_score == pytest.approx(0.0)

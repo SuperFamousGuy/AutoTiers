@@ -23,6 +23,7 @@ class LeagueSettings:
     qb_td_points: float
     bonus_100yd_rushing: bool
     bonus_100yd_receiving: bool
+    # RESERVED: not yet scored — first-down data not available in PlayerStats
     bonus_first_downs: bool
     weight_prior_year: float
     weight_espn: float

@@ -1,5 +1,5 @@
 from typing import Literal
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, field_validator, model_validator
 from app.engine.rules import EffectType
 
 VALID_OPERATORS = Literal[">", ">=", "<", "<=", "==", "!="]
@@ -26,6 +26,13 @@ class RuleEffectSchema(BaseModel):
         return self
 
 
+_WEIGHT_BOUNDS_HELP = (
+    "Rule weight must be between 0.0 and 2.0. "
+    "Weights above 2.0 can invert penalty-rule multipliers (e.g. Projection "
+    "Unavailable at weight > 2.0 drives the multiplier to zero or negative)."
+)
+
+
 class RuleSchema(BaseModel):
     name: str
     conditions: list[RuleConditionSchema]
@@ -36,6 +43,13 @@ class RuleSchema(BaseModel):
     category: str = "Custom"
     description: str = ""
     positions: list[str] | None = None  # None (or []) = apply to all positions
+
+    @field_validator("weight")
+    @classmethod
+    def weight_in_range(cls, v: float) -> float:
+        if not (0.0 <= v <= 2.0):
+            raise ValueError(_WEIGHT_BOUNDS_HELP)
+        return v
 
 
 class RuleOverrideSchema(BaseModel):
@@ -48,3 +62,10 @@ class RuleOverrideSchema(BaseModel):
     name: str
     enabled: bool
     weight: float = 1.0
+
+    @field_validator("weight")
+    @classmethod
+    def weight_in_range(cls, v: float) -> float:
+        if not (0.0 <= v <= 2.0):
+            raise ValueError(_WEIGHT_BOUNDS_HELP)
+        return v
