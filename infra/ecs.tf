@@ -104,6 +104,21 @@ resource "aws_ecs_task_definition" "backend" {
           name  = "GOOGLE_REDIRECT_URI"
           value = "${local.backend_base_url}/api/auth/google/callback"
         },
+        {
+          # "ses" = real sends via SES; "fake" = in-process collector. Flipped
+          # by var.enable_ses once the domain is verified and out of sandbox.
+          name  = "EMAIL_SENDER_BACKEND"
+          value = var.enable_ses ? "ses" : "fake"
+        },
+        {
+          name  = "SES_FROM_ADDRESS"
+          value = local.ses_from_address
+        },
+        {
+          # SES identity is verified in the deployment region (see ses.tf).
+          name  = "SES_REGION"
+          value = var.aws_region
+        },
       ]
 
       # Sensitive values pulled from Secrets Manager at task start.

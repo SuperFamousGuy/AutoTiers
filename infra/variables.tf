@@ -122,3 +122,48 @@ variable "frontend_url" {
   type        = string
   default     = ""
 }
+
+###############################################################################
+# SES — transactional auth email (see ses.tf)
+###############################################################################
+variable "ses_domain" {
+  description = "Domain to verify as an SES sender identity (the apex sending domain)."
+  type        = string
+  default     = "auto-tiers.com"
+}
+
+variable "ses_route53_zone_name" {
+  description = "Name of the Route 53 hosted zone that owns ses_domain. SES verification + DKIM records are published here."
+  type        = string
+  default     = "auto-tiers.com"
+}
+
+variable "ses_from_email" {
+  description = "Bare from-address the app sends as. Must belong to ses_domain; also pinned in the IAM ses:FromAddress condition."
+  type        = string
+  default     = "noreply@auto-tiers.com"
+}
+
+variable "ses_from_display_name" {
+  description = "Display name shown in the From header, e.g. 'AutoTiers <noreply@auto-tiers.com>'."
+  type        = string
+  default     = "AutoTiers"
+}
+
+variable "ses_mail_from_subdomain" {
+  description = "Subdomain label used for the custom MAIL FROM domain (bounces). Combined with ses_domain, e.g. 'bounce' -> bounce.auto-tiers.com."
+  type        = string
+  default     = "bounce"
+}
+
+variable "enable_ses" {
+  description = "When true the backend container runs with EMAIL_SENDER_BACKEND=ses (real sends). Keep false until the domain is verified AND the account is out of the SES sandbox; the app defaults to the in-process fake sender."
+  type        = bool
+  default     = false
+}
+
+variable "ses_ops_email" {
+  description = "Optional email address subscribed to SES bounce/complaint notifications. Leave empty to skip; the SNS topic is still created. The subscription requires a manual confirmation click."
+  type        = string
+  default     = ""
+}
