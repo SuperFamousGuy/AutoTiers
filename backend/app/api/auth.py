@@ -7,7 +7,7 @@ from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
 from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, HTTPException, Query, Response
 from fastapi.responses import RedirectResponse
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -107,33 +107,48 @@ async def _consume_auth_token(
     raw_token: str,
     expected_type: str,
 ) -> AuthToken:
-    """Look up, validate, and mark a token as used.
+    """Atomically mark a token as used and return it.
 
-    Raises HTTPException(400) for any invalid state (not found, wrong type,
-    already used, expired). On success, sets used_at and returns the token.
+    Uses a single conditional UPDATE ... RETURNING so that two concurrent
+    calls for the same token can never both succeed — the DB guarantees
+    exactly one UPDATE wins. If zero rows are affected, a follow-up SELECT
+    identifies the specific error (not found, wrong type, already used,
+    expired) and raises the appropriate 400.
     """
     token_hash = _hash_token(raw_token)
+    now = datetime.now(timezone.utc)
+
+    # Atomic: mark used only if the token exists, is the right type, is
+    # unused, and has not yet expired. Concurrent calls race here; only one
+    # will see rowcount > 0.
+    result = await db.execute(
+        update(AuthToken)
+        .where(
+            AuthToken.token_hash == token_hash,
+            AuthToken.token_type == expected_type,
+            AuthToken.used_at.is_(None),
+            AuthToken.expires_at > now,
+        )
+        .values(used_at=now)
+        .returning(AuthToken)
+    )
+    row = result.scalars().first()
+
+    if row is not None:
+        return row
+
+    # Update touched zero rows — determine why for a useful error message.
     record = await db.scalar(
         select(AuthToken).where(AuthToken.token_hash == token_hash)
     )
-
     if record is None:
         raise HTTPException(status_code=400, detail="Invalid or expired token")
     if record.token_type != expected_type:
         raise HTTPException(status_code=400, detail="Invalid or expired token")
     if record.used_at is not None:
         raise HTTPException(status_code=400, detail="This link has already been used")
-    now = datetime.now(timezone.utc)
-    # SQLite stores datetimes as timezone-naive; PostgreSQL preserves tz info.
-    # Normalise to UTC for comparison regardless of backend.
-    expires_at = record.expires_at
-    if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
-    if expires_at < now:
-        raise HTTPException(status_code=400, detail="This link has expired")
-
-    record.used_at = now
-    return record
+    # Must be expired (the only remaining case).
+    raise HTTPException(status_code=400, detail="This link has expired")
 
 
 @router.post("/signup", status_code=201, response_model=MeResponse)
@@ -169,7 +184,7 @@ async def signup(
     await db.commit()
     await db.refresh(user)
 
-    set_auth_cookie(response, user.id)
+    set_auth_cookie(response, user)
 
     verify_url = _make_verify_url(raw_verify_token)
     background_tasks.add_task(
@@ -219,7 +234,7 @@ async def login(
     if not verify_password(user.password_hash, body.password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    set_auth_cookie(response, user.id)
+    set_auth_cookie(response, user)
     profiles = (await db.scalars(
         select(Profile).where(Profile.user_id == user.id).options(selectinload(Profile.linked_league))
     )).all()
@@ -318,6 +333,10 @@ async def reset_password(
 
     On success, issues a session cookie (the user is logged in after reset).
     Password reset also sets email_verified=True (inbox control proven).
+
+    Bumps token_version BEFORE issuing the new cookie so the acting session
+    gets the new version while all prior sessions (with the old version) are
+    invalidated. (#241)
     """
     token_record = await _consume_auth_token(db, body.token, "password_reset")
 
@@ -329,11 +348,14 @@ async def reset_password(
     user.password_hash = hash_password(body.new_password)
     user.password_changed_at = datetime.now(timezone.utc)
     user.email_verified = True  # inbox control proven by reset link
+    # Invalidate all prior sessions. Bump BEFORE set_auth_cookie so the
+    # cookie we issue below carries the NEW version and survives.
+    user.token_version += 1
 
     await db.commit()
     await db.refresh(user)
 
-    set_auth_cookie(response, user.id)
+    set_auth_cookie(response, user)
 
     profiles = (await db.scalars(
         select(Profile).where(Profile.user_id == user.id).options(selectinload(Profile.linked_league))
@@ -401,10 +423,15 @@ async def verify_email(
 @router.post("/password/change", status_code=204)
 async def change_password(
     body: ChangePasswordRequest,
+    response: Response,
     user: User = require_user,
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Change the password for an authenticated user who already has one."""
+    """Change the password for an authenticated user who already has one.
+
+    Bumps token_version to invalidate all OTHER sessions, then re-issues the
+    session cookie with the new version so THIS device stays logged in. (#241)
+    """
     if user.password_hash is None:
         raise HTTPException(
             status_code=400,
@@ -422,7 +449,13 @@ async def change_password(
 
     user.password_hash = hash_password(body.new_password)
     user.password_changed_at = datetime.now(timezone.utc)
+    # Invalidate all OTHER sessions. Re-issue the cookie below so THIS device
+    # stays logged in with the new version.
+    user.token_version += 1
     await db.commit()
+    await db.refresh(user)
+
+    set_auth_cookie(response, user)
 
 
 @router.post("/password/set", status_code=204)
@@ -431,7 +464,13 @@ async def set_password(
     user: User = require_user,
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Set a password on an OAuth-only account that currently has none."""
+    """Set a password on an OAuth-only account that currently has none.
+
+    NOTE: We deliberately do NOT bump token_version here. set_password is
+    additive — an OAuth-only user is adding a first password. There are no
+    prior password-based sessions to invalidate, and bumping would be
+    surprising (it would log out any other OAuth sessions with no reason).
+    """
     if user.password_hash is not None:
         raise HTTPException(
             status_code=400,
@@ -610,7 +649,7 @@ async def yahoo_callback(
     response = RedirectResponse(url=settings.frontend_url, status_code=302)
     response.delete_cookie(_OAUTH_STATE_COOKIE, path="/")
     response.delete_cookie(_OAUTH_INTENT_COOKIE, path="/")
-    set_auth_cookie(response, user.id)
+    set_auth_cookie(response, user)
     return response
 
 
@@ -679,7 +718,7 @@ async def google_callback(
     response = RedirectResponse(url=settings.frontend_url, status_code=302)
     response.delete_cookie(_GOOGLE_OAUTH_STATE_COOKIE, path="/")
     response.delete_cookie(_OAUTH_INTENT_COOKIE, path="/")
-    set_auth_cookie(response, user.id)
+    set_auth_cookie(response, user)
     return response
 
 
