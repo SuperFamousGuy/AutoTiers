@@ -69,8 +69,7 @@ terraform plan -out=ses.tfplan \
   -target=aws_sns_topic_policy.ses_notifications \
   -target=aws_ses_identity_notification_topic.bounce \
   -target=aws_ses_identity_notification_topic.complaint \
-  -target=aws_iam_role.ecs_scheduler_task \
-  -target=aws_iam_role_policy.ecs_task_ses
+  -target=aws_iam_role_policy.ecs_task_ses   # attaches to the existing backend task role (aws_iam_role.ecs_task)
 terraform apply ses.tfplan
 ```
 
