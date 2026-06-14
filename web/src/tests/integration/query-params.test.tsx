@@ -56,11 +56,19 @@ describe("App — query param: verify_token", () => {
   });
 
   it("calls GET /api/auth/email/verify with the token", async () => {
-    // MSW default handler returns 204.
+    let capturedToken: string | null = null;
+    server.use(
+      http.get(`${API_URL}/api/auth/email/verify`, ({ request }) => {
+        capturedToken = new URL(request.url).searchParams.get("token");
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
     window.history.replaceState({}, "", "/?verify_token=verifyabc");
     renderApp();
-    // The verification call happens on mount; just verify the URL was stripped.
-    await waitFor(() => expect(window.location.search).not.toContain("verify_token"));
+    // Assert the request actually fired with the token — not just that the URL
+    // was stripped (which would still pass if the call were dropped entirely).
+    await waitFor(() => expect(capturedToken).toBe("verifyabc"));
+    expect(window.location.search).not.toContain("verify_token");
   });
 
   it("strips verify_token from the URL on success", async () => {

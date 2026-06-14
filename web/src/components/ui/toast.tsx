@@ -5,7 +5,7 @@
  *   const { toast } = useToast();
  *   toast({ title: "Done!", variant: "success" });
  *
- * Wrap your app with <Toaster /> (imported from this file) once in main.tsx.
+ * Wrap your app with <ToastProvider> (exported from this file) once in main.tsx.
  */
 import * as React from "react";
 import * as ToastPrimitive from "@radix-ui/react-toast";
@@ -49,7 +49,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const close = React.useCallback((id: string) => {
+    // Toggle `open` to false so Radix plays the exit animation, then drop the
+    // item from state once the animation has finished. Without the removal the
+    // array grows unbounded over a long session (one stale entry per toast).
     setToasts((prev) => prev.map((t) => (t.id === id ? { ...t, open: false } : t)));
+    window.setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 1000);
   }, []);
 
   return (

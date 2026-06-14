@@ -86,6 +86,15 @@ function describePasswordError(err: unknown): string {
   try {
     const parsed = JSON.parse(err.message);
     if (typeof parsed.detail === "string") return parsed.detail;
+    // Pydantic 422s (e.g. Field(min_length=10)) return a list of field errors
+    // under "detail" — surface the first rather than dumping raw JSON.
+    if (Array.isArray(parsed.detail) && parsed.detail.length > 0) {
+      const first = parsed.detail[0];
+      if (typeof first?.msg === "string") {
+        const path = Array.isArray(first.loc) ? first.loc.slice(-1).join("") : "";
+        return path ? `${path}: ${first.msg}` : first.msg;
+      }
+    }
   } catch {
     // Not JSON
   }

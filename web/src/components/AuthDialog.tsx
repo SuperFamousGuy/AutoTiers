@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -93,6 +93,18 @@ export function AuthDialog({ open, onOpenChange, initialState, initialView }: Au
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotError, setForgotError] = useState<string | null>(null);
   const [forgotLoading, setForgotLoading] = useState(false);
+
+  // The dialog stays mounted while closed (only `open` toggles), so without
+  // this the internal `view` would persist across opens — reopening could land
+  // the user on a stale sub-view (e.g. forgot-password). Re-seed each time the
+  // dialog opens or the requested initialView changes.
+  useEffect(() => {
+    if (open) {
+      setView(initialView ?? "login");
+      setError(null);
+      setForgotError(null);
+    }
+  }, [open, initialView]);
 
   // Try to extract a human-readable error from a backend response. FastAPI
   // returns JSON like {"detail": "..."} for 4xx; Pydantic 422s return a list
