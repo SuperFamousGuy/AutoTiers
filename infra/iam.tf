@@ -63,7 +63,6 @@ resource "aws_iam_role_policy" "ecs_task_execution_secrets" {
 ###############################################################################
 # ECS Task Role
 # Permissions available TO the running application code itself.
-# Currently empty — add S3, SES, etc. here if the app needs them.
 ###############################################################################
 resource "aws_iam_role" "ecs_task" {
   name               = "${var.app_name}-${var.environment}-ecs-task-role"
@@ -71,5 +70,46 @@ resource "aws_iam_role" "ecs_task" {
 
   tags = {
     Name = "${var.app_name}-${var.environment}-ecs-task-role"
+  }
+}
+
+# Allow the app to send transactional email via SES (password reset + email
+# verification). Scoped to our own verified identity, and pinned to our own
+# from-address so a compromised task can't spoof other senders on the domain.
+data "aws_iam_policy_document" "ses_send" {
+  statement {
+    effect = "Allow"
+    actions = [
+      "ses:SendEmail",
+      "ses:SendRawEmail",
+    ]
+    resources = [aws_ses_domain_identity.main.arn]
+
+    condition {
+      test     = "StringEquals"
+      variable = "ses:FromAddress"
+      values   = [var.ses_from_email]
+    }
+  }
+}
+
+resource "aws_iam_role_policy" "ecs_task_ses" {
+  name   = "${var.app_name}-${var.environment}-ses-send"
+  role   = aws_iam_role.ecs_task.id
+  policy = data.aws_iam_policy_document.ses_send.json
+}
+
+###############################################################################
+# Scheduler Task Role
+# The scheduler service never sends email, so it gets its own bare task role
+# rather than sharing the backend's (which carries ses:SendEmail) — keeps SES
+# permissions off the scheduler per least-privilege.
+###############################################################################
+resource "aws_iam_role" "ecs_scheduler_task" {
+  name               = "${var.app_name}-${var.environment}-ecs-scheduler-task-role"
+  assume_role_policy = data.aws_iam_policy_document.ecs_task_assume_role.json
+
+  tags = {
+    Name = "${var.app_name}-${var.environment}-ecs-scheduler-task-role"
   }
 }

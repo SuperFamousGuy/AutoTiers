@@ -18,3 +18,13 @@ output "aurora_endpoint" {
   value       = aws_rds_cluster.main.endpoint
   sensitive   = true
 }
+
+output "ses_domain_identity_arn" {
+  description = "ARN of the SES domain identity used for transactional auth email."
+  value       = aws_ses_domain_identity.main.arn
+}
+
+output "ses_notifications_topic_arn" {
+  description = "SNS topic receiving SES bounce/complaint notifications. Subscribe ops/alerting here (or set var.ses_ops_email)."
+  value       = aws_sns_topic.ses_notifications.arn
+}
