@@ -13,6 +13,24 @@ export interface LoginBody {
   password: string;
 }
 
+export interface ForgotPasswordBody {
+  email: string;
+}
+
+export interface ResetPasswordBody {
+  token: string;
+  new_password: string;
+}
+
+export interface ChangePasswordBody {
+  current_password: string;
+  new_password: string;
+}
+
+export interface SetPasswordBody {
+  new_password: string;
+}
+
 export function signup(body: SignupBody): Promise<MeResponse> {
   return apiFetch<MeResponse>("/api/auth/signup", {
     method: "POST",
@@ -76,4 +94,63 @@ export function unlinkGoogle(): Promise<void> {
 
 export function unlinkYahoo(): Promise<void> {
   return unlinkProvider("/api/auth/yahoo/link");
+}
+
+export async function requestPasswordReset(body: ForgotPasswordBody): Promise<void> {
+  // 202 response with a JSON body — use apiFetch but discard the result.
+  await apiFetch("/api/auth/password/forgot", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function confirmPasswordReset(body: ResetPasswordBody): Promise<MeResponse> {
+  return apiFetch<MeResponse>("/api/auth/password/reset", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function changePassword(body: ChangePasswordBody): Promise<void> {
+  const resp = await fetch(`${API_URL}/api/auth/password/change`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new ApiError(resp.status, text || resp.statusText);
+  }
+}
+
+export async function setPassword(body: SetPasswordBody): Promise<void> {
+  const resp = await fetch(`${API_URL}/api/auth/password/set`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new ApiError(resp.status, text || resp.statusText);
+  }
+}
+
+export async function resendVerificationEmail(): Promise<void> {
+  // 202 — discard body
+  await apiFetch("/api/auth/email/resend-verification", {
+    method: "POST",
+  });
+}
+
+export async function verifyEmail(token: string): Promise<void> {
+  const resp = await fetch(
+    `${API_URL}/api/auth/email/verify?token=${encodeURIComponent(token)}`,
+    { credentials: "include" },
+  );
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new ApiError(resp.status, text || resp.statusText);
+  }
 }

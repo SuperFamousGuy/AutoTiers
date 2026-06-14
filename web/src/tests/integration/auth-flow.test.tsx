@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "@/App";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { ToastProvider } from "@/components/ui/toast";
 
 describe("Auth integration", () => {
   it("anonymous user can open the auth dialog from the hamburger menu", async () => {
@@ -20,7 +21,9 @@ describe("Auth integration", () => {
     render(
       <QueryClientProvider client={qc}>
         <AuthProvider>
-          <App />
+          <ToastProvider>
+            <App />
+          </ToastProvider>
         </AuthProvider>
       </QueryClientProvider>,
     );

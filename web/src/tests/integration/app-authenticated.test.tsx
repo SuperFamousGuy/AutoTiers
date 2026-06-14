@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import App from "@/App";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { ToastProvider } from "@/components/ui/toast";
 import { server } from "@/tests/setup";
 
 const API_URL = "http://localhost:8000";
@@ -13,8 +14,12 @@ const USER = {
   id: "u1",
   email: "alice@example.com",
   yahoo_subject: null,
+  yahoo_fantasy_connected: false,
   google_subject: null,
   last_active_profile_id: "p1",
+  has_password: true,
+  email_verified: true,
+  password_changed_at: null,
 };
 
 const PROFILE_ONE = {
@@ -57,7 +62,9 @@ function renderApp() {
   return render(
     <QueryClientProvider client={client}>
       <AuthProvider>
-        <App />
+        <ToastProvider>
+          <App />
+        </ToastProvider>
       </AuthProvider>
     </QueryClientProvider>,
   );

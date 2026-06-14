@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     google_client_secret: str = ""
     google_redirect_uri: str = "http://localhost:8000/api/auth/google/callback"
     frontend_url: str = "http://localhost:5173"
+    # Email sender configuration.
+    # email_sender_backend: "ses" sends via AWS SES (requires ECS task role with ses:SendEmail).
+    #                        "fake" (or any other value) collects emails in-process — used in
+    #                        development and ALL tests.  When debug=True the fake sender is
+    #                        always used regardless of this setting.
+    email_sender_backend: str = "fake"
+    ses_from_address: str = "AutoTiers <noreply@autotiers.example>"
+    ses_region: str = "us-east-1"
 
 
 settings = Settings()

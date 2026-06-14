@@ -6,6 +6,7 @@ import { ApiError } from "@/api/client";
 import { SleeperConnectForm } from "@/components/SleeperConnectForm";
 import { EspnConnectForm } from "@/components/EspnConnectForm";
 import { YahooConnectForm } from "@/components/YahooConnectForm";
+import { PasswordManagementSection } from "@/components/PasswordManagementSection";
 import {
   GoogleIcon,
   YahooIcon,
@@ -144,6 +145,55 @@ export function LinkedAccountsDialog({
           {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
         </div>
 
+        {/* Account section — password + Google sign-in */}
+        <div className="border-b border-border">
+          <div className="px-4 pb-1 pt-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Account
+            </p>
+          </div>
+
+          {/* Password row */}
+          <PasswordManagementSection user={user} onRefresh={onRefresh} />
+
+          {/* Google row — sign-in only */}
+          <div className="flex items-center justify-between border-t border-border px-4 py-3">
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <GoogleIcon />
+              Google · Sign-in only, no fantasy league
+            </span>
+            {user.google_subject ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs"
+                disabled={googleBusy}
+                aria-label="Disconnect Google"
+                onClick={handleGoogleDisconnect}
+              >
+                Unlink
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs"
+                aria-label="Link Google"
+                onClick={handleGoogleConnect}
+              >
+                Link
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Fantasy leagues section */}
+        <div className="px-4 pb-1 pt-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Fantasy leagues
+          </p>
+        </div>
+
         {/* Platform tab strip */}
         <div className="flex overflow-x-auto border-b border-border">
           {TABS.map(({ id, label, Icon, comingSoon }) => {
@@ -178,36 +228,6 @@ export function LinkedAccountsDialog({
 
         {/* Tab panel */}
         <div className="px-6 py-4">{renderTabPanel()}</div>
-
-        {/* Google footer — sign-in only, no fantasy league */}
-        <div className="flex items-center justify-between border-t border-border px-4 py-3">
-          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <GoogleIcon />
-            Google · Sign-in only, no fantasy league
-          </span>
-          {user.google_subject ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 text-xs"
-              disabled={googleBusy}
-              aria-label="Disconnect Google"
-              onClick={handleGoogleDisconnect}
-            >
-              Unlink
-            </Button>
-          ) : (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 text-xs"
-              aria-label="Link Google"
-              onClick={handleGoogleConnect}
-            >
-              Link
-            </Button>
-          )}
-        </div>
       </DialogContent>
     </Dialog>
   );

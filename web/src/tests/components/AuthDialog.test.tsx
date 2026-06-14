@@ -5,7 +5,16 @@ import { AuthDialog } from "@/components/AuthDialog";
 import { AuthProvider } from "@/contexts/AuthContext";
 
 const me = {
-  user: { id: "u1", email: "a@b.com", yahoo_subject: null, google_subject: null, last_active_profile_id: null },
+  user: {
+    id: "u1",
+    email: "a@b.com",
+    yahoo_subject: null,
+    google_subject: null,
+    last_active_profile_id: null,
+    has_password: true,
+    email_verified: true,
+    password_changed_at: null,
+  },
   profiles: [],
 };
 
@@ -25,8 +34,9 @@ describe("AuthDialog", () => {
   it("renders Log in tab by default with email + password fields", async () => {
     _renderOpen();
     expect(await screen.findByRole("tab", { name: /log in/i, selected: true })).toBeInTheDocument();
-    expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^email$/i)).toBeInTheDocument();
+    // The password input has id="login-password", associated with a <label>Password</label>.
+    expect(document.getElementById("login-password")).toBeInTheDocument();
   });
 
   it("switches to Sign up tab when clicked", async () => {
@@ -61,8 +71,8 @@ describe("AuthDialog", () => {
     );
 
     const user = userEvent.setup();
-    await user.type(screen.getByLabelText(/email/i), "a@b.com");
-    await user.type(screen.getByLabelText(/password/i), "correct horse battery");
+    await user.type(screen.getByLabelText(/^email$/i), "a@b.com");
+    await user.type(document.getElementById("login-password")!, "correct horse battery");
     await user.click(screen.getByRole("button", { name: /^log in$/i }));
 
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
@@ -88,8 +98,8 @@ describe("AuthDialog", () => {
     );
 
     const user = userEvent.setup();
-    await user.type(screen.getByLabelText(/email/i), "a@b.com");
-    await user.type(screen.getByLabelText(/password/i), "wrong-password");
+    await user.type(screen.getByLabelText(/^email$/i), "a@b.com");
+    await user.type(document.getElementById("login-password")!, "wrong-password");
     await user.click(screen.getByRole("button", { name: /^log in$/i }));
 
     expect(await screen.findByText(/invalid credentials/i)).toBeInTheDocument();
@@ -116,8 +126,9 @@ describe("AuthDialog", () => {
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("tab", { name: /sign up/i }));
-    await user.type(screen.getByLabelText(/email/i), "new@example.com");
-    await user.type(screen.getByLabelText(/password/i), "correct horse battery");
+    await user.type(screen.getByLabelText(/^email$/i), "new@example.com");
+    await user.type(document.getElementById("signup-password")!, "correct horse battery");
+    await user.type(document.getElementById("signup-confirm-password")!, "correct horse battery");
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
@@ -149,8 +160,9 @@ describe("AuthDialog", () => {
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("tab", { name: /sign up/i }));
-    await user.type(screen.getByLabelText(/email/i), "taken@example.com");
-    await user.type(screen.getByLabelText(/password/i), "correct horse battery");
+    await user.type(screen.getByLabelText(/^email$/i), "taken@example.com");
+    await user.type(document.getElementById("signup-password")!, "correct horse battery");
+    await user.type(document.getElementById("signup-confirm-password")!, "correct horse battery");
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
     expect(await screen.findByText(/email already in use/i)).toBeInTheDocument();
@@ -179,8 +191,9 @@ describe("AuthDialog", () => {
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("tab", { name: /sign up/i }));
-    await user.type(screen.getByLabelText(/email/i), "u@example.com");
-    await user.type(screen.getByLabelText(/password/i), "shortpw123");
+    await user.type(screen.getByLabelText(/^email$/i), "u@example.com");
+    await user.type(document.getElementById("signup-password")!, "shortpw123");
+    await user.type(document.getElementById("signup-confirm-password")!, "shortpw123");
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
     expect(await screen.findByText(/at least 10 characters/i)).toBeInTheDocument();

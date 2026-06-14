@@ -17,8 +17,9 @@ class LoginRateLimiter:
     def check_and_record(self, key: str) -> bool:
         """Returns True if the request is allowed, False if rate-limited.
 
-        Records the attempt either way (so spamming a blocked key extends
-        the block — the standard sliding-window behavior).
+        Only records the attempt when it is allowed; a request that is
+        already over the limit returns False without extending the window,
+        so the block clears window_seconds after the last *allowed* attempt.
         """
         now = time.time()
         bucket = self._attempts[key]
@@ -33,3 +34,11 @@ class LoginRateLimiter:
 
 # Module-level singleton used by the auth router.
 login_rate_limiter = LoginRateLimiter()
+
+# Rate limiter for password-reset requests — keyed by email address.
+# 3 requests per hour per email prevents inbox flooding.
+reset_rate_limiter = LoginRateLimiter(max_attempts=3, window_seconds=3600)
+
+# Rate limiter for email-verification resend requests — keyed by user ID.
+# 3 resends per hour per user.
+verify_rate_limiter = LoginRateLimiter(max_attempts=3, window_seconds=3600)

@@ -9,10 +9,12 @@ from app.api import players, players_search
 from app.api.linked_league import router as linked_league_router
 from app.scheduler import setup_scheduler, scheduler
 from app.config import settings
+from app.email import make_email_sender
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    app.state.email_sender = make_email_sender()
     if settings.run_scheduler:
         setup_scheduler()
     yield
