@@ -26,7 +26,7 @@ async def _resolve_user(
     user = await db.get(User, claims.user_id)
     if user is None:
         return None
-    # Reject tokens whose version is behind the current user version.
+    # Reject any token whose version doesn't match the current user version.
     # This invalidates all sessions issued before a password reset/change.
     # No extra DB read required — we already loaded the user above.
     if claims.token_version != user.token_version:

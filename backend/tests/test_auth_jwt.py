@@ -41,6 +41,20 @@ def test_decode_invalid_token_raises():
         decode_jwt("not.a.token")
 
 
+def test_decode_non_integer_v_claim_raises_jwtinvalid():
+    """A malformed 'v' claim must fail closed to JWTInvalid (→ anonymous), not 500."""
+    import pytest
+    import jwt as pyjwt
+    from app.config import settings
+    from datetime import datetime, timezone
+    user_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+    payload = {"sub": str(user_id), "v": "not-an-int", "iat": now, "exp": now + timedelta(days=30)}
+    token = pyjwt.encode(payload, settings.jwt_secret, algorithm="HS256")
+    with pytest.raises(JWTInvalid):
+        decode_jwt(token)
+
+
 def test_decode_expired_token_raises():
     import pytest
     user_id = uuid.uuid4()

@@ -45,8 +45,12 @@ def decode_jwt(token: str) -> JWTClaims:
         user_id = uuid.UUID(payload["sub"])
     except (KeyError, ValueError) as e:
         raise JWTInvalid("missing/invalid sub claim") from e
-    # "v" claim is absent on pre-#241 tokens — treat as version 0.
-    token_version = int(payload.get("v", 0))
+    # "v" claim is absent on pre-#241 tokens — treat as version 0. A malformed
+    # value must fail closed to JWTInvalid (anonymous request), never a 500.
+    try:
+        token_version = int(payload.get("v", 0))
+    except (TypeError, ValueError) as e:
+        raise JWTInvalid("invalid v claim") from e
     return JWTClaims(user_id=user_id, token_version=token_version)
 
 

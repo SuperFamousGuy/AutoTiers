@@ -1009,11 +1009,12 @@ async def test_oauth_only_user_can_reset_and_set_password(async_client, fake_sen
     consume the token, set a new password, and log in with it.
     Also asserts email_verified is True after reset (inbox control proven).
     """
-    # Create an OAuth-only user with a verified email from Google.
+    # Create an OAuth-only user whose email is NOT yet verified, so the
+    # post-reset assertion actually proves reset flips email_verified.
     user = User(
         google_subject="google-sub-oauthonly",
         email="oauthonly@example.com",
-        email_verified=True,  # already verified via OAuth
+        email_verified=False,
     )
     test_db.add(user)
     await test_db.commit()
@@ -1039,7 +1040,7 @@ async def test_oauth_only_user_can_reset_and_set_password(async_client, fake_sen
     })
     assert r.status_code == 200
 
-    # email_verified must still be True (reset sets it; was already True).
+    # reset must flip email_verified False→True (inbox control proven).
     await test_db.refresh(user)
     assert user.email_verified is True
     assert user.password_hash is not None
