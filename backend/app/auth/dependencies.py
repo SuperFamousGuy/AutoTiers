@@ -20,10 +20,18 @@ async def _resolve_user(
     if not cookie_value:
         return None
     try:
-        user_id = decode_jwt(cookie_value)
+        claims = decode_jwt(cookie_value)
     except JWTInvalid:
         return None
-    return await db.get(User, user_id)
+    user = await db.get(User, claims.user_id)
+    if user is None:
+        return None
+    # Reject tokens whose version is behind the current user version.
+    # This invalidates all sessions issued before a password reset/change.
+    # No extra DB read required — we already loaded the user above.
+    if claims.token_version != user.token_version:
+        return None
+    return user
 
 
 async def _get_current_user_impl(
