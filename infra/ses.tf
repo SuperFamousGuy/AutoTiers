@@ -100,15 +100,48 @@ resource "aws_sns_topic" "ses_notifications" {
   }
 }
 
+# SES publishes bounce/complaint events as the ses.amazonaws.com service
+# principal; without this the topic rejects those deliveries. Scoped to this
+# account + our own identity so no other source can publish.
+data "aws_iam_policy_document" "ses_notifications" {
+  statement {
+    effect    = "Allow"
+    actions   = ["sns:Publish"]
+    resources = [aws_sns_topic.ses_notifications.arn]
+
+    principals {
+      type        = "Service"
+      identifiers = ["ses.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "AWS:SourceAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "AWS:SourceArn"
+      values   = [aws_ses_domain_identity.main.arn]
+    }
+  }
+}
+
+resource "aws_sns_topic_policy" "ses_notifications" {
+  arn    = aws_sns_topic.ses_notifications.arn
+  policy = data.aws_iam_policy_document.ses_notifications.json
+}
+
 resource "aws_ses_identity_notification_topic" "bounce" {
-  identity                 = aws_ses_domain_identity.main.arn
+  identity                 = aws_ses_domain_identity.main.domain
   notification_type        = "Bounce"
   topic_arn                = aws_sns_topic.ses_notifications.arn
   include_original_headers = true
 }
 
 resource "aws_ses_identity_notification_topic" "complaint" {
-  identity                 = aws_ses_domain_identity.main.arn
+  identity                 = aws_ses_domain_identity.main.domain
   notification_type        = "Complaint"
   topic_arn                = aws_sns_topic.ses_notifications.arn
   include_original_headers = true

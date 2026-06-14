@@ -98,3 +98,18 @@ resource "aws_iam_role_policy" "ecs_task_ses" {
   role   = aws_iam_role.ecs_task.id
   policy = data.aws_iam_policy_document.ses_send.json
 }
+
+###############################################################################
+# Scheduler Task Role
+# The scheduler service never sends email, so it gets its own bare task role
+# rather than sharing the backend's (which carries ses:SendEmail) — keeps SES
+# permissions off the scheduler per least-privilege.
+###############################################################################
+resource "aws_iam_role" "ecs_scheduler_task" {
+  name               = "${var.app_name}-${var.environment}-ecs-scheduler-task-role"
+  assume_role_policy = data.aws_iam_policy_document.ecs_task_assume_role.json
+
+  tags = {
+    Name = "${var.app_name}-${var.environment}-ecs-scheduler-task-role"
+  }
+}
