@@ -5,7 +5,7 @@ from app.engine.rules import Rule, RuleCondition, RuleEffect, EffectType
 # Players at or above these ages are considered past their production peak.
 # DST excluded (no individual age). K threshold is 40 — elite kickers play
 # into their late 30s but accuracy typically begins declining around age 40.
-OVER_THE_HILL_AGE = {"RB": 28, "WR": 30, "TE": 31, "QB": 36, "K": 40}
+OVER_THE_HILL_AGE = {"RB": 28, "WR": 31, "TE": 31, "QB": 36, "K": 40}
 
 
 BUILTIN_RULES: list[Rule] = [
@@ -46,7 +46,8 @@ BUILTIN_RULES: list[Rule] = [
         name="Sophomore Leap",
         conditions=[RuleCondition(field="years_exp", operator="==", value=1)],
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=1.08),
-        description="Boosts second-year skill players for the expected sophomore leap. +8% at default weight.",
+        description="Boosts second-year WR/TE/QB for the expected sophomore leap. +8% at default weight.",
+        positions=["WR", "TE", "QB"],
     ),
     Rule(
         name="Contract Year Flag",
@@ -109,7 +110,7 @@ BUILTIN_RULES: list[Rule] = [
         name="Over the Hill",
         conditions=[RuleCondition(field="is_over_the_hill", operator="==", value=True)],
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.85),
-        description="Penalizes players past their position's typical decline age: RB >=28, WR >=30, TE >=31, QB >=36, K >=40. DST excluded. -15% at default weight.",
+        description="Penalizes players past their position's typical decline age: RB >=28, WR >=31, TE >=31, QB >=36, K >=40. DST excluded. -15% at default weight.",
         positions=["QB", "RB", "WR", "TE", "K"],
     ),
     Rule(
