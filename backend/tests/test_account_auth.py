@@ -811,3 +811,289 @@ async def test_verify_token_cannot_be_used_as_reset_token(async_client, fake_sen
         "new_password": "new shiny password!",
     })
     assert r.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Issue #241 — Session invalidation via token_version
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_reset_password_invalidates_prior_sessions(async_client, fake_sender, test_db):
+    """After password reset, a cookie minted with the old token_version returns 401."""
+    from app.auth.jwt import encode_jwt, JWT_COOKIE_NAME
+
+    # Signup — user is now at token_version=0.
+    await async_client.post("/api/auth/signup", json={
+        "email": "alice@example.com",
+        "password": "correct horse battery",
+    })
+    # Capture the old session cookie (version=0).
+    old_session_cookie = async_client.cookies.get(JWT_COOKIE_NAME)
+    assert old_session_cookie is not None
+
+    async_client.cookies.clear()
+    fake_sender.clear()
+
+    # Request a reset.
+    await async_client.post("/api/auth/password/forgot", json={"email": "alice@example.com"})
+    sent_text = fake_sender.sent[0].text
+    token_line = [line for line in sent_text.split("\n") if "reset_token=" in line][0]
+    raw_token = token_line.split("reset_token=")[1].strip()
+
+    # Consume the reset — this bumps token_version to 1 and issues new cookie.
+    r = await async_client.post("/api/auth/password/reset", json={
+        "token": raw_token,
+        "new_password": "new shiny password!",
+    })
+    assert r.status_code == 200
+    new_session_cookie = async_client.cookies.get(JWT_COOKIE_NAME)
+    assert new_session_cookie is not None
+
+    # The new session cookie must work.
+    r = await async_client.get("/api/auth/me")
+    assert r.status_code == 200
+
+    # The OLD cookie (version=0) must be rejected now that version=1.
+    async_client.cookies.clear()
+    async_client.cookies.set(JWT_COOKIE_NAME, old_session_cookie)
+    r = await async_client.get("/api/auth/me")
+    assert r.status_code == 401, "old session cookie should be invalid after reset"
+
+
+@pytest.mark.asyncio
+async def test_change_password_invalidates_prior_sessions(async_client, fake_sender, test_db):
+    """After change_password, the old cookie is rejected; the acting device stays logged in."""
+    from app.auth.jwt import encode_jwt, JWT_COOKIE_NAME
+
+    # Signup — captures version=0 cookie.
+    await async_client.post("/api/auth/signup", json={
+        "email": "alice@example.com",
+        "password": "correct horse battery",
+    })
+    old_session_cookie = async_client.cookies.get(JWT_COOKIE_NAME)
+    assert old_session_cookie is not None
+
+    # Simulate a second device: manually build a token at version=0.
+    user = await test_db.scalar(select(User).where(User.email == "alice@example.com"))
+    other_device_token = encode_jwt(user.id, token_version=0)
+
+    # Change password on the first device.
+    r = await async_client.post("/api/auth/password/change", json={
+        "current_password": "correct horse battery",
+        "new_password": "even better battery",
+    })
+    assert r.status_code == 204
+
+    # First device (the one that changed the password) must still be logged in
+    # because change_password re-issues the cookie with the new version.
+    r = await async_client.get("/api/auth/me")
+    assert r.status_code == 200, "acting device should remain logged in"
+
+    # The other device's old cookie (version=0) must now be rejected.
+    async_client.cookies.clear()
+    async_client.cookies.set(JWT_COOKIE_NAME, other_device_token)
+    r = await async_client.get("/api/auth/me")
+    assert r.status_code == 401, "other device's old cookie should be invalid after change"
+
+
+@pytest.mark.asyncio
+async def test_set_password_does_not_bump_token_version(async_client, test_db):
+    """set_password (OAuth-only adding a first password) must NOT bump token_version.
+
+    This is additive — there are no prior password-sessions to invalidate.
+    """
+    from app.auth.jwt import encode_jwt, JWT_COOKIE_NAME
+
+    user = User(google_subject="google-sub-setpw", email="setpw@example.com")
+    test_db.add(user)
+    await test_db.commit()
+    await test_db.refresh(user)
+    assert user.token_version == 0
+
+    token = encode_jwt(user.id, token_version=0)
+    async_client.cookies.set(JWT_COOKIE_NAME, token)
+
+    r = await async_client.post("/api/auth/password/set", json={
+        "new_password": "brand new password",
+    })
+    assert r.status_code == 204
+
+    await test_db.refresh(user)
+    assert user.token_version == 0, "set_password must not bump token_version"
+
+    # Session issued before set_password still works.
+    r = await async_client.get("/api/auth/me")
+    assert r.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_legacy_token_without_v_claim_works_for_version_zero_user(async_client, test_db):
+    """A pre-#241 token (no 'v' claim) is treated as version=0.
+
+    Existing users start at token_version=0, so they stay logged in across deploy.
+    """
+    import jwt as pyjwt
+    from datetime import datetime, timezone
+    from app.config import settings
+    from app.auth.jwt import JWT_COOKIE_NAME
+
+    user = User(email="legacy@example.com", password_hash="ph")
+    test_db.add(user)
+    await test_db.commit()
+    await test_db.refresh(user)
+    assert user.token_version == 0
+
+    # Build a legacy token without the "v" claim.
+    now = datetime.now(timezone.utc)
+    from datetime import timedelta
+    payload = {"sub": str(user.id), "iat": now, "exp": now + timedelta(days=30)}
+    legacy_token = pyjwt.encode(payload, settings.jwt_secret, algorithm="HS256")
+
+    async_client.cookies.set(JWT_COOKIE_NAME, legacy_token)
+    r = await async_client.get("/api/auth/me")
+    assert r.status_code == 200, "legacy token without 'v' claim must work for version-0 user"
+
+
+# ---------------------------------------------------------------------------
+# Issue #242 — Atomic reset-token consumption (concurrent use)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_concurrent_token_consumption_exactly_one_succeeds(async_client, fake_sender, test_db):
+    """Two concurrent consumptions of the same token: exactly one succeeds (200),
+    the other gets 400 'already been used'.
+    """
+    import asyncio
+
+    await async_client.post("/api/auth/signup", json={
+        "email": "alice@example.com",
+        "password": "correct horse battery",
+    })
+    async_client.cookies.clear()
+    fake_sender.clear()
+
+    await async_client.post("/api/auth/password/forgot", json={"email": "alice@example.com"})
+    sent_text = fake_sender.sent[0].text
+    token_line = [line for line in sent_text.split("\n") if "reset_token=" in line][0]
+    raw_token = token_line.split("reset_token=")[1].strip()
+
+    # Fire two simultaneous reset requests with the same token.
+    r1, r2 = await asyncio.gather(
+        async_client.post("/api/auth/password/reset", json={
+            "token": raw_token, "new_password": "new shiny password!",
+        }),
+        async_client.post("/api/auth/password/reset", json={
+            "token": raw_token, "new_password": "another new password!",
+        }),
+    )
+
+    statuses = sorted([r1.status_code, r2.status_code])
+    assert statuses == [200, 400], (
+        f"Expected exactly one success and one failure; got {statuses}"
+    )
+
+    # The failure must be 'already been used', not 'expired' or 'invalid'.
+    failed = r1 if r1.status_code == 400 else r2
+    assert "already been used" in failed.json()["detail"], (
+        f"Expected 'already been used', got: {failed.json()['detail']}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Issue #243 — Test coverage gaps
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_oauth_only_user_can_reset_and_set_password(async_client, fake_sender, test_db):
+    """OAuth-only user (google_subject set, password_hash None) can request a reset,
+    consume the token, set a new password, and log in with it.
+    Also asserts email_verified is True after reset (inbox control proven).
+    """
+    # Create an OAuth-only user with a verified email from Google.
+    user = User(
+        google_subject="google-sub-oauthonly",
+        email="oauthonly@example.com",
+        email_verified=True,  # already verified via OAuth
+    )
+    test_db.add(user)
+    await test_db.commit()
+    await test_db.refresh(user)
+    assert user.password_hash is None
+
+    # Request a password reset.
+    r = await async_client.post("/api/auth/password/forgot", json={
+        "email": "oauthonly@example.com",
+    })
+    assert r.status_code == 202
+    assert len(fake_sender.sent) == 1
+
+    # Extract the token.
+    sent_text = fake_sender.sent[0].text
+    token_line = [line for line in sent_text.split("\n") if "reset_token=" in line][0]
+    raw_token = token_line.split("reset_token=")[1].strip()
+
+    # Consume the token — this sets a password on the OAuth-only account.
+    r = await async_client.post("/api/auth/password/reset", json={
+        "token": raw_token,
+        "new_password": "freshly minted password",
+    })
+    assert r.status_code == 200
+
+    # email_verified must still be True (reset sets it; was already True).
+    await test_db.refresh(user)
+    assert user.email_verified is True
+    assert user.password_hash is not None
+
+    # Can log in with the new password.
+    async_client.cookies.clear()
+    r = await async_client.post("/api/auth/login", json={
+        "email": "oauthonly@example.com",
+        "password": "freshly minted password",
+    })
+    assert r.status_code == 200, "should be able to log in with newly set password"
+
+
+@pytest.mark.asyncio
+async def test_mixed_case_email_reset_exact_local_part_match(async_client, fake_sender, test_db):
+    """Signed up as Alice@example.com; reset request as alice@example.com.
+
+    Documented behavior (commit 1060588): the DB lookup uses the email as
+    Pydantic EmailStr normalises it (domain lowercased, local part preserved).
+    Pydantic stores 'Alice@example.com' in the DB. A reset request for
+    'alice@example.com' has a different local part — it should NOT find the
+    user (no reset email sent). The rate-limit key uses .lower() so both
+    addresses share the same throttle bucket.
+    """
+    # Sign up with mixed-case local part.
+    r = await async_client.post("/api/auth/signup", json={
+        "email": "Alice@example.com",
+        "password": "correct horse battery",
+    })
+    assert r.status_code == 201
+    fake_sender.clear()
+
+    # Confirm what the DB stored.
+    user = await test_db.scalar(select(User).where(User.email == "Alice@example.com"))
+    assert user is not None, "signup must store Alice@example.com with capital A"
+
+    # Reset request with all-lowercase local part.
+    r = await async_client.post("/api/auth/password/forgot", json={
+        "email": "alice@example.com",  # different local part from what signup stored
+    })
+    assert r.status_code == 202  # non-enumerating — always 202
+    # No email sent because the DB lookup found no match for 'alice@example.com'.
+    assert len(fake_sender.sent) == 0, (
+        "reset with mismatched local part must not send email "
+        "(DB stores 'Alice@...', lookup key is 'alice@...')"
+    )
+
+    # Confirm the rate-limit key collapses both to lowercase.
+    # 3 more requests with the canonical form should still exhaust the limit.
+    for _ in range(2):
+        r = await async_client.post("/api/auth/password/forgot", json={"email": "alice@example.com"})
+        assert r.status_code == 202
+
+    r = await async_client.post("/api/auth/password/forgot", json={"email": "Alice@example.com"})
+    assert r.status_code == 429, (
+        "rate-limit key must be case-insensitive (both Alice@ and alice@ share the bucket)"
+    )
