@@ -98,21 +98,38 @@ def blend_scores(
     consensus_projection: Optional[float],
     settings: LeagueSettings,
 ) -> float:
-    """Weighted blend of available projection sources.
+    """Weighted blend of available projection sources with renormalization.
 
-    Uses RAW weights (no renormalization). Players with missing sources are
-    penalized in proportion to how incomplete their data is — e.g., a player
-    with only prior_year_actual (weight 0.2) and no projections scores at
-    20% of their prior-year points, not 100%.
+    Computes a weighted average over the *active* sources — those that are
+    both non-None and have a weight strictly greater than zero. Missing sources
+    have their weight redistributed proportionally across the sources that are
+    present, preserving the relative importance ratios of the active sources.
 
-    This prevents pathological rankings where a backup QB with one strong
-    half-season outranks healthy starters who happen to have a partial data gap.
+    When all sources are present and weights sum to 1.0 (the common case),
+    the output is identical to a raw weighted sum — renormalization is a no-op.
+
+    When a source is absent, its weight is not silently lost; the active sources
+    share the full weight budget. A player missing one source is scored at the
+    same scale as a fully-covered player — the "Projection Unavailable" builtin
+    rule (builtin_rules.py) is the appropriate mechanism for expressing
+    data-confidence uncertainty, as it is explicit and configurable.
+
+    Edge cases:
+    - All sources None or all weights zero: returns 0.0.
+    - weight=0.0 for a source: that source is excluded from the active set even
+      if its value is present (user explicitly disabled it).
+    - value=0.0 is NOT treated as missing — a player who scored zero is distinct
+      from one with no stats on record.
     """
-    score = 0.0
-    if prior_year_actual is not None:
-        score += prior_year_actual * settings.weight_prior_year
-    if espn_projection is not None:
-        score += espn_projection * settings.weight_espn
-    if consensus_projection is not None:
-        score += consensus_projection * settings.weight_consensus
-    return round(score, 2)
+    active: list[tuple[float, float]] = []
+    if prior_year_actual is not None and settings.weight_prior_year > 0:
+        active.append((prior_year_actual, settings.weight_prior_year))
+    if espn_projection is not None and settings.weight_espn > 0:
+        active.append((espn_projection, settings.weight_espn))
+    if consensus_projection is not None and settings.weight_consensus > 0:
+        active.append((consensus_projection, settings.weight_consensus))
+
+    total_weight = sum(w for _, w in active)
+    if total_weight == 0.0:
+        return 0.0
+    return round(sum(v * w / total_weight for v, w in active), 2)

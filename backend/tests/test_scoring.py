@@ -86,8 +86,8 @@ def test_blend_all_sources():
     assert result == pytest.approx(expected)
 
 
-def test_blend_does_not_renormalize_missing_sources():
-    """Missing sources contribute 0 (not redistributed) — incomplete data is penalized."""
+def test_blend_renormalizes_missing_sources():
+    """Missing sources have their weight redistributed — active sources share the full weight budget."""
     settings = LeagueSettings(
         scoring_format=ScoringFormat.PPR,
         league_type=LeagueType.STANDARD,
@@ -100,14 +100,95 @@ def test_blend_does_not_renormalize_missing_sources():
         weight_espn=0.0,
         weight_consensus=0.80,
     )
-    # Only prior_year available; expected score = 100 * 0.20 = 20.0 (not 100.0).
+    # Only prior_year available (espn disabled via weight=0, consensus=None).
+    # Renorm: active = {(100.0, 0.20)}; W_active = 0.20; result = 100 * 0.20 / 0.20 = 100.0.
     result = blend_scores(
         prior_year_actual=100.0,
         espn_projection=None,
         consensus_projection=None,
         settings=settings,
     )
-    assert result == 20.0
+    assert result == 100.0
+
+
+# --- Renormalization test suite T2-T10 (design doc 2026-06-14) ---
+
+def test_blend_t2_espn_missing_weights_redistributed():
+    """T2: ESPN missing — weight redistributed over prior + consensus."""
+    s = _settings(weight_prior_year=0.40, weight_espn=0.30, weight_consensus=0.30)
+    result = blend_scores(300.0, None, 340.0, s)
+    # (300*0.40 + 340*0.30) / 0.70 = 222 / 0.70 = 317.142...
+    assert result == pytest.approx(317.14, abs=0.01)
+
+
+def test_blend_t3_only_prior_year_returns_full_value():
+    """T3: Only prior_year present — full prior-year value returned (not penalized at 40%)."""
+    s = _settings(weight_prior_year=0.40, weight_espn=0.30, weight_consensus=0.30)
+    result = blend_scores(300.0, None, None, s)
+    # 300 * (0.40 / 0.40) = 300.0
+    assert result == pytest.approx(300.0)
+
+
+def test_blend_t4_only_consensus_rookie_scenario():
+    """T4: Only consensus present (rookie) — full consensus value returned."""
+    s = _settings(weight_prior_year=0.40, weight_espn=0.30, weight_consensus=0.30)
+    result = blend_scores(None, None, 200.0, s)
+    # 200 * (0.30 / 0.30) = 200.0
+    assert result == pytest.approx(200.0)
+
+
+def test_blend_t5_only_espn_present():
+    """T5: Only ESPN present — full ESPN value returned."""
+    s = _settings(weight_prior_year=0.40, weight_espn=0.30, weight_consensus=0.30)
+    result = blend_scores(None, 350.0, None, s)
+    # 350 * (0.30 / 0.30) = 350.0
+    assert result == pytest.approx(350.0)
+
+
+def test_blend_t7_espn_weight_zero_data_exists_excluded():
+    """T7: weight_espn=0.0 — ESPN data present but excluded from active set."""
+    s = _settings(weight_prior_year=0.40, weight_espn=0.0, weight_consensus=0.60)
+    result = blend_scores(300.0, 350.0, 340.0, s)
+    # ESPN excluded (w=0); W_active = 0.40 + 0.60 = 1.0
+    # 300*(0.40/1.0) + 340*(0.60/1.0) = 120 + 204 = 324.0
+    assert result == pytest.approx(324.0)
+
+
+def test_blend_t8_all_weights_zero_returns_zero():
+    """T8: All weights zero — must not crash; returns 0.0."""
+    settings = LeagueSettings(
+        scoring_format=ScoringFormat.PPR,
+        league_type=LeagueType.STANDARD,
+        league_size=12,
+        qb_td_points=4.0,
+        bonus_100yd_rushing=False,
+        bonus_100yd_receiving=False,
+        bonus_first_downs=False,
+        weight_prior_year=0.0,
+        weight_espn=0.0,
+        weight_consensus=0.0,
+    )
+    result = blend_scores(300.0, 350.0, 340.0, settings)
+    assert result == 0.0
+
+
+def test_blend_t9_negative_prior_year_correctly_weighted():
+    """T9: Negative prior-year score drags blend down without special-casing."""
+    s = _settings(weight_prior_year=0.40, weight_espn=0.30, weight_consensus=0.30)
+    result = blend_scores(-10.0, None, 280.0, s)
+    # (-10*0.40 + 280*0.30) / 0.70 = (-4 + 84) / 0.70 = 80 / 0.70 = 114.285...
+    assert result == pytest.approx(114.29, abs=0.01)
+
+
+def test_blend_t10_prior_year_zero_not_treated_as_missing():
+    """T10: prior_year_actual=0.0 is not None — player who scored zero is not missing."""
+    s = _settings(weight_prior_year=0.40, weight_espn=0.30, weight_consensus=0.30)
+    result = blend_scores(0.0, None, 200.0, s)
+    # active = {(0.0, 0.40), (200.0, 0.30)}; W_active=0.70
+    # (0.0*0.40 + 200.0*0.30) / 0.70 = 60 / 0.70 = 85.714...
+    assert result == pytest.approx(85.71, abs=0.01)
+    # Must NOT equal blend_scores(None, None, 200.0, s) = 200.0
+    assert result != pytest.approx(200.0)
 
 
 def test_blend_all_missing_returns_zero():
