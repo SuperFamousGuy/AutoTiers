@@ -7,6 +7,7 @@ import App from "@/App";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ToastProvider } from "@/components/ui/toast";
 import { server } from "@/tests/setup";
+import generateResponseFixture from "@/tests/fixtures/generate-response.json";
 
 const API_URL = "http://localhost:8000";
 
@@ -416,5 +417,105 @@ describe("App (authenticated integration)", () => {
       const restored = screen.getAllByRole("switch").map((s) => s.getAttribute("data-state"));
       expect(restored).toEqual(editedState);
     });
+  });
+
+  it("clears the prior profile's generate result on profile switch (#238)", async () => {
+    mockAuthenticated();
+    server.use(
+      http.post(`${API_URL}/api/profiles/:id/activate`, () => new HttpResponse(null, { status: 204 })),
+    );
+
+    renderApp();
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument());
+    await screen.findByText("Target Share Premium");
+
+    // Generate on profile 1 — the Tiers panel now shows the result.
+    await user.click(screen.getByRole("button", { name: /^generate$/i }));
+    const tiersPanel = screen.getByRole("tabpanel", { name: "Tiers" });
+    await waitFor(() => expect(within(tiersPanel).getByText("Ja'Marr Chase")).toBeInTheDocument());
+    // The empty-state copy is gone while a result is shown.
+    expect(within(tiersPanel).queryByText(/Click Generate to build your tier list\./i)).not.toBeInTheDocument();
+
+    // Switch to profile 2.
+    await user.click(screen.getByRole("button", { name: /PPR 12-team/i }));
+    await user.click(screen.getByRole("menuitem", { name: /Standard Keeper/i }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Standard Keeper/i })).toBeInTheDocument());
+
+    // The Tiers panel must return to its empty state — NOT the prior profile's tiers.
+    // This assertion fails if generate.reset() is removed from handleSelectProfile.
+    await waitFor(() => {
+      const panel = screen.getByRole("tabpanel", { name: "Tiers" });
+      expect(within(panel).getByText(/Click Generate to build your tier list\./i)).toBeInTheDocument();
+    });
+    expect(within(screen.getByRole("tabpanel", { name: "Tiers" })).queryByText("Ja'Marr Chase")).not.toBeInTheDocument();
+  });
+
+  it("re-arms mobile auto-switch-to-Tiers on the first generate after a profile switch (#238)", async () => {
+    mockAuthenticated();
+    server.use(
+      http.post(`${API_URL}/api/profiles/:id/activate`, () => new HttpResponse(null, { status: 204 })),
+      // Each generate returns a fresh object reference so the auto-switch effect re-fires.
+      http.post(`${API_URL}/api/generate`, () => HttpResponse.json({ ...generateResponseFixture })),
+    );
+
+    renderApp();
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument());
+    await screen.findByText("Target Share Premium");
+
+    // First generate on profile 1 — auto-switches to Tiers.
+    await user.click(screen.getByRole("button", { name: /^generate$/i }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Tiers" })).toHaveAttribute("aria-selected", "true"));
+
+    // Switch profile — returns to Settings, clears result, re-arms the guard.
+    await user.click(screen.getByRole("button", { name: /PPR 12-team/i }));
+    await user.click(screen.getByRole("menuitem", { name: /Standard Keeper/i }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Standard Keeper/i })).toBeInTheDocument());
+    expect(screen.getByRole("tab", { name: "Settings" })).toHaveAttribute("aria-selected", "true");
+
+    // First generate AFTER the switch must auto-switch to Tiers again (guard re-armed).
+    await user.click(screen.getByRole("button", { name: /^generate$/i }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Tiers" })).toHaveAttribute("aria-selected", "true"));
+  });
+
+  it("clears the prior profile's generate result when creating a new profile (#238 + #228)", async () => {
+    mockAuthenticated([PROFILE_ONE]);
+    server.use(
+      http.post(`${API_URL}/api/profiles`, async ({ request }) => {
+        const body = (await request.json()) as { name?: string };
+        return HttpResponse.json({
+          id: "p-new",
+          name: body.name,
+          settings_json: PROFILE_ONE.settings_json,
+          rules_json: {},
+        });
+      }),
+      http.post(`${API_URL}/api/profiles/:id/activate`, () => new HttpResponse(null, { status: 204 })),
+    );
+
+    renderApp();
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument());
+    await screen.findByText("Target Share Premium");
+
+    // Generate on the current profile.
+    await user.click(screen.getByRole("button", { name: /^generate$/i }));
+    await waitFor(() =>
+      expect(within(screen.getByRole("tabpanel", { name: "Tiers" })).getByText("Ja'Marr Chase")).toBeInTheDocument(),
+    );
+
+    // Create a new profile.
+    await user.click(screen.getByRole("button", { name: /PPR 12-team/i }));
+    await user.click(screen.getByRole("menuitem", { name: /\+ New profile/i }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Profile 2/i })).toBeInTheDocument());
+
+    // New profile starts from the Tiers empty state and the mobile view returns to Settings.
+    await waitFor(() => {
+      const panel = screen.getByRole("tabpanel", { name: "Tiers" });
+      expect(within(panel).getByText(/Click Generate to build your tier list\./i)).toBeInTheDocument();
+    });
+    expect(within(screen.getByRole("tabpanel", { name: "Tiers" })).queryByText("Ja'Marr Chase")).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Settings" })).toHaveAttribute("aria-selected", "true");
   });
 });

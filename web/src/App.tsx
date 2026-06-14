@@ -225,13 +225,17 @@ export default function App() {
 
   const handleSelectProfile = useCallback(async (id: string) => {
     setActiveProfileId(id);
+    // Clear the prior profile's generate result so the Tiers panel returns to
+    // its empty state instead of showing the previous profile's tiers until the
+    // user generates again. reset() sets generate.data back to undefined.
+    generate.reset();
     // Return the mobile view to Settings on profile switch so the user sees
     // the newly-loaded settings, and reset the auto-switch guard so the next
     // generate result after switching will auto-navigate to Tiers again.
     setMobilePanel("settings");
     hasAutoSwitchedToTiers.current = false;
     await activateProfile(id);
-  }, []);
+  }, [generate]);
 
   const handleNewProfile = useCallback(async () => {
     const created = await createProfile({
@@ -241,8 +245,15 @@ export default function App() {
     });
     setProfiles([...profiles, created]);
     setActiveProfileId(created.id);
+    // Mirror handleSelectProfile (#238 + #228): clear the prior profile's
+    // generate result so the new profile starts from the Tiers empty state,
+    // return the mobile view to Settings, and re-arm the auto-switch guard so
+    // the first generate on the new profile navigates to Tiers.
+    generate.reset();
+    setMobilePanel("settings");
+    hasAutoSwitchedToTiers.current = false;
     await activateProfile(created.id);
-  }, [profiles, settings, positionRules, setProfiles]);
+  }, [profiles, settings, positionRules, setProfiles, generate]);
 
   const handleRenameProfile = useCallback(async (id: string, name: string) => {
     const updated = await updateProfile(id, { name });
