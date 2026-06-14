@@ -133,9 +133,15 @@ variable "ses_domain" {
 }
 
 variable "ses_route53_zone_name" {
-  description = "Name of the Route 53 hosted zone that owns ses_domain. SES verification + DKIM records are published here."
+  description = "Name of the Route 53 hosted zone that owns ses_domain (only used when manage_dns = true). SES verification, DKIM, and MAIL FROM (MX/SPF) records are published here."
   type        = string
   default     = "auto-tiers.com"
+}
+
+variable "manage_dns" {
+  description = "When true, Terraform publishes SES verification/DKIM/MAIL-FROM records to Route 53 (zone must exist in this account) and waits for verification. When false (default), DNS is external — Terraform still creates the SES identity, DKIM, and MAIL FROM resources but not their DNS records, emitting them via the ses_dns_records_for_manual_entry output for you to add at your DNS provider."
+  type        = bool
+  default     = false
 }
 
 variable "ses_from_email" {
