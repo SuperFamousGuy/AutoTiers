@@ -14,7 +14,7 @@ FIXTURE = json.loads((Path(__file__).parent.parent / "fixtures" / "espn_projecti
 
 @pytest.fixture
 def mock_espn():
-    with respx.mock(base_url="https://fantasy.espn.com") as router:
+    with respx.mock(base_url="https://lm-api-reads.fantasy.espn.com") as router:
         router.get(url__regex=r"/apis/v3/games/ffl/seasons/.*/segments/0/leaguedefaults/3.*").mock(
             return_value=Response(200, json=FIXTURE)
         )
@@ -31,15 +31,15 @@ async def test_espn_upserts_projections(test_db, mock_espn):
     result = await fetcher.fetch(test_db)
     assert result.success
 
-    # Each matched player gets 3 projection rows (standard, half_ppr, ppr).
-    # 2 matched players × 3 formats = 6 rows.
-    assert result.rows_upserted == 6
+    # Each matched player gets 1 projection row (ppr only).
+    # 2 matched players × 1 format = 2 rows.
+    assert result.rows_upserted == 2
 
     rows = (await test_db.scalars(
         select(Projection).where(Projection.player_id == "4017", Projection.source == "espn")
     )).all()
     formats = {r.scoring_format for r in rows}
-    assert formats == {"standard", "half_ppr", "ppr"}
+    assert formats == {"ppr"}
     for r in rows:
         assert r.projected_points == pytest.approx(388.5)
 
@@ -65,12 +65,12 @@ async def test_espn_idempotent(test_db, mock_espn):
     rows = (await test_db.scalars(
         select(Projection).where(Projection.player_id == "4017", Projection.source == "espn")
     )).all()
-    assert len(rows) == 3  # one per format, not 6
+    assert len(rows) == 1  # one per format (ppr only), not duplicated
 
 
 @pytest.mark.asyncio
 async def test_espn_handles_http_error(test_db):
-    with respx.mock(base_url="https://fantasy.espn.com") as router:
+    with respx.mock(base_url="https://lm-api-reads.fantasy.espn.com") as router:
         router.get(url__regex=r"/apis/v3/games/ffl/.*").mock(return_value=Response(503))
         fetcher = EspnFetcher(season=2026)
         result = await fetcher.fetch(test_db)

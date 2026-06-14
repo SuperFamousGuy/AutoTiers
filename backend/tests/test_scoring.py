@@ -145,6 +145,7 @@ def test_blend_t5_only_espn_present():
     assert result == pytest.approx(350.0)
 
 
+# T6: covered by test_blend_all_missing_returns_zero above
 def test_blend_t7_espn_weight_zero_data_exists_excluded():
     """T7: weight_espn=0.0 — ESPN data present but excluded from active set."""
     s = _settings(weight_prior_year=0.40, weight_espn=0.0, weight_consensus=0.60)

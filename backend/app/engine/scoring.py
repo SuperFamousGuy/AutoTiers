@@ -105,8 +105,10 @@ def blend_scores(
     have their weight redistributed proportionally across the sources that are
     present, preserving the relative importance ratios of the active sources.
 
-    When all sources are present and weights sum to 1.0 (the common case),
+    When all sources are present and active weights sum to exactly 1.0,
     the output is identical to a raw weighted sum — renormalization is a no-op.
+    (The schema allows weights to sum within ±0.01 of 1.0; in that case the
+    renormalized result will differ slightly from a raw weighted sum.)
 
     When a source is absent, its weight is not silently lost; the active sources
     share the full weight budget. A player missing one source is scored at the
