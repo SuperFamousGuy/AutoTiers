@@ -102,6 +102,14 @@ async def test_generate_invalid_weights_returns_422(async_client):
     assert resp.status_code == 422
 
 
+async def test_generate_negative_weight_returns_422(async_client):
+    # Sums to 1.0 but a negative weight would silently drop that source under
+    # the >0 active-set rule in blend_scores; the boundary must reject it.
+    body = {**_GENERATE_BODY, "weight_prior_year": -0.2, "weight_espn": 0.0, "weight_consensus": 1.2}
+    resp = await async_client.post("/api/generate", json=body)
+    assert resp.status_code == 422
+
+
 def test_370_touches_categorized_as_regression():
     from app.api.rules import _categorize
     assert _categorize("370 Touches") == "Regression"
