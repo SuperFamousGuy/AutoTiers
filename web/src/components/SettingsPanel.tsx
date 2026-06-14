@@ -181,7 +181,6 @@ export function SettingsPanel({ value, onChange, linkedLeague, profileId, onRefr
           <Switch
             id="bonus_first_downs"
             checked={value.bonus_first_downs}
-            onCheckedChange={() => undefined}
             disabled
             aria-disabled="true"
           />
