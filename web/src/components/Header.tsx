@@ -64,6 +64,12 @@ function HamburgerMenu({ currentState, onOpenLinkedAccounts, activeProfileName, 
               {isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
             </DropdownMenuItem>
           )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem asChild>
+            <a href="/privacy.html" target="_blank" rel="noopener noreferrer">
+              Privacy Policy
+            </a>
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       <AuthDialog open={authOpen} onOpenChange={setAuthOpen} initialState={currentState} />
