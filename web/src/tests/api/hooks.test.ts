@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { downloadCsv } from "@/api/hooks";
+import { downloadDraftCsv, downloadDebugCsv } from "@/api/hooks";
 import type { TieredPlayer } from "@/api/types";
 
 const basePlayer: TieredPlayer = {
@@ -30,12 +30,13 @@ const basePlayer: TieredPlayer = {
   is_favorite_team: null,
 };
 
-describe("downloadCsv", () => {
+describe("CSV downloads", () => {
   let createObjectURL: ReturnType<typeof vi.fn>;
   let revokeObjectURL: ReturnType<typeof vi.fn>;
   let appendChild: ReturnType<typeof vi.fn>;
   let removeChild: ReturnType<typeof vi.fn>;
   let click: ReturnType<typeof vi.fn>;
+  let anchor: { href: string; download: string; click: ReturnType<typeof vi.fn> };
   const originalCreateElement = document.createElement.bind(document);
 
   beforeEach(() => {
@@ -44,6 +45,7 @@ describe("downloadCsv", () => {
     appendChild = vi.fn();
     removeChild = vi.fn();
     click = vi.fn();
+    anchor = { href: "", download: "", click };
 
     Object.defineProperty(URL, "createObjectURL", { value: createObjectURL, configurable: true });
     Object.defineProperty(URL, "revokeObjectURL", { value: revokeObjectURL, configurable: true });
@@ -52,7 +54,7 @@ describe("downloadCsv", () => {
     vi.spyOn(document.body, "removeChild").mockImplementation(removeChild);
     vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
       if (tag === "a") {
-        return { href: "", download: "", click } as unknown as HTMLAnchorElement;
+        return anchor as unknown as HTMLAnchorElement;
       }
       return originalCreateElement(tag);
     });
@@ -62,22 +64,49 @@ describe("downloadCsv", () => {
     vi.restoreAllMocks();
   });
 
-  it("creates a download link and clicks it", () => {
-    downloadCsv([basePlayer]);
+  describe("downloadDraftCsv", () => {
+    it("creates a download link and clicks it", () => {
+      downloadDraftCsv([basePlayer], "standard");
 
-    expect(createObjectURL).toHaveBeenCalledOnce();
-    expect(click).toHaveBeenCalledOnce();
-    expect(revokeObjectURL).toHaveBeenCalledWith("blob:fake-url");
+      expect(createObjectURL).toHaveBeenCalledOnce();
+      expect(click).toHaveBeenCalledOnce();
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:fake-url");
+    });
+
+    it("downloads as tiers.csv", () => {
+      downloadDraftCsv([basePlayer], "standard");
+      expect(anchor.download).toBe("tiers.csv");
+    });
+
+    it("does not make a network request", () => {
+      const fetchSpy = vi.spyOn(global, "fetch");
+      downloadDraftCsv([basePlayer], "ppr");
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("accepts tier label overrides without throwing", () => {
+      expect(() => downloadDraftCsv([basePlayer], "standard", { 1: "Studs" })).not.toThrow();
+      expect(click).toHaveBeenCalledOnce();
+    });
   });
 
-  it("does not make a network request", () => {
-    const fetchSpy = vi.spyOn(global, "fetch");
-    downloadCsv([basePlayer]);
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
+  describe("downloadDebugCsv", () => {
+    it("creates a download link and clicks it", () => {
+      downloadDebugCsv([basePlayer]);
 
-  it("accepts tier label overrides without throwing", () => {
-    expect(() => downloadCsv([basePlayer], { 1: "Studs" })).not.toThrow();
-    expect(click).toHaveBeenCalledOnce();
+      expect(createObjectURL).toHaveBeenCalledOnce();
+      expect(click).toHaveBeenCalledOnce();
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:fake-url");
+    });
+
+    it("downloads as tiers-debug.csv", () => {
+      downloadDebugCsv([basePlayer]);
+      expect(anchor.download).toBe("tiers-debug.csv");
+    });
+
+    it("accepts tier label overrides without throwing", () => {
+      expect(() => downloadDebugCsv([basePlayer], { 1: "Studs" })).not.toThrow();
+      expect(click).toHaveBeenCalledOnce();
+    });
   });
 });

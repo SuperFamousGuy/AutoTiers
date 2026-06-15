@@ -19,9 +19,12 @@ interface TiersPanelProps {
   keepers?: Array<{ player_name: string; position: string; team: string }>;
   scoringFormat?: ScoringFormat;
   tierLabelOverrides?: Partial<Record<number, string>>;
+  /** When true, surfaces the dev-only "Download debug CSV" button (?debug=1). */
+  debugMode?: boolean;
+  onDownloadDebugCsv?: () => void;
 }
 
-export function TiersPanel({ result, isPending, onDownloadCsv, keepers, scoringFormat, tierLabelOverrides }: TiersPanelProps) {
+export function TiersPanel({ result, isPending, onDownloadCsv, keepers, scoringFormat, tierLabelOverrides, debugMode, onDownloadDebugCsv }: TiersPanelProps) {
   const [filter, setFilter] = useState<PositionFilterValue>("ALL");
 
   const groupedByTier = useMemo(() => {
@@ -116,11 +119,17 @@ export function TiersPanel({ result, isPending, onDownloadCsv, keepers, scoringF
           ))}
         </div>
       </div>
-      <div className="border-t bg-card px-6 py-3 flex justify-center">
+      <div className="border-t bg-card px-6 py-3 flex justify-center gap-3">
         <Button onClick={onDownloadCsv} variant="default">
           <Download className="mr-2 h-4 w-4" />
           Download CSV
         </Button>
+        {debugMode && onDownloadDebugCsv && (
+          <Button onClick={onDownloadDebugCsv} variant="outline">
+            <Download className="mr-2 h-4 w-4" />
+            Download debug CSV
+          </Button>
+        )}
       </div>
     </section>
   );

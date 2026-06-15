@@ -1,11 +1,12 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiFetch } from "./client";
-import { generateCsvString } from "@/lib/csv";
+import { generateDebugCsvString, generateDraftCsvString } from "@/lib/csv";
 import type {
   DataStatusResponse,
   GenerateRequest,
   GenerateResponse,
   Rule,
+  ScoringFormat,
   TieredPlayer,
 } from "./types";
 
@@ -35,18 +36,34 @@ export function useGenerateMutation() {
   });
 }
 
-export function downloadCsv(
-  players: TieredPlayer[],
-  tierLabelOverrides?: Partial<Record<number, string>>,
-): void {
-  const csv = generateCsvString(players, tierLabelOverrides);
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+/** Triggers a browser download of `content` as a file named `filename`. */
+function triggerCsvDownload(content: string, filename: string): void {
+  const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "tiers.csv";
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+/** Downloads the customer-facing draft cheat-sheet CSV as `tiers.csv`. */
+export function downloadDraftCsv(
+  players: TieredPlayer[],
+  scoringFormat: ScoringFormat,
+  tierLabelOverrides?: Partial<Record<number, string>>,
+): void {
+  const csv = generateDraftCsvString(players, { scoringFormat, tierLabelOverrides });
+  triggerCsvDownload(csv, "tiers.csv");
+}
+
+/** Downloads the full debug CSV as `tiers-debug.csv` (dev-only, ?debug=1). */
+export function downloadDebugCsv(
+  players: TieredPlayer[],
+  tierLabelOverrides?: Partial<Record<number, string>>,
+): void {
+  const csv = generateDebugCsvString(players, tierLabelOverrides);
+  triggerCsvDownload(csv, "tiers-debug.csv");
 }

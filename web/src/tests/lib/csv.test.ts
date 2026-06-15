@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { generateCsvString } from "@/lib/csv";
-import type { TieredPlayer } from "@/api/types";
+import { generateDraftCsvString, generateDebugCsvString } from "@/lib/csv";
+import type { ScoringFormat, TieredPlayer } from "@/api/types";
 
 function makePlayer(overrides: Partial<TieredPlayer> = {}): TieredPlayer {
   return {
@@ -33,9 +33,102 @@ function makePlayer(overrides: Partial<TieredPlayer> = {}): TieredPlayer {
   };
 }
 
-describe("generateCsvString", () => {
+const draftOpts = (format: ScoringFormat = "standard", tierLabelOverrides?: Partial<Record<number, string>>) => ({
+  scoringFormat: format,
+  tierLabelOverrides,
+});
+
+describe("generateDraftCsvString", () => {
+  it("header row has the lean human-readable columns in order", () => {
+    const csv = generateDraftCsvString([], draftOpts());
+    const header = csv.split("\r\n")[0];
+    expect(header).toBe("Rank,Player,Pos,Team,Age,Tier,Tier Label,Pos Tier,ADP,Value,Flags");
+  });
+
+  it("empty player list produces a header-only file", () => {
+    const csv = generateDraftCsvString([], draftOpts());
+    expect(csv.split("\r\n")).toHaveLength(1);
+  });
+
+  it("uses CRLF line endings per RFC 4180", () => {
+    const csv = generateDraftCsvString([makePlayer()], draftOpts());
+    expect(csv).toContain("\r\n");
+    expect(csv.split("\r\n")).toHaveLength(2); // header + 1 data row
+  });
+
+  it("Value column is vbd_score rounded to 1 decimal", () => {
+    const csv = generateDraftCsvString([makePlayer({ vbd_score: 87.46 })], draftOpts());
+    const columns = csv.split("\r\n")[1].split(",");
+    expect(columns[9]).toBe("87.5");
+  });
+
+  it("standard format selects adp_standard", () => {
+    const csv = generateDraftCsvString([makePlayer({ adp_standard: 5, adp_ppr: 3 })], draftOpts("standard"));
+    const columns = csv.split("\r\n")[1].split(",");
+    expect(columns[8]).toBe("5");
+  });
+
+  it("ppr format selects adp_ppr", () => {
+    const csv = generateDraftCsvString([makePlayer({ adp_standard: 5, adp_ppr: 3 })], draftOpts("ppr"));
+    const columns = csv.split("\r\n")[1].split(",");
+    expect(columns[8]).toBe("3");
+  });
+
+  it("half_ppr format maps to adp_ppr", () => {
+    const csv = generateDraftCsvString([makePlayer({ adp_standard: 5, adp_ppr: 3 })], draftOpts("half_ppr"));
+    const columns = csv.split("\r\n")[1].split(",");
+    expect(columns[8]).toBe("3");
+  });
+
+  it("null ADP produces an empty field, not 'null'", () => {
+    const csv = generateDraftCsvString([makePlayer({ adp_standard: null })], draftOpts("standard"));
+    const columns = csv.split("\r\n")[1].split(",");
+    expect(columns[8]).toBe("");
+  });
+
+  it("Flags column joins flags with '; '", () => {
+    const csv = generateDraftCsvString([makePlayer({ flags: ["Sleeper", "Injury Risk"] })], draftOpts());
+    const dataRow = csv.split("\r\n")[1];
+    expect(dataRow).toContain("Sleeper; Injury Risk");
+  });
+
+  it("tier label uses static default when no overrides", () => {
+    const csv = generateDraftCsvString([makePlayer({ overall_tier: 1 })], draftOpts());
+    const columns = csv.split("\r\n")[1].split(",");
+    expect(columns[6]).toBe("Elite");
+  });
+
+  it("tier label uses override when present", () => {
+    const csv = generateDraftCsvString([makePlayer({ overall_tier: 1 })], draftOpts("standard", { 1: "Studs" }));
+    const columns = csv.split("\r\n")[1].split(",");
+    expect(columns[6]).toBe("Studs");
+  });
+
+  it("fields containing commas are RFC 4180 quoted", () => {
+    const csv = generateDraftCsvString([makePlayer({ name: "Smith, Jr." })], draftOpts());
+    expect(csv.split("\r\n")[1]).toContain('"Smith, Jr."');
+  });
+
+  it("does not include debug-only columns", () => {
+    const csv = generateDraftCsvString([makePlayer()], draftOpts());
+    const header = csv.split("\r\n")[0];
+    expect(header).not.toContain("adjusted_score");
+    expect(header).not.toContain("projected_score_raw");
+    expect(header).not.toContain("rule_deltas");
+  });
+
+  it("multiple players produce multiple data rows", () => {
+    const csv = generateDraftCsvString(
+      [makePlayer({ overall_rank: 1 }), makePlayer({ overall_rank: 2 })],
+      draftOpts(),
+    );
+    expect(csv.split("\r\n")).toHaveLength(3);
+  });
+});
+
+describe("generateDebugCsvString", () => {
   it("header row has all expected columns in order", () => {
-    const csv = generateCsvString([]);
+    const csv = generateDebugCsvString([]);
     const header = csv.split("\r\n")[0];
     expect(header).toBe(
       "overall_rank,player,position,team,age,overall_tier,tier_label,positional_tier,adjusted_score,vbd_score,position_replacement,projected_score_raw,prior_year_actual,espn_projection,fantasypros_projection,avg_projection,adp_standard,adp_ppr,adp_dynasty,flags,rules_applied,rule_deltas",
@@ -43,13 +136,13 @@ describe("generateCsvString", () => {
   });
 
   it("uses CRLF line endings per RFC 4180", () => {
-    const csv = generateCsvString([makePlayer()]);
+    const csv = generateDebugCsvString([makePlayer()]);
     expect(csv).toContain("\r\n");
     expect(csv.split("\r\n")).toHaveLength(2); // header + 1 data row
   });
 
   it("tier_label uses static default when no overrides", () => {
-    const csv = generateCsvString([makePlayer({ overall_tier: 1 })]);
+    const csv = generateDebugCsvString([makePlayer({ overall_tier: 1 })]);
     const dataRow = csv.split("\r\n")[1];
     const columns = dataRow.split(",");
     // tier_label is column index 6 (0-based)
@@ -57,60 +150,60 @@ describe("generateCsvString", () => {
   });
 
   it("tier_label uses override when present", () => {
-    const csv = generateCsvString([makePlayer({ overall_tier: 1 })], { 1: "Studs" });
+    const csv = generateDebugCsvString([makePlayer({ overall_tier: 1 })], { 1: "Studs" });
     const dataRow = csv.split("\r\n")[1];
     const columns = dataRow.split(",");
     expect(columns[6]).toBe("Studs");
   });
 
   it("tier_label falls back to static default when override is empty string", () => {
-    const csv = generateCsvString([makePlayer({ overall_tier: 1 })], { 1: "" });
+    const csv = generateDebugCsvString([makePlayer({ overall_tier: 1 })], { 1: "" });
     const dataRow = csv.split("\r\n")[1];
     const columns = dataRow.split(",");
     expect(columns[6]).toBe("Elite");
   });
 
   it("tier_label falls back to static default when override is whitespace-only", () => {
-    const csv = generateCsvString([makePlayer({ overall_tier: 1 })], { 1: "   " });
+    const csv = generateDebugCsvString([makePlayer({ overall_tier: 1 })], { 1: "   " });
     const dataRow = csv.split("\r\n")[1];
     const columns = dataRow.split(",");
     expect(columns[6]).toBe("Elite");
   });
 
   it("tier_label uses 'Deep Sleepers' for tier 7 (now a named tier)", () => {
-    const csv = generateCsvString([makePlayer({ overall_tier: 7 })]);
+    const csv = generateDebugCsvString([makePlayer({ overall_tier: 7 })]);
     const dataRow = csv.split("\r\n")[1];
     const columns = dataRow.split(",");
     expect(columns[6]).toBe("Deep Sleepers");
   });
 
   it("tier_label falls back to 'Late Round' for tier 12 with no override", () => {
-    const csv = generateCsvString([makePlayer({ overall_tier: 12 })]);
+    const csv = generateDebugCsvString([makePlayer({ overall_tier: 12 })]);
     const dataRow = csv.split("\r\n")[1];
     const columns = dataRow.split(",");
     expect(columns[6]).toBe("Late Round");
   });
 
   it("fields containing commas are RFC 4180 quoted", () => {
-    const csv = generateCsvString([makePlayer({ name: "Smith, Jr." })]);
+    const csv = generateDebugCsvString([makePlayer({ name: "Smith, Jr." })]);
     const dataRow = csv.split("\r\n")[1];
     expect(dataRow).toContain('"Smith, Jr."');
   });
 
   it("fields containing double-quotes have them escaped by doubling", () => {
-    const csv = generateCsvString([makePlayer({ name: 'He said "hello"' })]);
+    const csv = generateDebugCsvString([makePlayer({ name: 'He said "hello"' })]);
     const dataRow = csv.split("\r\n")[1];
     expect(dataRow).toContain('"He said ""hello"""');
   });
 
   it("fields containing carriage returns are RFC 4180 quoted", () => {
-    const csv = generateCsvString([makePlayer({ name: "Line1\rLine2" })]);
+    const csv = generateDebugCsvString([makePlayer({ name: "Line1\rLine2" })]);
     const dataRow = csv.split("\r\n")[1];
     expect(dataRow).toContain('"Line1\rLine2"');
   });
 
   it("rule_deltas formats flag effect as 'name: flagged'", () => {
-    const csv = generateCsvString([
+    const csv = generateDebugCsvString([
       makePlayer({
         rule_applications: [
           { name: "Contract Year", effect_type: "flag", before_score: 300, after_score: 300, delta: 0 },
@@ -122,7 +215,7 @@ describe("generateCsvString", () => {
   });
 
   it("rule_deltas formats positive numeric delta as '+X.X'", () => {
-    const csv = generateCsvString([
+    const csv = generateDebugCsvString([
       makePlayer({
         rule_applications: [
           { name: "Target Premium", effect_type: "flat_bonus", before_score: 280, after_score: 300, delta: 20 },
@@ -134,7 +227,7 @@ describe("generateCsvString", () => {
   });
 
   it("rule_deltas formats negative numeric delta as '-X.X'", () => {
-    const csv = generateCsvString([
+    const csv = generateDebugCsvString([
       makePlayer({
         rule_applications: [
           { name: "TD Regression", effect_type: "multiplier", before_score: 300, after_score: 280, delta: -20 },
@@ -146,19 +239,19 @@ describe("generateCsvString", () => {
   });
 
   it("null fields produce empty strings, not 'null'", () => {
-    const csv = generateCsvString([makePlayer({ team: null, age: null, espn_projection: null })]);
+    const csv = generateDebugCsvString([makePlayer({ team: null, age: null, espn_projection: null })]);
     const dataRow = csv.split("\r\n")[1];
     expect(dataRow).not.toContain("null");
   });
 
   it("multiple players produce multiple data rows", () => {
-    const csv = generateCsvString([makePlayer({ overall_rank: 1 }), makePlayer({ overall_rank: 2 })]);
+    const csv = generateDebugCsvString([makePlayer({ overall_rank: 1 }), makePlayer({ overall_rank: 2 })]);
     const lines = csv.split("\r\n");
     expect(lines).toHaveLength(3); // header + 2 data rows
   });
 
   it("tier 5 label uses 'Streamers / Deep Flex' static default — slash but no comma, not quoted", () => {
-    const csv = generateCsvString([makePlayer({ overall_tier: 5 })]);
+    const csv = generateDebugCsvString([makePlayer({ overall_tier: 5 })]);
     const dataRow = csv.split("\r\n")[1];
     const columns = dataRow.split(",");
     expect(columns[6]).toBe("Streamers / Deep Flex");
