@@ -4,7 +4,7 @@ from app.engine.rules import (
     RuleResult, apply_rules,
 )
 from app.engine.builtin_rules import BUILTIN_RULES
-from app.api.generate import DOME_TEAMS, ELEVATION_TEAM
+from app.api.generate import DOME_TEAMS, ELEVATION_TEAM, COLD_WEATHER_TEAMS
 
 
 def _ctx(**overrides) -> PlayerContext:
@@ -20,6 +20,7 @@ def _ctx(**overrides) -> PlayerContext:
         bad_offense_team=None, above_market_contract=None,
         opportunity_score_z=None, is_favorite=None,
         plays_in_dome=None, is_denver_kicker=None,
+        cold_weather_kicker=None,
     )
     defaults.update(overrides)
     return PlayerContext(**defaults)
@@ -37,6 +38,7 @@ def make_ctx(**overrides) -> PlayerContext:
         bad_offense_team=None, above_market_contract=None,
         opportunity_score_z=None, is_favorite=None,
         plays_in_dome=None, is_denver_kicker=None,
+        cold_weather_kicker=None,
     )
     defaults.update(overrides)
     return PlayerContext(**defaults)
@@ -147,9 +149,9 @@ def test_builtin_rules_is_nonempty_list_of_rules():
         assert rule.conditions
 
 
-def test_builtin_rules_count_is_23():
-    """Adding Dome Kicker and Mile High Kicker rules (was 21)."""
-    assert len(BUILTIN_RULES) == 23
+def test_builtin_rules_count_is_24():
+    """Adding Cold-Weather Kicker rule (was 23)."""
+    assert len(BUILTIN_RULES) == 24
 
 
 def test_opportunity_rules_categorized_as_regression():
@@ -827,3 +829,82 @@ def test_weight_2_on_projection_unavailable_does_not_go_negative():
     result = apply_rules(100.0, ctx, [rule])
     assert result.adjusted_score >= 0.0
     assert result.adjusted_score == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# Cold-Weather Kicker tests
+# ---------------------------------------------------------------------------
+
+def test_cold_weather_teams_contains_exactly_8_teams():
+    """COLD_WEATHER_TEAMS must contain exactly the 8 documented teams."""
+    expected = {"GB", "BUF", "NE", "CHI", "CLE", "PIT", "CIN", "KC"}
+    assert COLD_WEATHER_TEAMS == expected
+
+
+def test_cold_weather_teams_no_overlap_with_dome_teams():
+    """COLD_WEATHER_TEAMS and DOME_TEAMS must be mutually exclusive."""
+    assert COLD_WEATHER_TEAMS & DOME_TEAMS == frozenset()
+
+
+def test_den_not_in_cold_weather_teams():
+    """DEN is excluded from COLD_WEATHER_TEAMS — altitude handled separately."""
+    assert "DEN" not in COLD_WEATHER_TEAMS
+
+
+def test_elevation_team_not_in_cold_weather_teams():
+    """ELEVATION_TEAM must not appear in COLD_WEATHER_TEAMS."""
+    assert ELEVATION_TEAM not in COLD_WEATHER_TEAMS
+
+
+def test_cold_weather_kicker_fires_on_k_with_cold_weather_kicker_true():
+    """cold_weather_kicker=True on a K → Cold-Weather Kicker fires (-4%)."""
+    import dataclasses
+    rule = dataclasses.replace(
+        next(r for r in BUILTIN_RULES if r.name == "Cold-Weather Kicker"), enabled=True
+    )
+    ctx = make_ctx(position="K", cold_weather_kicker=True)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "Cold-Weather Kicker" in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0 * 0.96)
+
+
+def test_cold_weather_kicker_does_not_fire_on_non_k_position():
+    """cold_weather_kicker=True on a QB → position gate blocks Cold-Weather Kicker."""
+    import dataclasses
+    rule = dataclasses.replace(
+        next(r for r in BUILTIN_RULES if r.name == "Cold-Weather Kicker"), enabled=True
+    )
+    ctx = make_ctx(position="QB", cold_weather_kicker=True)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "Cold-Weather Kicker" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0)
+
+
+def test_cold_weather_kicker_does_not_fire_when_false():
+    """cold_weather_kicker=False on a K → condition fails, rule skipped."""
+    import dataclasses
+    rule = dataclasses.replace(
+        next(r for r in BUILTIN_RULES if r.name == "Cold-Weather Kicker"), enabled=True
+    )
+    ctx = make_ctx(position="K", cold_weather_kicker=False)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "Cold-Weather Kicker" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0)
+
+
+def test_cold_weather_kicker_does_not_fire_when_none():
+    """cold_weather_kicker=None on a K → _evaluate short-circuits to False."""
+    import dataclasses
+    rule = dataclasses.replace(
+        next(r for r in BUILTIN_RULES if r.name == "Cold-Weather Kicker"), enabled=True
+    )
+    ctx = make_ctx(position="K", cold_weather_kicker=None)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "Cold-Weather Kicker" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0)
+
+
+def test_cold_weather_kicker_rule_has_k_position():
+    """Cold-Weather Kicker must carry positions=["K"]."""
+    rule = next(r for r in BUILTIN_RULES if r.name == "Cold-Weather Kicker")
+    assert rule.positions == ["K"]

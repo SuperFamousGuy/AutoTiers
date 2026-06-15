@@ -186,4 +186,19 @@ BUILTIN_RULES: list[Rule] = [
         ),
         positions=["K"],
     ),
+    Rule(
+        name="Cold-Weather Kicker",
+        conditions=[RuleCondition(field="cold_weather_kicker", operator="==", value=True)],
+        effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.96),
+        description=(
+            "Penalizes kickers on consistently cold outdoor home venues where Nov–Jan "
+            "game-time temperatures and wind regularly impair field goal accuracy "
+            "(Burke/Advanced Football Analytics 2012: 30°F cold ≈ 5 yd distance penalty; "
+            "PFF: 20+ mph wind reduces kicker output from 8.3 to 7.7 fpg). "
+            "Teams: GB, BUF, NE, CHI, CLE, PIT, CIN, KC. "
+            "Excludes domes and DEN (altitude bonus modeled separately). "
+            "-4% at default weight."
+        ),
+        positions=["K"],
+    ),
 ]

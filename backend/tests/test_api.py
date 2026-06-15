@@ -824,6 +824,90 @@ async def test_denver_kicker_does_not_get_dome_bonus(async_client, test_db):
 
 
 # ---------------------------------------------------------------------------
+# Integration tests: cold-weather kicker rule wiring
+# Validates that generate.py correctly populates cold_weather_kicker from
+# player.team, and that dome-team Ks and DEN Ks are excluded.
+# ---------------------------------------------------------------------------
+
+async def _seed_kickers_cold(db):
+    """Seed four kickers for cold-weather wiring tests.
+
+    GB  — K on a cold-weather team (should get cold_weather_kicker=True)
+    DET — K on a dome team (should get cold_weather_kicker=False, not penalized)
+    DEN — K on the elevation team (excluded from COLD_WEATHER_TEAMS; False)
+    BUF — a WR (non-K) on a cold-weather team, to verify the position guard
+          leaves cold_weather_kicker=None for non-kickers.
+    """
+    from app.models.player import Player
+    from app.models.projection import Projection
+    from datetime import date
+
+    kickers = [
+        Player(id="cwk_gb",  name="GB Kicker",   position="K",  team="GB",  age=29, years_exp=4),
+        Player(id="cwk_det", name="DET Kicker",  position="K",  team="DET", age=31, years_exp=6),
+        Player(id="cwk_den", name="DEN Kicker2", position="K",  team="DEN", age=27, years_exp=2),
+        Player(id="cwk_wr",  name="BUF WR",      position="WR", team="BUF", age=25, years_exp=3),
+    ]
+    for k in kickers:
+        db.add(k)
+    projs = [
+        Projection(player_id="cwk_gb",  source="fantasypros", scoring_format="ppr",
+                   projected_points=135.0, last_updated=date.today()),
+        Projection(player_id="cwk_det", source="fantasypros", scoring_format="ppr",
+                   projected_points=138.0, last_updated=date.today()),
+        Projection(player_id="cwk_den", source="fantasypros", scoring_format="ppr",
+                   projected_points=142.0, last_updated=date.today()),
+        Projection(player_id="cwk_wr",  source="fantasypros", scoring_format="ppr",
+                   projected_points=120.0, last_updated=date.today()),
+    ]
+    for proj in projs:
+        db.add(proj)
+    await db.commit()
+
+
+async def test_cold_weather_kicker_rule_fires_for_cold_weather_team(async_client, test_db):
+    """GB kicker gets 'Cold-Weather Kicker' in rules_applied via player.team wiring."""
+    await _seed_kickers_cold(test_db)
+    body = {**_GENERATE_BODY, "rules": {"K": [{"name": "Cold-Weather Kicker", "enabled": True, "weight": 1.0}]}}
+    resp = await async_client.post("/api/generate", json=body)
+    assert resp.status_code == 200
+    by_id = {p["player_id"]: p for p in resp.json()["players"]}
+    assert "Cold-Weather Kicker" in by_id["cwk_gb"]["rules_applied"]
+
+
+async def test_cold_weather_kicker_rule_does_not_fire_for_dome_team(async_client, test_db):
+    """DET kicker does NOT get 'Cold-Weather Kicker' — dome team excluded."""
+    await _seed_kickers_cold(test_db)
+    body = {**_GENERATE_BODY, "rules": {"K": [{"name": "Cold-Weather Kicker", "enabled": True, "weight": 1.0}]}}
+    resp = await async_client.post("/api/generate", json=body)
+    assert resp.status_code == 200
+    by_id = {p["player_id"]: p for p in resp.json()["players"]}
+    assert "Cold-Weather Kicker" not in by_id["cwk_det"]["rules_applied"]
+
+
+async def test_cold_weather_kicker_rule_does_not_fire_for_denver(async_client, test_db):
+    """DEN kicker does NOT get 'Cold-Weather Kicker' — DEN excluded from COLD_WEATHER_TEAMS."""
+    await _seed_kickers_cold(test_db)
+    body = {**_GENERATE_BODY, "rules": {"K": [{"name": "Cold-Weather Kicker", "enabled": True, "weight": 1.0}]}}
+    resp = await async_client.post("/api/generate", json=body)
+    assert resp.status_code == 200
+    by_id = {p["player_id"]: p for p in resp.json()["players"]}
+    assert "Cold-Weather Kicker" not in by_id["cwk_den"]["rules_applied"]
+
+
+async def test_cold_weather_kicker_not_set_for_non_k_on_cold_weather_team(async_client, test_db):
+    """A WR on BUF (a cold-weather team) must NOT get penalized: the generate.py
+    wiring guard (`if player.position == "K"`) leaves cold_weather_kicker=None for
+    non-kickers, so the rule never fires even when explicitly enabled for "WR"."""
+    await _seed_kickers_cold(test_db)
+    body = {**_GENERATE_BODY, "rules": {"WR": [{"name": "Cold-Weather Kicker", "enabled": True, "weight": 1.0}]}}
+    resp = await async_client.post("/api/generate", json=body)
+    assert resp.status_code == 200
+    by_id = {p["player_id"]: p for p in resp.json()["players"]}
+    assert "Cold-Weather Kicker" not in by_id["cwk_wr"]["rules_applied"]
+
+
+# ---------------------------------------------------------------------------
 # FIX 3 — Rule weight clamp via HTTP
 # ---------------------------------------------------------------------------
 

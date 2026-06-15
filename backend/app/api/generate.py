@@ -29,7 +29,7 @@ from app.engine.xfp import (
 from app.engine.tiers import TieredPlayer, assign_tiers
 from app.schemas.generate import GenerateRequest, GenerateResponse, TieredPlayerOut, RuleApplicationOut
 from app.data.matching import normalize_name
-from app.data.teams import DOME_TEAMS, ELEVATION_TEAM
+from app.data.teams import DOME_TEAMS, ELEVATION_TEAM, COLD_WEATHER_TEAMS
 
 router = APIRouter()
 
@@ -366,6 +366,10 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
         if player.position == "K":
             is_denver_kicker = player.team == ELEVATION_TEAM
 
+        cold_weather_kicker: Optional[bool] = None
+        if player.position == "K":
+            cold_weather_kicker = player.team in COLD_WEATHER_TEAMS
+
         ctx = PlayerContext(
             player_id=player.id,
             position=player.position,
@@ -397,6 +401,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
             is_favorite=is_favorite_player or is_favorite_team,
             plays_in_dome=plays_in_dome,
             is_denver_kicker=is_denver_kicker,
+            cold_weather_kicker=cold_weather_kicker,
         )
 
         rules_for_player = position_rules_cache[player.position]

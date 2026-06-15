@@ -63,6 +63,7 @@ class PlayerContext:
     is_favorite: Optional[bool] = None
     plays_in_dome: Optional[bool] = None
     is_denver_kicker: Optional[bool] = None
+    cold_weather_kicker: Optional[bool] = None
 
 
 @dataclass
