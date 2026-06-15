@@ -40,16 +40,34 @@ resource "aws_rds_cluster" "main" {
   # Encrypt storage at rest
   storage_encrypted = true
 
-  # Skip final snapshot on destroy — set to false and configure
-  # final_snapshot_identifier before going live in production (issue #181).
-  skip_final_snapshot = true
+  # Skip final snapshot on destroy. Defaults to true (dev teardown cycles);
+  # set var.skip_final_snapshot = false (with a final_snapshot_identifier) for
+  # production so `terraform destroy` captures a snapshot first (issue #181).
+  skip_final_snapshot       = var.skip_final_snapshot
+  final_snapshot_identifier = var.skip_final_snapshot ? null : var.final_snapshot_identifier
 
   # Prevent accidental destruction of the production database.
-  # Set to false only when intentionally tearing down the environment.
-  deletion_protection = true
+  # Set var.deletion_protection = false only when intentionally tearing down.
+  deletion_protection = var.deletion_protection
 
   backup_retention_period = 7
   preferred_backup_window = "03:00-04:00"
+
+  lifecycle {
+    # A variable cannot drive the skip_final_snapshot/identifier coupling from a
+    # variable-validation block, so enforce it here at plan time: requesting a
+    # final snapshot without naming it would otherwise only fail at destroy.
+    precondition {
+      condition     = var.skip_final_snapshot || (var.final_snapshot_identifier != null && var.final_snapshot_identifier != "")
+      error_message = "final_snapshot_identifier must be set (non-empty) when skip_final_snapshot = false, otherwise `terraform destroy` will fail."
+    }
+
+    # Strongest plan-time guard for a real production cluster. Terraform does not
+    # allow a variable here, so this is a deliberate manual edit before go-live:
+    # uncomment to make `terraform destroy` of this cluster impossible until the
+    # line is removed again.
+    # prevent_destroy = true
+  }
 
   tags = {
     Name = "${var.app_name}-${var.environment}-aurora"

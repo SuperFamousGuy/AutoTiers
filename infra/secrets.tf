@@ -15,7 +15,7 @@ resource "random_password" "db" {
 resource "aws_secretsmanager_secret" "db_password" {
   name                    = "${var.app_name}/${var.environment}/db-password"
   description             = "Aurora master password for ${var.app_name} ${var.environment}"
-  recovery_window_in_days = 7
+  recovery_window_in_days = var.secret_recovery_window_in_days
 
   tags = {
     Name = "${var.app_name}-${var.environment}-db-password"
@@ -33,7 +33,7 @@ resource "aws_secretsmanager_secret_version" "db_password" {
 resource "aws_secretsmanager_secret" "database_url" {
   name                    = "${var.app_name}/${var.environment}/database-url"
   description             = "Full asyncpg DATABASE_URL for the ${var.app_name} backend"
-  recovery_window_in_days = 7
+  recovery_window_in_days = var.secret_recovery_window_in_days
 
   tags = {
     Name = "${var.app_name}-${var.environment}-database-url"
@@ -51,7 +51,7 @@ resource "aws_secretsmanager_secret_version" "database_url" {
 resource "aws_secretsmanager_secret" "database_url_sync" {
   name                    = "${var.app_name}/${var.environment}/database-url-sync"
   description             = "Full psycopg2 DATABASE_URL_SYNC for the ${var.app_name} backend"
-  recovery_window_in_days = 7
+  recovery_window_in_days = var.secret_recovery_window_in_days
 
   tags = {
     Name = "${var.app_name}-${var.environment}-database-url-sync"
@@ -75,7 +75,7 @@ resource "aws_secretsmanager_secret_version" "database_url_sync" {
 resource "aws_secretsmanager_secret" "jwt_secret" {
   name                    = "${var.app_name}/${var.environment}/jwt-secret"
   description             = "JWT signing secret for ${var.app_name} ${var.environment}"
-  recovery_window_in_days = 7
+  recovery_window_in_days = var.secret_recovery_window_in_days
 
   tags = {
     Name = "${var.app_name}-${var.environment}-jwt-secret"
@@ -91,7 +91,7 @@ resource "aws_secretsmanager_secret_version" "jwt_secret" {
 resource "aws_secretsmanager_secret" "secret_key" {
   name                    = "${var.app_name}/${var.environment}/secret-key"
   description             = "Fernet encryption key (SECRET_KEY) for ${var.app_name} ${var.environment}"
-  recovery_window_in_days = 7
+  recovery_window_in_days = var.secret_recovery_window_in_days
 
   tags = {
     Name = "${var.app_name}-${var.environment}-secret-key"
@@ -107,7 +107,7 @@ resource "aws_secretsmanager_secret_version" "secret_key" {
 resource "aws_secretsmanager_secret" "yahoo_client_id" {
   name                    = "${var.app_name}/${var.environment}/yahoo-client-id"
   description             = "Yahoo OAuth client ID for ${var.app_name} ${var.environment}"
-  recovery_window_in_days = 7
+  recovery_window_in_days = var.secret_recovery_window_in_days
 
   tags = {
     Name = "${var.app_name}-${var.environment}-yahoo-client-id"
@@ -123,7 +123,7 @@ resource "aws_secretsmanager_secret_version" "yahoo_client_id" {
 resource "aws_secretsmanager_secret" "yahoo_client_secret" {
   name                    = "${var.app_name}/${var.environment}/yahoo-client-secret"
   description             = "Yahoo OAuth client secret for ${var.app_name} ${var.environment}"
-  recovery_window_in_days = 7
+  recovery_window_in_days = var.secret_recovery_window_in_days
 
   tags = {
     Name = "${var.app_name}-${var.environment}-yahoo-client-secret"
@@ -139,7 +139,7 @@ resource "aws_secretsmanager_secret_version" "yahoo_client_secret" {
 resource "aws_secretsmanager_secret" "google_client_id" {
   name                    = "${var.app_name}/${var.environment}/google-client-id"
   description             = "Google OAuth client ID for ${var.app_name} ${var.environment}"
-  recovery_window_in_days = 7
+  recovery_window_in_days = var.secret_recovery_window_in_days
 
   tags = {
     Name = "${var.app_name}-${var.environment}-google-client-id"
@@ -155,7 +155,7 @@ resource "aws_secretsmanager_secret_version" "google_client_id" {
 resource "aws_secretsmanager_secret" "google_client_secret" {
   name                    = "${var.app_name}/${var.environment}/google-client-secret"
   description             = "Google OAuth client secret for ${var.app_name} ${var.environment}"
-  recovery_window_in_days = 7
+  recovery_window_in_days = var.secret_recovery_window_in_days
 
   tags = {
     Name = "${var.app_name}-${var.environment}-google-client-secret"
@@ -171,7 +171,7 @@ resource "aws_secretsmanager_secret_version" "google_client_secret" {
 resource "aws_secretsmanager_secret" "admin_api_key" {
   name                    = "${var.app_name}/${var.environment}/admin-api-key"
   description             = "Admin API key for ${var.app_name} ${var.environment}"
-  recovery_window_in_days = 7
+  recovery_window_in_days = var.secret_recovery_window_in_days
 
   tags = {
     Name = "${var.app_name}-${var.environment}-admin-api-key"
