@@ -36,6 +36,10 @@ export const POSITION_RULES_MAP: Record<Position, readonly string[]> = {
     "Over the Hill", "Favorites",
   ],
   K: [
+    // Kicker-specific rules (backend positions=["K"]). Must include every
+    // builtin K rule or RulesPanel silently drops it — see the guard test in
+    // backend/tests/test_kicker_rules_allowlist.py.
+    "Dome Kicker", "Mile High Kicker", "Cold-Weather Kicker",
     "Projection Unavailable", "Year After the Year After",
     "Over the Hill", "Favorites",
   ],
