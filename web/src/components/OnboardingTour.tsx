@@ -24,6 +24,7 @@ interface Rect {
 
 const PAD = 8; // highlight padding around the anchored element
 const POPOVER_GAP = 12; // gap between highlight and popover
+const CARET = 8; // half-width of the popover connector caret
 
 /**
  * Interactive onboarding walkthrough. Highlights the real UI element for the
@@ -140,6 +141,21 @@ export function OnboardingTour({
   // otherwise centered. On mobile the popover docks to the bottom.
   const centered = !rect;
 
+  // Resolve the popover's top/left once so the connector caret can align to the
+  // highlight's centre. Mirrors the clamping in the popover's inline style.
+  const popoverTop = rect
+    ? Math.min(rect.top + rect.height + PAD + POPOVER_GAP, window.innerHeight - 220)
+    : 0;
+  const popoverLeft = rect
+    ? Math.min(Math.max(rect.left, 12), window.innerWidth - 360)
+    : 0;
+  // Caret points up from the popover's top edge toward the highlight's centre,
+  // clamped to stay within the popover's rounded corners.
+  const highlightCenterX = rect ? rect.left + rect.width / 2 : 0;
+  const caretLeft = rect
+    ? Math.max(CARET + 8, Math.min(highlightCenterX - popoverLeft - CARET, 320))
+    : 0;
+
   const titleId = "onboarding-tour-title";
   const bodyId = "onboarding-tour-body";
 
@@ -151,20 +167,31 @@ export function OnboardingTour({
       aria-labelledby={titleId}
       aria-describedby={bodyId}
     >
-      {/* Dimmed backdrop. Click is a no-op by design. */}
-      <div className="absolute inset-0 bg-black/50" aria-hidden="true" />
+      {/*
+        Dimmed backdrop. Click is a no-op by design.
+        Only the centered (no-cutout) state uses a full-screen dim. When a step
+        is anchored, the highlight's spotlight shadow below IS the backdrop —
+        rendering both stacked two black/0.5 layers (~0.75 effective opacity),
+        which is what users reported as "too dark".
+      */}
+      {centered && (
+        <div className="absolute inset-0 bg-black/60" aria-hidden="true" />
+      )}
 
-      {/* Highlight ring around the anchored element. */}
+      {/* Highlight ring + spotlight backdrop around the anchored element. */}
       {rect && (
         <div
           aria-hidden="true"
-          className="absolute rounded-lg ring-2 ring-primary ring-offset-2 ring-offset-background transition-all"
+          className="absolute rounded-lg ring-[3px] ring-primary ring-offset-2 ring-offset-background transition-all"
           style={{
             top: rect.top - PAD,
             left: rect.left - PAD,
             width: rect.width + PAD * 2,
             height: rect.height + PAD * 2,
-            boxShadow: "0 0 0 9999px rgba(0,0,0,0.5)",
+            // Single dimming layer (the cutout spotlight) plus an outer glow so
+            // the ring stays legible against the dim.
+            boxShadow:
+              "0 0 0 9999px rgba(0,0,0,0.55), 0 0 0 6px hsl(var(--primary) / 0.25)",
           }}
         />
       )}
@@ -185,20 +212,27 @@ export function OnboardingTour({
                 // bottom/right (set by the mobile-dock classes) to auto so the
                 // popover positions by top/left alone — otherwise all four edges
                 // are set at once and the box stretches/clamps instead.
-                top: Math.min(
-                  rect.top + rect.height + PAD + POPOVER_GAP,
-                  window.innerHeight - 220,
-                ),
-                left: Math.min(
-                  Math.max(rect.left, 12),
-                  window.innerWidth - 360,
-                ),
+                top: popoverTop,
+                left: popoverLeft,
                 right: "auto",
                 bottom: "auto",
               }
             : undefined
         }
       >
+        {/*
+          Connector caret tying the popover to the highlighted element. Only
+          shown when anchored AND the popover sits below the highlight (its top
+          edge is past the highlight's bottom). A rotated square clipped by the
+          popover's top edge reads as an upward-pointing triangle.
+        */}
+        {rect && popoverTop >= rect.top + rect.height && (
+          <div
+            aria-hidden="true"
+            className="absolute -top-1.5 h-3 w-3 rotate-45 border-l border-t border-border bg-card"
+            style={{ left: caretLeft }}
+          />
+        )}
         <Button
           variant="ghost"
           size="icon"
