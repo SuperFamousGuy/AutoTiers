@@ -5,7 +5,12 @@ from app.config import settings
 
 
 @pytest.mark.asyncio
-async def test_anonymous_feedback_sends_to_fixed_inbox(async_client, fake_sender):
+async def test_anonymous_feedback_sends_to_fixed_inbox(async_client, fake_sender, monkeypatch):
+    # Override the configured recipient to a non-default value so this test
+    # fails if the route ever hard-codes the default "feedback@autotiers.example".
+    custom_inbox = "team-inbox-override@autotiers.test"
+    monkeypatch.setattr(settings, "feedback_recipient", custom_inbox)
+
     r = await async_client.post("/api/feedback", json={"message": "Love the app!"})
     assert r.status_code == 202
     assert r.json() == {"detail": "Thanks for the feedback!"}
@@ -13,6 +18,7 @@ async def test_anonymous_feedback_sends_to_fixed_inbox(async_client, fake_sender
     assert len(fake_sender.sent) == 1
     sent = fake_sender.sent[0]
     # Recipient comes from config, not the submitting user, not hardcoded.
+    assert sent.to == custom_inbox
     assert sent.to == settings.feedback_recipient
     assert "Love the app!" in sent.text
     # Anonymous submission is labelled as such, and subject says "anonymous".

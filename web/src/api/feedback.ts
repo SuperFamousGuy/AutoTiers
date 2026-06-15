@@ -2,8 +2,9 @@ import { apiFetch } from "./client";
 
 /**
  * Submit in-app feedback. The backend emails it to a fixed team inbox.
- * Returns the success detail string on 202; throws ApiError on failure
- * (422 validation, 429 rate-limit, 502 transport).
+ * Resolves on 202; throws ApiError on failure (422 validation, 429
+ * rate-limit, 502 transport). The success detail string is discarded —
+ * no caller consumes it.
  *
  * The response is a JSON body ({ detail }), so apiFetch (which parses JSON)
  * is correct here — this is NOT an empty-body 204 like logout().

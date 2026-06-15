@@ -36,7 +36,19 @@ class FeedbackRequest(BaseModel):
 
 
 def _client_ip(request: Request) -> str:
-    """Best-effort client IP for rate-limiting. Falls back to 'unknown'."""
+    """Best-effort client IP for rate-limiting. Falls back to 'unknown'.
+
+    Behind a reverse proxy / load balancer (ECS Fargate sits behind an ALB),
+    request.client.host is the proxy's IP, which would collapse every caller
+    into one rate-limit bucket. Prefer the left-most entry of X-Forwarded-For
+    (the originating client the proxy appends), falling back to the socket peer.
+    XFF is client-spoofable, but this is best-effort throttling, not auth.
+    """
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        first = forwarded.split(",")[0].strip()
+        if first:
+            return first
     if request.client and request.client.host:
         return request.client.host
     return "unknown"
