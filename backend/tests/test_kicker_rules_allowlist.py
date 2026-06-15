@@ -40,7 +40,9 @@ def _frontend_k_rule_names() -> set[str]:
     # match below and drop every real name.
     src = re.sub(r"//[^\n]*", "", src)
     # Match the K array body: `K: [ ... ],` (non-greedy up to the closing `],`).
-    m = re.search(r"\bK:\s*\[(.*?)\]", src, re.DOTALL)
+    # Require the trailing comma so the match anchors on the real array close,
+    # not an incidental `]` introduced by a future edit.
+    m = re.search(r"\bK:\s*\[(.*?)\]\s*,", src, re.DOTALL)
     assert m, f"Could not find a `K: [ ... ]` array in {_TS_MAP}"
     body = m.group(1)
     return set(re.findall(r'"([^"]+)"', body))
