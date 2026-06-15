@@ -123,6 +123,17 @@ variable "frontend_url" {
   default     = ""
 }
 
+variable "domain_name" {
+  description = <<-EOT
+    The application's root (apex) domain. Drives both the CloudFront aliases
+    (cdn.tf) and the apex/www/api Route 53 records (dns.tf) so the two can
+    never disagree. Must match the ACM certificate's covered names and the
+    Route 53 hosted zone these records live in (var.ses_route53_zone_name).
+  EOT
+  type        = string
+  default     = "auto-tiers.com"
+}
+
 ###############################################################################
 # SES — transactional auth email (see ses.tf)
 ###############################################################################
