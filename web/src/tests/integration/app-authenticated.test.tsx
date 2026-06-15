@@ -459,6 +459,15 @@ describe("App (authenticated integration)", () => {
       expect(screen.getByText("Click Generate to build your tier list.")).toBeInTheDocument(),
     );
     expect(screen.queryByText("Ja'Marr Chase")).not.toBeInTheDocument();
+
+    // #228 re-arm: the guard was reset on new-profile, so the FIRST generate
+    // after creating the profile must auto-switch back to Tiers. Without
+    // `hasAutoSwitchedToTiers.current = false` in handleNewProfile, the guard
+    // would still be consumed from the pre-create generate and this would fail.
+    await user.click(screen.getByRole("button", { name: /^generate$/i }));
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: "Tiers" })).toHaveAttribute("aria-selected", "true"),
+    );
   });
 
   it("autosave updates AuthContext profiles so switching away and back preserves edits", async () => {
