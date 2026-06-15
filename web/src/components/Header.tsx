@@ -5,6 +5,7 @@ import { Logo } from "./Logo";
 import { GenerateButton } from "./GenerateButton";
 import { AuthDialog } from "./AuthDialog";
 import { FavoritesDialog } from "./FavoritesDialog";
+import { FeedbackDialog } from "./FeedbackDialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
@@ -24,6 +25,7 @@ function HamburgerMenu({ currentState, onOpenLinkedAccounts, activeProfileName, 
   const { user, logout } = useAuth();
   const [authOpen, setAuthOpen] = useState(false);
   const [favoritesOpen, setFavoritesOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   return (
     <>
@@ -49,10 +51,14 @@ function HamburgerMenu({ currentState, onOpenLinkedAccounts, activeProfileName, 
                 Connect Your League
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => setFavoritesOpen(true)}>Favorites</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setFeedbackOpen(true)}>Provide Feedback</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => logout()}>Log Out</DropdownMenuItem>
             </>
           ) : (
-            <DropdownMenuItem onSelect={() => setAuthOpen(true)}>Log In / Sign Up</DropdownMenuItem>
+            <>
+              <DropdownMenuItem onSelect={() => setAuthOpen(true)}>Log In / Sign Up</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setFeedbackOpen(true)}>Provide Feedback</DropdownMenuItem>
+            </>
           )}
           {onShowOnboarding && (
             <DropdownMenuItem className="lg:hidden" onSelect={() => onShowOnboarding()}>
@@ -74,6 +80,7 @@ function HamburgerMenu({ currentState, onOpenLinkedAccounts, activeProfileName, 
       </DropdownMenu>
       <AuthDialog open={authOpen} onOpenChange={setAuthOpen} initialState={currentState} />
       <FavoritesDialog open={favoritesOpen} onOpenChange={setFavoritesOpen} isLoggedIn={!!user} />
+      <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} userEmail={user?.email ?? null} />
     </>
   );
 }
