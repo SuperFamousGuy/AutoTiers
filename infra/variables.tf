@@ -37,10 +37,19 @@ variable "db_name" {
 ###############################################################################
 # Aurora lifecycle / destroy-safety (issue #181)
 #
-# Defaults preserve fast dev teardown/recreate cycles. Before a production
-# go-live, set skip_final_snapshot = false (with a final_snapshot_identifier)
-# AND keep deletion_protection = true so an accidental `terraform destroy`
-# cannot silently drop the database.
+# Two INDEPENDENT postures; do not conflate them:
+#
+#   Prod safety (block accidental destroy):
+#     deletion_protection = true (and/or the prevent_destroy lifecycle block in
+#     rds.tf). While this is on, `terraform destroy` is REJECTED outright, so
+#     skip_final_snapshot has no effect.
+#
+#   Intentional teardown (capture a parting snapshot):
+#     deletion_protection = false (to allow the destroy) AND
+#     skip_final_snapshot = false with a final_snapshot_identifier, so the
+#     destroy takes a final snapshot before dropping the cluster.
+#
+# Defaults below preserve fast dev teardown/recreate cycles.
 ###############################################################################
 variable "skip_final_snapshot" {
   description = <<-EOT
@@ -99,8 +108,11 @@ variable "secret_recovery_window_in_days" {
   default     = 7
 
   validation {
-    condition     = var.secret_recovery_window_in_days == 0 || (var.secret_recovery_window_in_days >= 7 && var.secret_recovery_window_in_days <= 30)
-    error_message = "secret_recovery_window_in_days must be 0 (force-delete) or between 7 and 30, per AWS Secrets Manager limits."
+    condition = (
+      floor(var.secret_recovery_window_in_days) == var.secret_recovery_window_in_days &&
+      (var.secret_recovery_window_in_days == 0 || (var.secret_recovery_window_in_days >= 7 && var.secret_recovery_window_in_days <= 30))
+    )
+    error_message = "secret_recovery_window_in_days must be a whole number: 0 (force-delete) or between 7 and 30, per AWS Secrets Manager limits."
   }
 }
 
