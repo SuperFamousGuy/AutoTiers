@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     email_sender_backend: str = "fake"
     ses_from_address: str = "AutoTiers <noreply@autotiers.example>"
     ses_region: str = "us-east-1"
+    # Recipient inbox for in-app "Provide Feedback" submissions. Must be a verified
+    # SES recipient while SES is in sandbox (we send to this fixed address, not to the
+    # submitting user). Override via FEEDBACK_RECIPIENT env. Not hardcoded in the route.
+    feedback_recipient: str = "feedback@autotiers.example"
 
 
 settings = Settings()
