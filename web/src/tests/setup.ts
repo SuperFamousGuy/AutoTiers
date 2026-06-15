@@ -52,13 +52,14 @@ afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
 // ---------------------------------------------------------------------------
-// react-remove-scroll 2.7.2 (pulled in by @radix-ui/react-dialog 1.1.16) sets
-// `pointer-events: none` on <body> while a dialog/menu is open but does not always
-// restore it on unmount under jsdom. Testing Library's afterEach cleanup unmounts
-// the tree, but the leaked body style persists into the next test — so a later
-// test's first interaction (e.g. clicking the hamburger menu) fails with
-// "Unable to perform pointer interaction as the element has `pointer-events: none`".
-// Reset it after every test to keep test isolation intact.
+// @radix-ui/react-dismissable-layer sets `body.style.pointerEvents = "none"` while
+// a dialog or dropdown menu is open and restores it on close. The primary fix for
+// the inert-page bug (outside-click close leaving the page unclickable) lives in
+// package.json overrides: deduplicate react-dismissable-layer to 1.1.12 and
+// react-focus-guards to 1.1.4 so a single DismissableLayerContext singleton is
+// shared across react-menu and react-dialog. This afterEach is belt-and-suspenders:
+// if a test throws before closing a dialog/menu, the leaked body style persists into
+// the next test and fails its first pointer interaction. Reset it unconditionally.
 afterEach(() => {
   if (document.body.style.pointerEvents) {
     document.body.style.pointerEvents = "";
