@@ -74,7 +74,7 @@ resource "aws_cloudfront_distribution" "frontend" {
   comment             = "${var.app_name} ${var.environment} frontend"
   price_class         = "PriceClass_100" # US, Canada, Europe — cheapest
 
-  aliases = var.acm_certificate_arn != "" ? ["auto-tiers.com", "www.auto-tiers.com"] : []
+  aliases = var.acm_certificate_arn != "" ? [var.domain_name, "www.${var.domain_name}"] : []
 
   origin {
     domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
