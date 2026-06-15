@@ -3,15 +3,17 @@ import type { MobilePanel } from "@/components/MobilePanelTabBar";
 /**
  * One step of the interactive onboarding tour.
  *
- * - `anchor`: CSS selector for the real UI element to highlight. `null` renders
- *   the step centered (welcome / finish). Selectors target stable IDs and
- *   `data-tour` markers rather than copy, so they survive text changes.
+ * - `anchor`: CSS selector for the real UI element to highlight, or an ordered
+ *   list of selectors tried in turn (first one in the DOM wins — lets a step
+ *   prefer a specific element but fall back when it isn't rendered yet). `null`
+ *   renders the step centered (welcome / finish). Selectors target stable IDs
+ *   and `data-tour` markers rather than copy, so they survive text changes.
  * - `mobilePanel`: on narrow viewports the tour switches the active panel so the
  *   highlighted element is actually on screen. Omitted for centered steps.
  */
 export interface OnboardingStep {
   id: string;
-  anchor: string | null;
+  anchor: string | string[] | null;
   title: string;
   body: string;
   mobilePanel?: MobilePanel;
@@ -47,7 +49,9 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   },
   {
     id: "download",
-    anchor: "#panel-tiers",
+    // Prefer the actual Download CSV button; before tiers are generated it
+    // isn't rendered, so fall back to highlighting the tiers panel.
+    anchor: ['[data-tour="download"]', "#panel-tiers"],
     title: "4. Take it to draft day",
     body: "Your tiers appear here. Download the CSV to bring them to your draft. You can replay this tour anytime from the help (?) button.",
     mobilePanel: "tiers",

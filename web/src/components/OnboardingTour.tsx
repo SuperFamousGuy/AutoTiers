@@ -57,20 +57,32 @@ export function OnboardingTour({
   const isLast = stepIndex === totalSteps - 1;
 
   // On entering a step, switch the mobile panel so the anchor is on screen.
-  useEffect(() => {
+  // useLayoutEffect (not useEffect) so the panel switch commits before the
+  // measure pass below paints — otherwise the first frame measures the anchor
+  // while it's still in a hidden panel (0x0 rect) and the popover jumps.
+  useLayoutEffect(() => {
     if (step?.mobilePanel) onStepPanel?.(step.mobilePanel);
   }, [step?.mobilePanel, onStepPanel]);
 
   // Measure the anchored element so we can position the highlight + popover.
   // Re-measure after the panel switch above commits (layout effect runs post-DOM).
   const measure = useCallback(() => {
-    if (!step?.anchor) {
+    const anchor = step?.anchor;
+    if (!anchor) {
       setRect(null);
       return;
     }
-    const el = document.querySelector(step.anchor);
+    // `anchor` may be an ordered fallback list: try each selector and take the
+    // first that's actually in the DOM (e.g. the Download button before it
+    // exists falls back to the tiers panel).
+    const selectors = Array.isArray(anchor) ? anchor : [anchor];
+    let el: Element | null = null;
+    for (const sel of selectors) {
+      el = document.querySelector(sel);
+      if (el) break;
+    }
     if (!el) {
-      // Anchor not in the DOM (e.g. element conditionally rendered) — fall back
+      // No anchor in the DOM (e.g. element conditionally rendered) — fall back
       // to a centered popover rather than pointing at nothing.
       setRect(null);
       return;
@@ -169,7 +181,10 @@ export function OnboardingTour({
         style={
           rect
             ? {
-                // Desktop: place just below the highlight, clamped into view.
+                // Place just below the highlight, clamped into view. Reset
+                // bottom/right (set by the mobile-dock classes) to auto so the
+                // popover positions by top/left alone — otherwise all four edges
+                // are set at once and the box stretches/clamps instead.
                 top: Math.min(
                   rect.top + rect.height + PAD + POPOVER_GAP,
                   window.innerHeight - 220,
@@ -178,6 +193,8 @@ export function OnboardingTour({
                   Math.max(rect.left, 12),
                   window.innerWidth - 360,
                 ),
+                right: "auto",
+                bottom: "auto",
               }
             : undefined
         }
