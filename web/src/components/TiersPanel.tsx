@@ -120,7 +120,7 @@ export function TiersPanel({ result, isPending, onDownloadCsv, keepers, scoringF
         </div>
       </div>
       <div className="border-t bg-card px-6 py-3 flex justify-center gap-3">
-        <Button onClick={onDownloadCsv} variant="default">
+        <Button data-tour="download" onClick={onDownloadCsv} variant="default">
           <Download className="mr-2 h-4 w-4" />
           Download CSV
         </Button>

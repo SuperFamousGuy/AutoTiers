@@ -46,3 +46,22 @@ DOME_TEAMS: frozenset[str] = frozenset({
 # for one game only — not enough for a season-long redraft boost.
 # Used by the "Mile High Kicker" builtin rule (app.engine.builtin_rules).
 ELEVATION_TEAM: str = "DEN"
+
+# Teams whose home venue is a consistently cold outdoor stadium where Nov–Jan
+# game-time temperatures and wind regularly impair field goal accuracy.
+# Source rationale: Burke/Advanced Football Analytics 2012 — cold at 30°F
+# imposes a ~5 yd FG distance penalty; FG% drops from ~87% (warm) to ~80.2%
+# at ≤30°F. PFF: 20+ mph wind reduces kicker output from 8.3 to 7.7 fpg.
+# Excludes all DOME_TEAMS (controlled environment, no overlap) and DEN
+# (altitude advantage is modeled separately by ELEVATION_TEAM / Mile High Kicker).
+# Used by the "Cold-Weather Kicker" builtin rule (app.engine.builtin_rules).
+COLD_WEATHER_TEAMS: frozenset[str] = frozenset({
+    "GB",   # avg Nov-Jan 38.1°F — coldest outdoor home venue in the league
+    "BUF",  # misery index rank #1 (cold + wind combined)
+    "CLE",  # misery index rank #3
+    "PIT",  # misery index rank #4
+    "CHI",  # misery index rank #5
+    "NE",   # misery index rank #7
+    "KC",   # misery index rank #8; second-windiest outdoor city
+    "CIN",  # misery index rank #10
+})
