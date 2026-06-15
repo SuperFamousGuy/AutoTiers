@@ -365,6 +365,102 @@ describe("App (authenticated integration)", () => {
     expect(screen.getByRole("tab", { name: "Rules" })).toHaveAttribute("aria-selected", "false");
   });
 
+  it("clears the prior profile's generate result on profile switch (issue #238)", async () => {
+    mockAuthenticated();
+    server.use(
+      http.post(`${API_URL}/api/profiles/:id/activate`, () => new HttpResponse(null, { status: 204 })),
+    );
+
+    renderApp();
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument());
+    await screen.findByText("Target Share Premium");
+
+    // Generate on profile 1 — default /api/generate handler returns the fixture.
+    await user.click(screen.getByRole("button", { name: /^generate$/i }));
+    await waitFor(() => expect(screen.getByText("Ja'Marr Chase")).toBeInTheDocument());
+
+    // Switch to profile 2 — the prior result must be cleared, not lingered.
+    await user.click(screen.getByRole("button", { name: /PPR 12-team/i }));
+    await user.click(screen.getByRole("menuitem", { name: /Standard Keeper/i }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Standard Keeper/i })).toBeInTheDocument());
+
+    // Tiers panel shows the empty state; the stale player is gone.
+    await waitFor(() =>
+      expect(screen.getByText("Click Generate to build your tier list.")).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("Ja'Marr Chase")).not.toBeInTheDocument();
+  });
+
+  it("mobile auto-switch-to-Tiers still fires on the first generate after a profile switch (issue #238 AC#2)", async () => {
+    mockAuthenticated();
+    server.use(
+      http.post(`${API_URL}/api/profiles/:id/activate`, () => new HttpResponse(null, { status: 204 })),
+    );
+
+    renderApp();
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument());
+    await screen.findByText("Target Share Premium");
+
+    // First generate on profile 1 consumes the auto-switch guard → Tiers tab.
+    await user.click(screen.getByRole("button", { name: /^generate$/i }));
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: "Tiers" })).toHaveAttribute("aria-selected", "true"),
+    );
+
+    // Switch profiles — re-arms the guard and clears the result (back to Settings).
+    await user.click(screen.getByRole("button", { name: /PPR 12-team/i }));
+    await user.click(screen.getByRole("menuitem", { name: /Standard Keeper/i }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Standard Keeper/i })).toBeInTheDocument());
+    expect(screen.getByRole("tab", { name: "Settings" })).toHaveAttribute("aria-selected", "true");
+
+    // The first generate AFTER the switch must auto-switch to Tiers again.
+    await user.click(screen.getByRole("button", { name: /^generate$/i }));
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: "Tiers" })).toHaveAttribute("aria-selected", "true"),
+    );
+  });
+
+  it("'+ New profile' clears stale result and returns to Settings (issue #238 / #228)", async () => {
+    mockAuthenticated([PROFILE_ONE]);
+    server.use(
+      http.post(`${API_URL}/api/profiles`, async ({ request }) => {
+        const body = (await request.json()) as { name?: string };
+        return HttpResponse.json({
+          id: "p-new",
+          name: body.name,
+          settings_json: PROFILE_ONE.settings_json,
+          rules_json: {},
+        });
+      }),
+      http.post(`${API_URL}/api/profiles/:id/activate`, () => new HttpResponse(null, { status: 204 })),
+    );
+
+    renderApp();
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument());
+    await screen.findByText("Target Share Premium");
+
+    // Generate, then jump to Tiers (auto-switch) so we can prove the reset.
+    await user.click(screen.getByRole("button", { name: /^generate$/i }));
+    await waitFor(() => expect(screen.getByText("Ja'Marr Chase")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: "Tiers" })).toHaveAttribute("aria-selected", "true"),
+    );
+
+    // Create a new profile — result cleared, mobile panel back to Settings.
+    await user.click(screen.getByRole("button", { name: /PPR 12-team/i }));
+    await user.click(screen.getByRole("menuitem", { name: /\+ New profile/i }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Profile 2/i })).toBeInTheDocument());
+
+    expect(screen.getByRole("tab", { name: "Settings" })).toHaveAttribute("aria-selected", "true");
+    await waitFor(() =>
+      expect(screen.getByText("Click Generate to build your tier list.")).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("Ja'Marr Chase")).not.toBeInTheDocument();
+  });
+
   it("autosave updates AuthContext profiles so switching away and back preserves edits", async () => {
     // Bug regression: autosave PATCHed the server but discarded the returned
     // profile, so local `profiles` stayed stale. Switching profiles then
