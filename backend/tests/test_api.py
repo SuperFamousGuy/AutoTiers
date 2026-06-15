@@ -832,12 +832,11 @@ async def test_denver_kicker_does_not_get_dome_bonus(async_client, test_db):
 async def _seed_kickers_cold(db):
     """Seed four kickers for cold-weather wiring tests.
 
-    GB  — cold-weather team (should get cold_weather_kicker=True)
-    DET — dome team (should get cold_weather_kicker=False, not penalized)
-    DEN — elevation team (excluded from COLD_WEATHER_TEAMS; False)
-    BUF — cold-weather team (to test a second cold-weather team; also a non-K gets None)
-
-    Also seed a non-K on a cold-weather team to verify cold_weather_kicker stays None.
+    GB  — K on a cold-weather team (should get cold_weather_kicker=True)
+    DET — K on a dome team (should get cold_weather_kicker=False, not penalized)
+    DEN — K on the elevation team (excluded from COLD_WEATHER_TEAMS; False)
+    BUF — a WR (non-K) on a cold-weather team, to verify the position guard
+          leaves cold_weather_kicker=None for non-kickers.
     """
     from app.models.player import Player
     from app.models.projection import Projection
@@ -897,7 +896,9 @@ async def test_cold_weather_kicker_rule_does_not_fire_for_denver(async_client, t
 
 
 async def test_cold_weather_kicker_not_set_for_non_k_on_cold_weather_team(async_client, test_db):
-    """A WR on BUF (a cold-weather team) must NOT get cold_weather_kicker — position gate at wiring level."""
+    """A WR on BUF (a cold-weather team) must NOT get penalized: the generate.py
+    wiring guard (`if player.position == "K"`) leaves cold_weather_kicker=None for
+    non-kickers, so the rule never fires even when explicitly enabled for "WR"."""
     await _seed_kickers_cold(test_db)
     body = {**_GENERATE_BODY, "rules": {"WR": [{"name": "Cold-Weather Kicker", "enabled": True, "weight": 1.0}]}}
     resp = await async_client.post("/api/generate", json=body)
