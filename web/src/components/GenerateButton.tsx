@@ -10,6 +10,7 @@ interface GenerateButtonProps {
 export function GenerateButton({ disabled, isPending, onClick }: GenerateButtonProps) {
   return (
     <Button
+      data-tour="generate"
       onClick={onClick}
       disabled={disabled || isPending}
       size="default"
