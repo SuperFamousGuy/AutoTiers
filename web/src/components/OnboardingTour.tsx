@@ -147,7 +147,7 @@ export function OnboardingTour({
     ? Math.min(rect.top + rect.height + PAD + POPOVER_GAP, window.innerHeight - 220)
     : 0;
   const popoverLeft = rect
-    ? Math.min(Math.max(rect.left, 12), window.innerWidth - 360)
+    ? Math.min(Math.max(rect.left, 12), Math.max(12, window.innerWidth - 360))
     : 0;
   // Caret points up from the popover's top edge toward the highlight's centre,
   // clamped to stay within the popover's rounded corners.
@@ -226,7 +226,7 @@ export function OnboardingTour({
           edge is past the highlight's bottom). A rotated square clipped by the
           popover's top edge reads as an upward-pointing triangle.
         */}
-        {rect && popoverTop >= rect.top + rect.height && (
+        {rect && popoverTop >= rect.top + rect.height + PAD && (
           <div
             aria-hidden="true"
             className="absolute -top-1.5 h-3 w-3 rotate-45 border-l border-t border-border bg-card"

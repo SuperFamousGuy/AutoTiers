@@ -195,7 +195,10 @@ describe("OnboardingTour", () => {
           onStepPanel={vi.fn()}
         />,
       );
-      const dim = container.querySelector(".inset-0");
+      // Target the dim layer specifically, not the outer `.fixed.inset-0`
+      // container (always present) — otherwise the test passes even if the
+      // centered dim is removed.
+      const dim = container.querySelector(".bg-black\\/60");
       expect(dim).not.toBeNull();
       // No caret in the centered state (nothing to point at).
       expect(container.querySelector(".rotate-45")).toBeNull();
