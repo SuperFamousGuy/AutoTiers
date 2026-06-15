@@ -125,4 +125,83 @@ describe("OnboardingTour", () => {
     const { onStepPanel } = setup(0);
     expect(onStepPanel).not.toHaveBeenCalled();
   });
+
+  describe("anchored state (highlight + backdrop)", () => {
+    // The settings step (index 1) anchors to #panel-settings. JSDOM returns a
+    // zero rect by default, so we mount the anchor and stub its rect to exercise
+    // the anchored render path — where the "too dark" and "what's pointed at"
+    // bugs lived.
+    function mountAnchor() {
+      const el = document.createElement("div");
+      el.id = "panel-settings";
+      el.getBoundingClientRect = () =>
+        ({ top: 100, left: 100, width: 200, height: 50, right: 300, bottom: 150, x: 100, y: 100, toJSON: () => ({}) }) as DOMRect;
+      document.body.appendChild(el);
+      return el;
+    }
+
+    it("does NOT stack a full-screen black/50 backdrop over the spotlight when anchored (no double-dim)", () => {
+      const el = mountAnchor();
+      const { container } = render(
+        <OnboardingTour
+          stepIndex={1}
+          totalSteps={TOTAL}
+          onNext={vi.fn()}
+          onBack={vi.fn()}
+          onGoTo={vi.fn()}
+          onSkip={vi.fn()}
+          onStepPanel={vi.fn()}
+        />,
+      );
+      // The legacy full-screen dim used bg-black/50 on an inset-0 layer. When
+      // anchored, that layer must be absent (the spotlight shadow is the only
+      // dim) — otherwise the two compose to ~0.75 opacity (the reported bug).
+      const fullScreenDim = container.querySelector(".inset-0.bg-black\\/50");
+      expect(fullScreenDim).toBeNull();
+      // And there should be no bg-black/60 full-screen layer either while anchored.
+      const dim60 = container.querySelector(".inset-0.bg-black\\/60");
+      expect(dim60).toBeNull();
+      el.remove();
+    });
+
+    it("renders the connector caret tying the popover to the highlight when anchored", () => {
+      const el = mountAnchor();
+      const { container } = render(
+        <OnboardingTour
+          stepIndex={1}
+          totalSteps={TOTAL}
+          onNext={vi.fn()}
+          onBack={vi.fn()}
+          onGoTo={vi.fn()}
+          onSkip={vi.fn()}
+          onStepPanel={vi.fn()}
+        />,
+      );
+      // The caret is a rotated square on the popover edge.
+      const caret = container.querySelector(".rotate-45");
+      expect(caret).not.toBeNull();
+      el.remove();
+    });
+
+    it("keeps the full-screen dim for the centered welcome step (no anchor to spotlight)", () => {
+      const { container } = render(
+        <OnboardingTour
+          stepIndex={0}
+          totalSteps={TOTAL}
+          onNext={vi.fn()}
+          onBack={vi.fn()}
+          onGoTo={vi.fn()}
+          onSkip={vi.fn()}
+          onStepPanel={vi.fn()}
+        />,
+      );
+      // Target the dim layer specifically, not the outer `.fixed.inset-0`
+      // container (always present) — otherwise the test passes even if the
+      // centered dim is removed.
+      const dim = container.querySelector(".bg-black\\/60");
+      expect(dim).not.toBeNull();
+      // No caret in the centered state (nothing to point at).
+      expect(container.querySelector(".rotate-45")).toBeNull();
+    });
+  });
 });
