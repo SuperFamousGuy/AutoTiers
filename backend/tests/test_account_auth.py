@@ -550,6 +550,93 @@ async def test_resend_verification_rate_limit(async_client, fake_sender):
     assert r.status_code == 429
 
 
+# ---------------------------------------------------------------------------
+# Slice 4 (#274) — resend-verification surfaces send failures instead of lying
+# ---------------------------------------------------------------------------
+
+class _RaisingSender:
+    """Email sender stub whose send() always raises, simulating an SES
+    MessageRejected / transport error. Used to verify the resend-verification
+    endpoint surfaces send failures (#274) rather than swallowing them."""
+
+    def __init__(self) -> None:
+        self.attempts = 0
+
+    async def send(self, *, to: str, subject: str, html: str, text: str) -> None:
+        self.attempts += 1
+        raise RuntimeError("simulated SES MessageRejected")
+
+
+@pytest.mark.asyncio
+async def test_resend_verification_send_failure_returns_502(async_client):
+    """When the underlying email send fails, the endpoint must return an error
+    status (502) the frontend catch handles — NOT a false 202 (#274).
+
+    Sincerity: against the old fire-and-forget code this assertion fails,
+    because the old handler returned 202 regardless of the send outcome.
+    """
+    from app.main import app
+
+    await async_client.post("/api/auth/signup", json={
+        "email": "bob@example.com",
+        "password": "correct horse battery",
+    })
+
+    # Swap in a sender that always raises. The fake_sender fixture's teardown
+    # deletes app.state.email_sender afterward, so this does not leak.
+    raising = _RaisingSender()
+    app.state.email_sender = raising
+
+    r = await async_client.post("/api/auth/email/resend-verification")
+
+    assert r.status_code == 502
+    # The send was actually attempted inline (not fire-and-forget).
+    assert raising.attempts == 1
+    # Misleading-copy guard (bug-class #1): the error names the email send as
+    # the cause, not a generic failure.
+    detail = r.json()["detail"].lower()
+    assert "verification email" in detail
+    assert "try again" in detail
+
+
+@pytest.mark.asyncio
+async def test_resend_verification_send_failure_is_not_2xx(async_client):
+    """Defense-in-depth: the failure response must be a non-2xx that the
+    frontend banner treats as retryable (reverts to "default"). 429 is the only
+    error the banner treats specially; a send failure must NOT be 429 (which
+    would mislead the user into thinking they were rate-limited)."""
+    from app.main import app
+
+    await async_client.post("/api/auth/signup", json={
+        "email": "carol@example.com",
+        "password": "correct horse battery",
+    })
+    app.state.email_sender = _RaisingSender()
+
+    r = await async_client.post("/api/auth/email/resend-verification")
+
+    assert not (200 <= r.status_code < 300)
+    assert r.status_code != 429
+
+
+@pytest.mark.asyncio
+async def test_resend_verification_success_still_202(async_client, fake_sender):
+    """The happy path is unchanged: a successful inline send still returns 202
+    and the email is captured. (Locks the success branch so the failure branch
+    cannot be 'fixed' by making everything error.)"""
+    await async_client.post("/api/auth/signup", json={
+        "email": "dave@example.com",
+        "password": "correct horse battery",
+    })
+    fake_sender.clear()
+
+    r = await async_client.post("/api/auth/email/resend-verification")
+
+    assert r.status_code == 202
+    assert len(fake_sender.sent) == 1
+    assert "verify" in fake_sender.sent[0].subject.lower()
+
+
 @pytest.mark.asyncio
 async def test_verify_email_expired_token(async_client, test_db):
     await async_client.post("/api/auth/signup", json={
