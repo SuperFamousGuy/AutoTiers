@@ -30,6 +30,7 @@ _CATEGORIES = {
     "Favorites": "Personal",
     "Dome Kicker": "Situation",
     "Mile High Kicker": "Situation",
+    "Cold-Weather Kicker": "Situation",
 }
 
 
