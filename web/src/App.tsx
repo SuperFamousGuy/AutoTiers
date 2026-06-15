@@ -16,7 +16,7 @@ import { EmailVerificationBanner, shouldShowVerificationBanner, dismissVerificat
 import { AuthDialog } from "@/components/AuthDialog";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
-import { useRules, useGenerateMutation, downloadCsv } from "@/api/hooks";
+import { useRules, useGenerateMutation, downloadDraftCsv, downloadDebugCsv } from "@/api/hooks";
 import { useAuth } from "@/contexts/AuthContext";
 import { verifyEmail } from "@/api/auth";
 import { createProfile, updateProfile, deleteProfile, activateProfile } from "@/api/profiles";
@@ -52,6 +52,11 @@ export default function App() {
   const { user, profiles, setProfiles, refresh } = useAuth();
   const { toast } = useToast();
   const [settings, setSettings] = useState<SettingsState>(DEFAULT_SETTINGS);
+  // Dev-only debug export: surfaces the full debug CSV button when the app URL
+  // carries ?debug=1. Read once on mount; not stripped by the query-param cleanup.
+  const [debugMode] = useState(
+    () => new URLSearchParams(window.location.search).get("debug") === "1",
+  );
   // Canonical rule definitions from GET /rules (used to seed defaults and display).
   // Never mutated directly by the user — the user's changes go into positionRules.
   const [canonicalRules, setCanonicalRules] = useState<Rule[]>([]);
@@ -432,7 +437,20 @@ export default function App() {
             isPending={generate.isPending}
             onDownloadCsv={() => {
               if (generate.data) {
-                downloadCsv(
+                downloadDraftCsv(
+                  generate.data.players,
+                  settings.scoring_format,
+                  buildResolvedTierNames(
+                    settings.tier_count ?? settings.league_size,
+                    settings.tier_labels,
+                  ),
+                );
+              }
+            }}
+            debugMode={debugMode}
+            onDownloadDebugCsv={() => {
+              if (generate.data) {
+                downloadDebugCsv(
                   generate.data.players,
                   buildResolvedTierNames(
                     settings.tier_count ?? settings.league_size,

@@ -1,4 +1,4 @@
-import type { TieredPlayer } from "@/api/types";
+import type { ScoringFormat, TieredPlayer } from "@/api/types";
 import { getCustomTierLabel } from "@/lib/tiers";
 
 /**
@@ -27,7 +27,85 @@ function formatRuleDelta(app: TieredPlayer["rule_applications"][number]): string
   return `${app.name}: ${sign}${app.delta.toFixed(1)}`;
 }
 
-const CSV_HEADERS = [
+/**
+ * Picks the single ADP value matching the chosen scoring format. `league_type`
+ * is hardcoded "standard" in the generate request, so dynasty ADP is unreachable
+ * from the UI and selection keys off scoring_format only. Half-PPR has no ADP
+ * source of its own and tracks PPR boards more closely than standard, so it maps
+ * to adp_ppr.
+ */
+function adpForFormat(p: TieredPlayer, format: ScoringFormat): number | null {
+  switch (format) {
+    case "ppr":
+    case "half_ppr":
+      return p.adp_ppr;
+    case "standard":
+      return p.adp_standard;
+    default:
+      // Exhaustiveness guard: adding a ScoringFormat without a case here is a
+      // compile error; an unexpected runtime value yields an empty ADP, not undefined.
+      format satisfies never;
+      return null;
+  }
+}
+
+const DRAFT_CSV_HEADERS = [
+  "Rank",
+  "Player",
+  "Pos",
+  "Team",
+  "Age",
+  "Tier",
+  "Tier Label",
+  "Pos Tier",
+  "ADP",
+  "Value",
+  "Flags",
+] as const;
+
+export interface DraftCsvOptions {
+  scoringFormat: ScoringFormat;
+  tierLabelOverrides?: Partial<Record<number, string>>;
+}
+
+/**
+ * Generates the customer-facing draft cheat-sheet CSV: lean, human-readable
+ * columns a user can scan during a live draft. `Value` is vbd_score (points above
+ * replacement) rounded to 1 decimal; `ADP` is the format-matched ADP.
+ * Tier labels use the provided overrides (if any), falling back to static defaults.
+ */
+export function generateDraftCsvString(
+  players: TieredPlayer[],
+  options: DraftCsvOptions,
+): string {
+  const { scoringFormat, tierLabelOverrides } = options;
+  const rows: string[] = [DRAFT_CSV_HEADERS.join(",")];
+
+  for (const p of players) {
+    const tierLabel = getCustomTierLabel(p.overall_tier, tierLabelOverrides);
+    const adp = adpForFormat(p, scoringFormat);
+
+    const row = [
+      csvField(p.overall_rank),
+      csvField(p.name),
+      csvField(p.position),
+      csvField(p.team),
+      csvField(p.age),
+      csvField(p.overall_tier),
+      csvField(tierLabel),
+      csvField(p.positional_tier),
+      csvField(adp),
+      csvField(p.vbd_score.toFixed(1)),
+      csvField(p.flags.join("; ")),
+    ].join(",");
+
+    rows.push(row);
+  }
+
+  return rows.join("\r\n");
+}
+
+const DEBUG_CSV_HEADERS = [
   "overall_rank",
   "player",
   "position",
@@ -53,14 +131,15 @@ const CSV_HEADERS = [
 ] as const;
 
 /**
- * Generates a CSV string from a list of tiered players.
- * Tier labels use the provided overrides (if any), falling back to the static defaults.
+ * Generates the full debug CSV: every internal column (scores, projections, rule
+ * deltas). Reachable only via the ?debug=1 dev flag, not by normal users.
+ * Tier labels use the provided overrides (if any), falling back to static defaults.
  */
-export function generateCsvString(
+export function generateDebugCsvString(
   players: TieredPlayer[],
   tierLabelOverrides?: Partial<Record<number, string>>,
 ): string {
-  const rows: string[] = [CSV_HEADERS.join(",")];
+  const rows: string[] = [DEBUG_CSV_HEADERS.join(",")];
 
   for (const p of players) {
     const tierLabel = getCustomTierLabel(p.overall_tier, tierLabelOverrides);
