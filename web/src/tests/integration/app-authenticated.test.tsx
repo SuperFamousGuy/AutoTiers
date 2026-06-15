@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
@@ -282,6 +282,62 @@ describe("App (authenticated integration)", () => {
     await user.click(screen.getByLabelText(/menu/i));
     await user.click(screen.getByRole("menuitem", { name: /connect your league/i }));
     expect(await screen.findByText(/^connect your league$/i)).toBeInTheDocument();
+  });
+
+  // Regression: clicking outside the LinkedAccounts dialog (overlay/outside click) must
+  // restore body.style.pointerEvents so the page is interactive again.
+  //
+  // Root cause: two separate @radix-ui/react-dismissable-layer module instances existed
+  // (v1.1.11 used by react-menu, v1.1.12 used by react-dialog), creating two independent
+  // DismissableLayerContext singletons with separate `originalBodyPointerEvents` globals.
+  // When the hamburger menu closed and the LinkedAccounts dialog opened in the same update,
+  // the menu's DismissableLayer (1.1.11 context) had set body.style.pointerEvents="none" and
+  // its cleanup correctly restored it. The dialog's DismissableLayer (1.1.12 context) then
+  // set body.style.pointerEvents="none" again, storing "" as the original value. On outside
+  // click, the 1.1.12 cleanup ran but checked its own context's size (which was 1) and
+  // restored correctly — HOWEVER the 1.1.11 cleanup also ran when the menu dismounted and
+  // because there were two independent counters, the overall state was inconsistent.
+  // Fix: add "@radix-ui/react-dismissable-layer": "1.1.12" and
+  // "@radix-ui/react-focus-guards": "1.1.4" to package.json overrides so a single
+  // module instance (and a single DismissableLayerContext) is shared across all consumers.
+  it("page is interactive after closing LinkedAccounts dialog via outside click", async () => {
+    mockAuthenticated();
+    renderApp();
+    const user = userEvent.setup();
+
+    // Dismiss the onboarding tour if present (it auto-starts in tests because localStorage
+    // is clean; it renders as role="dialog" which would interfere with our assertions).
+    const skipBtn = await screen.findByRole("button", { name: /skip/i }).catch(() => null);
+    if (skipBtn) await user.click(skipBtn);
+
+    // Open the hamburger menu (this sets body.style.pointerEvents="none" via DismissableLayer).
+    await waitFor(() => expect(screen.getByLabelText(/menu/i)).toBeInTheDocument());
+    await user.click(screen.getByLabelText(/menu/i));
+
+    // Click "Connect Your League" — closes the dropdown, opens the dialog.
+    await user.click(screen.getByRole("menuitem", { name: /connect your league/i }));
+
+    // The LinkedAccounts dialog title is the discriminator (the tour uses a different label).
+    const dialogTitle = await screen.findByText(/^connect your league$/i);
+    expect(dialogTitle).toBeInTheDocument();
+
+    // At this point, the dialog's DismissableLayer has set body.style.pointerEvents="none".
+    expect(document.body.style.pointerEvents).toBe("none");
+
+    // Wait for the DismissableLayer's setTimeout(0) listener registration to fire so that
+    // the pointerdown listener on document is active before we dispatch events.
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Simulate clicking outside the dialog content. We use fireEvent (not userEvent) because
+    // userEvent refuses pointer interactions when body.style.pointerEvents is "none".
+    fireEvent.pointerDown(document.body);
+    fireEvent.pointerUp(document.body);
+
+    // The dialog should close — "Connect Your League" title leaves the DOM.
+    await waitFor(() => expect(screen.queryByText(/^connect your league$/i)).not.toBeInTheDocument());
+
+    // body.style.pointerEvents must be restored — the page must be interactive again.
+    expect(document.body.style.pointerEvents).not.toBe("none");
   });
 
   it("includes keepers and league_adp in the generate request when active profile is linked", async () => {
