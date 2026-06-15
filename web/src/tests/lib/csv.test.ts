@@ -80,6 +80,16 @@ describe("generateDraftCsvString", () => {
     expect(columns[8]).toBe("3");
   });
 
+  it("unexpected scoring format yields an empty ADP, not undefined", () => {
+    // Exercises the exhaustiveness default branch with a runtime value outside the union.
+    const csv = generateDraftCsvString(
+      [makePlayer({ adp_standard: 5, adp_ppr: 3 })],
+      draftOpts("superflex" as unknown as ScoringFormat),
+    );
+    const columns = csv.split("\r\n")[1].split(",");
+    expect(columns[8]).toBe("");
+  });
+
   it("null ADP produces an empty field, not 'null'", () => {
     const csv = generateDraftCsvString([makePlayer({ adp_standard: null })], draftOpts("standard"));
     const columns = csv.split("\r\n")[1].split(",");

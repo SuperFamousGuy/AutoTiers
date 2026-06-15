@@ -41,6 +41,11 @@ function adpForFormat(p: TieredPlayer, format: ScoringFormat): number | null {
       return p.adp_ppr;
     case "standard":
       return p.adp_standard;
+    default:
+      // Exhaustiveness guard: adding a ScoringFormat without a case here is a
+      // compile error; an unexpected runtime value yields an empty ADP, not undefined.
+      format satisfies never;
+      return null;
   }
 }
 

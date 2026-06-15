@@ -22,7 +22,7 @@ Split the single CSV generator into two: a customer-facing **draft CSV** (lean, 
   - `generateDraftCsvString(players, { tierLabelOverrides, scoringFormat })` — new lean output.
   - `generateDebugCsvString(players, tierLabelOverrides)` — the current behaviour, renamed verbatim.
 - `web/src/api/hooks.ts`:
-  - `downloadDraftCsv(players, opts)` → `tiers.csv`; `downloadDebugCsv(players, opts)` → `tiers-debug.csv`. Shared blob/anchor helper.
+  - `downloadDraftCsv(players, scoringFormat, tierLabelOverrides?)` → `tiers.csv`; `downloadDebugCsv(players, tierLabelOverrides?)` → `tiers-debug.csv`. Shared blob/anchor helper.
 - `web/src/components/TiersPanel.tsx`: new optional `debugMode` + `onDownloadDebugCsv` props; debug button rendered only when `debugMode`.
 - `web/src/App.tsx`: read `debug` flag from `URLSearchParams`; pass `scoringFormat` into the draft download; wire debug download.
 
