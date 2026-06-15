@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { Header } from "@/components/Header";
 import { useDarkMode } from "@/hooks/useDarkMode";
 import { useOnboarding } from "@/hooks/useOnboarding";
-import { OnboardingCard } from "@/components/OnboardingCard";
+import { OnboardingTour } from "@/components/OnboardingTour";
+import { ONBOARDING_STEPS } from "@/lib/onboardingSteps";
 import { SettingsPanel, type SettingsState } from "@/components/SettingsPanel";
 import { RulesPanel } from "@/components/RulesPanel";
 import { TiersPanel } from "@/components/TiersPanel";
@@ -38,7 +39,16 @@ const DEFAULT_SETTINGS: SettingsState = {
 
 export default function App() {
   const [isDark, toggleDark] = useDarkMode();
-  const { showOnboarding, dismiss: dismissOnboarding, reopen: reopenOnboarding } = useOnboarding();
+  const {
+    active: tourActive,
+    stepIndex: tourStep,
+    totalSteps: tourTotal,
+    start: startOnboarding,
+    next: tourNext,
+    back: tourBack,
+    goTo: tourGoTo,
+    skip: tourSkip,
+  } = useOnboarding(ONBOARDING_STEPS.length);
   const { user, profiles, setProfiles, refresh } = useAuth();
   const { toast } = useToast();
   const [settings, setSettings] = useState<SettingsState>(DEFAULT_SETTINGS);
@@ -320,7 +330,7 @@ export default function App() {
         currentState={{ settings, rules: positionRules }}
         isDark={isDark}
         onToggleDark={toggleDark}
-        onShowOnboarding={reopenOnboarding}
+        onShowOnboarding={startOnboarding}
         onOpenLinkedAccounts={user ? () => { setLinkingError(null); setLinkedOpen(true); } : undefined}
         activeProfileName={profiles.find((p) => p.id === activeProfileId)?.name ?? null}
         profilePicker={user ? (
@@ -362,7 +372,17 @@ export default function App() {
           }}
         />
       ) : (
-        showOnboarding && <OnboardingCard onDismiss={dismissOnboarding} />
+        tourActive && (
+          <OnboardingTour
+            stepIndex={tourStep}
+            totalSteps={tourTotal}
+            onNext={tourNext}
+            onBack={tourBack}
+            onGoTo={tourGoTo}
+            onSkip={tourSkip}
+            onStepPanel={setMobilePanel}
+          />
+        )
       )}
       <MobilePanelTabBar active={mobilePanel} onChange={setMobilePanel} />
       <main className="flex-1 grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_minmax(0,1.5fr)] lg:grid-rows-1 overflow-hidden">
