@@ -435,7 +435,7 @@ export default function App() {
           <TiersPanel
             result={generate.data ?? null}
             isPending={generate.isPending}
-            onDownloadCsv={() => {
+            onDownloadXlsx={() => {
               if (generate.data) {
                 void downloadDraftXlsx(
                   generate.data.players,

@@ -15,7 +15,7 @@ const SCORING_FORMAT_LABELS: Record<ScoringFormat, string> = {
 interface TiersPanelProps {
   result: GenerateResponse | null;
   isPending: boolean;
-  onDownloadCsv: () => void;
+  onDownloadXlsx: () => void;
   keepers?: Array<{ player_name: string; position: string; team: string }>;
   scoringFormat?: ScoringFormat;
   tierLabelOverrides?: Partial<Record<number, string>>;
@@ -24,7 +24,7 @@ interface TiersPanelProps {
   onDownloadDebugCsv?: () => void;
 }
 
-export function TiersPanel({ result, isPending, onDownloadCsv, keepers, scoringFormat, tierLabelOverrides, debugMode, onDownloadDebugCsv }: TiersPanelProps) {
+export function TiersPanel({ result, isPending, onDownloadXlsx, keepers, scoringFormat, tierLabelOverrides, debugMode, onDownloadDebugCsv }: TiersPanelProps) {
   const [filter, setFilter] = useState<PositionFilterValue>("ALL");
 
   const groupedByTier = useMemo(() => {
@@ -120,7 +120,7 @@ export function TiersPanel({ result, isPending, onDownloadCsv, keepers, scoringF
         </div>
       </div>
       <div className="border-t bg-card px-6 py-3 flex justify-center gap-3">
-        <Button data-tour="download" onClick={onDownloadCsv} variant="default">
+        <Button data-tour="download" onClick={onDownloadXlsx} variant="default">
           <Download className="mr-2 h-4 w-4" />
           Download Excel
         </Button>

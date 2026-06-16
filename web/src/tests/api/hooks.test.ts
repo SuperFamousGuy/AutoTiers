@@ -90,7 +90,7 @@ describe("file downloads", () => {
     it("accepts tier label overrides without throwing", async () => {
       await expect(
         downloadDraftXlsx([basePlayer], "standard", { 1: "Studs" }),
-      ).resolves.not.toThrow();
+      ).resolves.toBeUndefined();
       expect(click).toHaveBeenCalledOnce();
     });
 
