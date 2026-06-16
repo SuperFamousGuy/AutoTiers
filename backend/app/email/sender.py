@@ -1,5 +1,5 @@
 """EmailSender protocol — the interface all sender implementations must satisfy."""
-from typing import Protocol, runtime_checkable
+from typing import Optional, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -18,6 +18,7 @@ class EmailSender(Protocol):
         subject: str,
         html: str,
         text: str,
+        reply_to: Optional[str] = None,
     ) -> None:
         """Send a single transactional email.
 
@@ -31,6 +32,11 @@ class EmailSender(Protocol):
             HTML body of the email.
         text:
             Plain-text body of the email (fallback for clients that don't render HTML).
+        reply_to:
+            Optional Reply-To address. When set, replies from the recipient go
+            to this address instead of the From sender. Used by feedback so the
+            team can reply directly to the submitter. Omitted (None) by default
+            to preserve the existing behaviour of all other transactional mail.
 
         Raises
         ------

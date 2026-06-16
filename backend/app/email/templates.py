@@ -97,7 +97,11 @@ If you didn't create an AutoTiers account, you can safely ignore this email.
     return html, text
 
 
-def feedback_email(message: str, sender_email: str | None) -> tuple[str, str]:
+def feedback_email(
+    message: str,
+    sender_email: str | None,
+    category_label: str | None = None,
+) -> tuple[str, str]:
     """Build the team-inbox email for an in-app feedback submission.
 
     Parameters
@@ -107,6 +111,10 @@ def feedback_email(message: str, sender_email: str | None) -> tuple[str, str]:
         HTML body so a message cannot inject markup into the team's inbox.
     sender_email:
         The authenticated submitter's email, or None for anonymous submissions.
+    category_label:
+        Human-readable category label ("Bug", "Idea", "Other"). When provided it
+        is rendered as a "Type:" line in both bodies. Optional so callers that
+        predate the category field (and old clients) still produce a valid email.
 
     Returns
     -------
@@ -119,14 +127,24 @@ def feedback_email(message: str, sender_email: str | None) -> tuple[str, str]:
     when = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     safe_message = escape(message)
 
+    # The label comes from a fixed server-side enum map (never user free-text),
+    # so it is safe; escape it anyway as defence in depth.
+    type_html = (
+        f'  <p style="color: #555; font-size: 14px; margin: 0 0 16px;">'
+        f"<strong>Type:</strong> {escape(category_label)}</p>\n"
+        if category_label
+        else ""
+    )
+    type_text = f"Type: {category_label}\n" if category_label else ""
+
     html = f"""<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"></head>
 <body style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #111;">
   <h2 style="margin-bottom: 8px;">New AutoTiers feedback</h2>
   <p style="color: #555; font-size: 14px; margin: 0;"><strong>From:</strong> {escape(who)}</p>
-  <p style="color: #555; font-size: 14px; margin: 0 0 16px;"><strong>Submitted:</strong> {when}</p>
-  <div style="white-space: pre-wrap; border-left: 3px solid #2563eb; padding: 8px 12px; background: #f8fafc;">{safe_message}</div>
+  <p style="color: #555; font-size: 14px; margin: 0;"><strong>Submitted:</strong> {when}</p>
+{type_html}  <div style="white-space: pre-wrap; border-left: 3px solid #2563eb; padding: 8px 12px; background: #f8fafc;">{safe_message}</div>
   <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;">
   <p style="color: #888; font-size: 12px;">AutoTiers &mdash; in-app feedback</p>
 </body>
@@ -136,7 +154,7 @@ def feedback_email(message: str, sender_email: str | None) -> tuple[str, str]:
 
 From: {who}
 Submitted: {when}
-
+{type_text}
 {message}
 
 — AutoTiers in-app feedback

@@ -8,7 +8,7 @@ const sendFeedbackMock = vi.fn();
 const toastMock = vi.fn();
 
 vi.mock("@/api/feedback", () => ({
-  sendFeedback: (msg: string) => sendFeedbackMock(msg),
+  sendFeedback: (msg: string, category?: string) => sendFeedbackMock(msg, category),
 }));
 
 vi.mock("@/components/ui/toast", () => ({
@@ -49,7 +49,9 @@ describe("FeedbackDialog", () => {
     await userEvent.type(screen.getByLabelText("Your feedback"), "  hello team  ");
     await userEvent.click(screen.getByRole("button", { name: "Send Feedback" }));
 
-    await waitFor(() => expect(sendFeedbackMock).toHaveBeenCalledWith("hello team"));
+    await waitFor(() =>
+      expect(sendFeedbackMock).toHaveBeenCalledWith("hello team", "idea"),
+    );
     expect(toastMock).toHaveBeenCalledWith({
       title: "Thanks for the feedback!",
       variant: "success",
@@ -99,6 +101,58 @@ describe("FeedbackDialog", () => {
     await userEvent.type(textarea, "quick send");
     await userEvent.keyboard("{Control>}{Enter}{/Control}");
 
-    await waitFor(() => expect(sendFeedbackMock).toHaveBeenCalledWith("quick send"));
+    await waitFor(() =>
+      expect(sendFeedbackMock).toHaveBeenCalledWith("quick send", "idea"),
+    );
   });
+
+  it("defaults the category to Idea and sends it", async () => {
+    sendFeedbackMock.mockResolvedValue(undefined);
+    renderDialog();
+
+    // The Idea radio is checked by default.
+    expect(screen.getByRole("radio", { name: "Idea" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Bug" })).not.toBeChecked();
+
+    await userEvent.type(screen.getByLabelText("Your feedback"), "default cat");
+    await userEvent.click(screen.getByRole("button", { name: "Send Feedback" }));
+
+    await waitFor(() =>
+      expect(sendFeedbackMock).toHaveBeenCalledWith("default cat", "idea"),
+    );
+  });
+
+  it.each([
+    ["Bug", "bug"],
+    ["Idea", "idea"],
+    ["Other", "other"],
+  ])("sends the %s category when selected", async (label, wire) => {
+    sendFeedbackMock.mockResolvedValue(undefined);
+    renderDialog();
+
+    await userEvent.click(screen.getByRole("radio", { name: label }));
+    await userEvent.type(screen.getByLabelText("Your feedback"), "tagged");
+    await userEvent.click(screen.getByRole("button", { name: "Send Feedback" }));
+
+    await waitFor(() =>
+      expect(sendFeedbackMock).toHaveBeenCalledWith("tagged", wire),
+    );
+  });
+
+  it("resets the category back to Idea each time the dialog re-opens", async () => {
+    const onOpenChange = vi.fn();
+    const { rerender } = render(
+      <FeedbackDialog open onOpenChange={onOpenChange} userEmail={null} />,
+    );
+    await userEvent.click(screen.getByRole("radio", { name: "Bug" }));
+    expect(screen.getByRole("radio", { name: "Bug" })).toBeChecked();
+
+    // Close then re-open.
+    rerender(<FeedbackDialog open={false} onOpenChange={onOpenChange} userEmail={null} />);
+    rerender(<FeedbackDialog open onOpenChange={onOpenChange} userEmail={null} />);
+
+    expect(screen.getByRole("radio", { name: "Idea" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Bug" })).not.toBeChecked();
+  });
+
 });

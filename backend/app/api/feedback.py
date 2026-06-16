@@ -11,6 +11,7 @@ background), feedback is sent synchronously and surfaces transport failures to
 the caller as a 502, so the user learns whether their message actually went out.
 """
 import logging
+from enum import Enum
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -29,10 +30,35 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["feedback"])
 
 
+class FeedbackCategory(str, Enum):
+    """Triage category the submitter tags their feedback with.
+
+    Wire values are lowercase enum strings. `idea` is the default when a client
+    omits the field entirely (old clients predating #285 send no category), so
+    backward compatibility is preserved: an absent category is a valid `idea`.
+    """
+
+    bug = "bug"
+    idea = "idea"
+    other = "other"
+
+
+# Human-readable labels for the email subject/body. Single source of truth so
+# the route and the template never drift. Keys must cover every enum member.
+CATEGORY_LABELS: dict[FeedbackCategory, str] = {
+    FeedbackCategory.bug: "Bug",
+    FeedbackCategory.idea: "Idea",
+    FeedbackCategory.other: "Other",
+}
+
+
 class FeedbackRequest(BaseModel):
     # min_length=1 rejects the empty string; the route additionally rejects
     # whitespace-only messages after stripping. max_length caps abuse.
     message: str = Field(min_length=1, max_length=4000)
+    # Optional with a server-side default so old clients (no category) still
+    # work; an unknown string yields a 422 from Pydantic enum validation.
+    category: FeedbackCategory = FeedbackCategory.idea
 
 
 def _client_ip(request: Request) -> str:
@@ -80,14 +106,20 @@ async def submit_feedback(
 
     sender_email = current_user.email if current_user is not None else None
     subject_who = sender_email or "anonymous"
-    html, text = feedback_email(message, sender_email)
+    category_label = CATEGORY_LABELS[body.category]
+    html, text = feedback_email(message, sender_email, category_label)
 
     try:
         await email_sender.send(
             to=settings.feedback_recipient,
-            subject=f"AutoTiers feedback from {subject_who}",
+            subject=f"AutoTiers feedback [{category_label}] from {subject_who}",
             html=html,
             text=text,
+            # Reply-To is the authenticated submitter so the team can reply
+            # directly from their inbox (#288). Omitted for anonymous senders —
+            # there is no address to reply to, and we never trust a body-supplied
+            # email. SES/Fake both default reply_to=None.
+            reply_to=sender_email,
         )
     except Exception:
         logger.exception("Failed to send feedback email to %s", settings.feedback_recipient)
