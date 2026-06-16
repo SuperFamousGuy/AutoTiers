@@ -518,4 +518,56 @@ describe("App (authenticated integration)", () => {
     expect(within(screen.getByRole("tabpanel", { name: "Tiers" })).queryByText("Ja'Marr Chase")).not.toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Settings" })).toHaveAttribute("aria-selected", "true");
   });
+
+  it("discards a stale in-flight generate that resolves after a profile switch (#283)", async () => {
+    // Regression for the race raised in PR #283 review. A generate fired for
+    // profile 1 can still be in flight when the user switches to profile 2.
+    // `generate.reset()` (called in handleSelectProfile) does more than clear the
+    // *displayed* result: in TanStack Query v5 it detaches this observer from the
+    // running mutation, so when the late POST /api/generate response resolves it
+    // is dropped rather than written back into `generate.data`. This test locks
+    // in that behaviour — without the reset() the prior profile's tiers would
+    // reappear under the new profile.
+    mockAuthenticated();
+    let releaseGenerate: () => void = () => {};
+    const generateGate = new Promise<void>((resolve) => {
+      releaseGenerate = resolve;
+    });
+    server.use(
+      http.post(`${API_URL}/api/profiles/:id/activate`, () => new HttpResponse(null, { status: 204 })),
+      // Hold the response open until the test releases it — simulating a generate
+      // still in flight at the moment the user switches profiles.
+      http.post(`${API_URL}/api/generate`, async () => {
+        await generateGate;
+        return HttpResponse.json({ ...generateResponseFixture });
+      }),
+    );
+
+    renderApp();
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument());
+    await screen.findByText("Target Share Premium");
+
+    // Kick off a generate on profile 1 that will not resolve yet.
+    await user.click(screen.getByRole("button", { name: /^generate$/i }));
+
+    // Switch to profile 2 while that generate is still in flight.
+    await user.click(screen.getByRole("button", { name: /PPR 12-team/i }));
+    await user.click(screen.getByRole("menuitem", { name: /Standard Keeper/i }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Standard Keeper/i })).toBeInTheDocument());
+
+    // Now let the stale request resolve — its payload lands under profile 2.
+    releaseGenerate();
+
+    // The Tiers panel must stay in its empty state; the stale tiers must NOT appear.
+    await waitFor(() => {
+      const panel = screen.getByRole("tabpanel", { name: "Tiers" });
+      expect(within(panel).getByText(/Click Generate to build your tier list\./i)).toBeInTheDocument();
+    });
+    // Give the resolved promise an extra tick to (wrongly) repopulate, then confirm it didn't.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(
+      within(screen.getByRole("tabpanel", { name: "Tiers" })).queryByText("Ja'Marr Chase"),
+    ).not.toBeInTheDocument();
+  });
 });
