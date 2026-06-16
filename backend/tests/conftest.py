@@ -2,7 +2,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from httpx import AsyncClient, ASGITransport
-from app.auth.rate_limit import login_rate_limiter, reset_rate_limiter, verify_rate_limiter
+from app.auth.rate_limit import login_rate_limiter, reset_rate_limiter, verify_rate_limiter, feedback_rate_limiter
 from app.config import settings
 from app.database import Base, get_db
 from app.email.fake_sender import FakeSender
@@ -19,10 +19,12 @@ def _reset_rate_limiters():
     login_rate_limiter._attempts.clear()
     reset_rate_limiter._attempts.clear()
     verify_rate_limiter._attempts.clear()
+    feedback_rate_limiter._attempts.clear()
     yield
     login_rate_limiter._attempts.clear()
     reset_rate_limiter._attempts.clear()
     verify_rate_limiter._attempts.clear()
+    feedback_rate_limiter._attempts.clear()
 
 # Tests run over plain HTTP (http://test). The auth cookie defaults to
 # secure=True when settings.debug=False, which would cause httpx to drop

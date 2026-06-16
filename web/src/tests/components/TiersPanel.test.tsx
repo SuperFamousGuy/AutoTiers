@@ -141,8 +141,44 @@ describe("TiersPanel", () => {
     const onDownload = vi.fn();
     render(<TiersPanel result={response} isPending={false} onDownloadCsv={onDownload} />);
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /download csv/i }));
+    await user.click(screen.getByRole("button", { name: /^download csv$/i }));
     expect(onDownload).toHaveBeenCalled();
+  });
+
+  describe("debug CSV button", () => {
+    it("is hidden when debugMode is falsy", () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadCsv={() => {}} />);
+      expect(screen.queryByRole("button", { name: /download debug csv/i })).not.toBeInTheDocument();
+    });
+
+    it("is shown when debugMode is true", () => {
+      render(
+        <TiersPanel
+          result={response}
+          isPending={false}
+          onDownloadCsv={() => {}}
+          debugMode={true}
+          onDownloadDebugCsv={() => {}}
+        />,
+      );
+      expect(screen.getByRole("button", { name: /download debug csv/i })).toBeInTheDocument();
+    });
+
+    it("calls onDownloadDebugCsv when clicked", async () => {
+      const onDebug = vi.fn();
+      render(
+        <TiersPanel
+          result={response}
+          isPending={false}
+          onDownloadCsv={() => {}}
+          debugMode={true}
+          onDownloadDebugCsv={onDebug}
+        />,
+      );
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /download debug csv/i }));
+      expect(onDebug).toHaveBeenCalled();
+    });
   });
 
   describe("tierLabelOverrides", () => {

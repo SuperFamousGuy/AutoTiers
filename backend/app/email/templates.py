@@ -95,3 +95,50 @@ If you didn't create an AutoTiers account, you can safely ignore this email.
 — AutoTiers
 """
     return html, text
+
+
+def feedback_email(message: str, sender_email: str | None) -> tuple[str, str]:
+    """Build the team-inbox email for an in-app feedback submission.
+
+    Parameters
+    ----------
+    message:
+        The user's free-text feedback. Treated as untrusted: HTML-escaped in the
+        HTML body so a message cannot inject markup into the team's inbox.
+    sender_email:
+        The authenticated submitter's email, or None for anonymous submissions.
+
+    Returns
+    -------
+    (html, text) tuple
+    """
+    from datetime import datetime, timezone
+    from html import escape
+
+    who = sender_email or "anonymous (not logged in / no email on file)"
+    when = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    safe_message = escape(message)
+
+    html = f"""<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #111;">
+  <h2 style="margin-bottom: 8px;">New AutoTiers feedback</h2>
+  <p style="color: #555; font-size: 14px; margin: 0;"><strong>From:</strong> {escape(who)}</p>
+  <p style="color: #555; font-size: 14px; margin: 0 0 16px;"><strong>Submitted:</strong> {when}</p>
+  <div style="white-space: pre-wrap; border-left: 3px solid #2563eb; padding: 8px 12px; background: #f8fafc;">{safe_message}</div>
+  <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;">
+  <p style="color: #888; font-size: 12px;">AutoTiers &mdash; in-app feedback</p>
+</body>
+</html>"""
+
+    text = f"""New AutoTiers feedback
+
+From: {who}
+Submitted: {when}
+
+{message}
+
+— AutoTiers in-app feedback
+"""
+    return html, text

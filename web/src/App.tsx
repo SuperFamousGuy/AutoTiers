@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { Header } from "@/components/Header";
 import { useDarkMode } from "@/hooks/useDarkMode";
 import { useOnboarding } from "@/hooks/useOnboarding";
-import { OnboardingCard } from "@/components/OnboardingCard";
+import { OnboardingTour } from "@/components/OnboardingTour";
+import { ONBOARDING_STEPS } from "@/lib/onboardingSteps";
 import { SettingsPanel, type SettingsState } from "@/components/SettingsPanel";
 import { RulesPanel } from "@/components/RulesPanel";
 import { TiersPanel } from "@/components/TiersPanel";
@@ -15,7 +16,7 @@ import { EmailVerificationBanner, shouldShowVerificationBanner, dismissVerificat
 import { AuthDialog } from "@/components/AuthDialog";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
-import { useRules, useGenerateMutation, downloadCsv } from "@/api/hooks";
+import { useRules, useGenerateMutation, downloadDraftCsv, downloadDebugCsv } from "@/api/hooks";
 import { useAuth } from "@/contexts/AuthContext";
 import { verifyEmail } from "@/api/auth";
 import { createProfile, updateProfile, deleteProfile, activateProfile } from "@/api/profiles";
@@ -38,10 +39,24 @@ const DEFAULT_SETTINGS: SettingsState = {
 
 export default function App() {
   const [isDark, toggleDark] = useDarkMode();
-  const { showOnboarding, dismiss: dismissOnboarding, reopen: reopenOnboarding } = useOnboarding();
+  const {
+    active: tourActive,
+    stepIndex: tourStep,
+    totalSteps: tourTotal,
+    start: startOnboarding,
+    next: tourNext,
+    back: tourBack,
+    goTo: tourGoTo,
+    skip: tourSkip,
+  } = useOnboarding(ONBOARDING_STEPS.length);
   const { user, profiles, setProfiles, refresh } = useAuth();
   const { toast } = useToast();
   const [settings, setSettings] = useState<SettingsState>(DEFAULT_SETTINGS);
+  // Dev-only debug export: surfaces the full debug CSV button when the app URL
+  // carries ?debug=1. Read once on mount; not stripped by the query-param cleanup.
+  const [debugMode] = useState(
+    () => new URLSearchParams(window.location.search).get("debug") === "1",
+  );
   // Canonical rule definitions from GET /rules (used to seed defaults and display).
   // Never mutated directly by the user — the user's changes go into positionRules.
   const [canonicalRules, setCanonicalRules] = useState<Rule[]>([]);
@@ -225,17 +240,18 @@ export default function App() {
 
   const handleSelectProfile = useCallback(async (id: string) => {
     setActiveProfileId(id);
-    // Clear the prior profile's generate result so the Tiers panel returns to
-    // its empty state instead of showing the previous profile's tiers until the
-    // user generates again. reset() sets generate.data back to undefined.
-    generate.reset();
     // Return the mobile view to Settings on profile switch so the user sees
     // the newly-loaded settings, and reset the auto-switch guard so the next
     // generate result after switching will auto-navigate to Tiers again.
     setMobilePanel("settings");
     hasAutoSwitchedToTiers.current = false;
+    // Clear the previous profile's generate result so the Tiers panel shows
+    // its empty state rather than the prior profile's stale tiers. Pairs with
+    // the guard reset above: the next generate is treated as a fresh first
+    // result and re-fires the mobile auto-switch.
+    generate.reset();
     await activateProfile(id);
-  }, [generate]);
+  }, [generate.reset]);
 
   const handleNewProfile = useCallback(async () => {
     const created = await createProfile({
@@ -245,15 +261,14 @@ export default function App() {
     });
     setProfiles([...profiles, created]);
     setActiveProfileId(created.id);
-    // Mirror handleSelectProfile (#238 + #228): clear the prior profile's
-    // generate result so the new profile starts from the Tiers empty state,
-    // return the mobile view to Settings, and re-arm the auto-switch guard so
-    // the first generate on the new profile navigates to Tiers.
-    generate.reset();
+    // Match the select-profile path: return to Settings, re-arm the auto-switch
+    // guard, and clear the stale generate result so the new profile starts from
+    // the empty state.
     setMobilePanel("settings");
     hasAutoSwitchedToTiers.current = false;
+    generate.reset();
     await activateProfile(created.id);
-  }, [profiles, settings, positionRules, setProfiles, generate]);
+  }, [profiles, settings, positionRules, setProfiles, generate.reset]);
 
   const handleRenameProfile = useCallback(async (id: string, name: string) => {
     const updated = await updateProfile(id, { name });
@@ -320,7 +335,7 @@ export default function App() {
         currentState={{ settings, rules: positionRules }}
         isDark={isDark}
         onToggleDark={toggleDark}
-        onShowOnboarding={reopenOnboarding}
+        onShowOnboarding={startOnboarding}
         onOpenLinkedAccounts={user ? () => { setLinkingError(null); setLinkedOpen(true); } : undefined}
         activeProfileName={profiles.find((p) => p.id === activeProfileId)?.name ?? null}
         profilePicker={user ? (
@@ -362,7 +377,17 @@ export default function App() {
           }}
         />
       ) : (
-        showOnboarding && <OnboardingCard onDismiss={dismissOnboarding} />
+        tourActive && (
+          <OnboardingTour
+            stepIndex={tourStep}
+            totalSteps={tourTotal}
+            onNext={tourNext}
+            onBack={tourBack}
+            onGoTo={tourGoTo}
+            onSkip={tourSkip}
+            onStepPanel={setMobilePanel}
+          />
+        )
       )}
       <MobilePanelTabBar active={mobilePanel} onChange={setMobilePanel} />
       <main className="flex-1 grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_minmax(0,1.5fr)] lg:grid-rows-1 overflow-hidden">
@@ -412,7 +437,20 @@ export default function App() {
             isPending={generate.isPending}
             onDownloadCsv={() => {
               if (generate.data) {
-                downloadCsv(
+                downloadDraftCsv(
+                  generate.data.players,
+                  settings.scoring_format,
+                  buildResolvedTierNames(
+                    settings.tier_count ?? settings.league_size,
+                    settings.tier_labels,
+                  ),
+                );
+              }
+            }}
+            debugMode={debugMode}
+            onDownloadDebugCsv={() => {
+              if (generate.data) {
+                downloadDebugCsv(
                   generate.data.players,
                   buildResolvedTierNames(
                     settings.tier_count ?? settings.league_size,

@@ -19,12 +19,23 @@ from app.data.sources.base import SourceResult
 from app.models import Player, Projection
 
 
-_ESPN_FORMATS = ("standard", "half_ppr", "ppr")  # we write the same projection to all three
+# The leaguedefaults/3 endpoint returns PPR-calibrated projections (segment 0 = full-season
+# aggregate at PPR scoring). Writing this value to standard/half_ppr formats would overstate
+# projected points for non-PPR leagues — it is not a format-neutral number.
+#
+# To fully support all scoring formats, fetch segment 1 (standard) and segment 2 (half-PPR)
+# separately and write each to the appropriate format row. That is deferred until this
+# fetcher is re-enabled in the orchestrator (see NOTE at top of file).
+#
+# For now: only write to "ppr". Standard and half-ppr leagues will get espn_pts=None
+# from _get_projection(), which is honest — no ESPN data for those formats — rather than
+# silently writing a PPR-inflated number.
+_ESPN_FORMATS = ("ppr",)
 
 
 class EspnFetcher:
     name: ClassVar[str] = "espn"
-    base_url: ClassVar[str] = "https://fantasy.espn.com"
+    base_url: ClassVar[str] = "https://lm-api-reads.fantasy.espn.com"
 
     def __init__(self, season: int):
         self.season = season

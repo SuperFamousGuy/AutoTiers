@@ -34,6 +34,88 @@ variable "db_name" {
   default     = "autotiers"
 }
 
+###############################################################################
+# Aurora lifecycle / destroy-safety (issue #181)
+#
+# Two INDEPENDENT postures; do not conflate them:
+#
+#   Prod safety (block accidental destroy):
+#     deletion_protection = true (and/or the prevent_destroy lifecycle block in
+#     rds.tf). While this is on, `terraform destroy` is REJECTED outright, so
+#     skip_final_snapshot has no effect.
+#
+#   Intentional teardown (capture a parting snapshot):
+#     deletion_protection = false (to allow the destroy) AND
+#     skip_final_snapshot = false with a final_snapshot_identifier, so the
+#     destroy takes a final snapshot before dropping the cluster.
+#
+# Defaults below preserve fast dev teardown/recreate cycles.
+###############################################################################
+variable "skip_final_snapshot" {
+  description = <<-EOT
+    Whether to skip the final snapshot when the Aurora cluster is destroyed.
+    Defaults to true for dev/teardown cycles. Set to false for production so a
+    `terraform destroy` captures a final snapshot (requires
+    final_snapshot_identifier to be set).
+  EOT
+  type        = bool
+  default     = true
+}
+
+variable "final_snapshot_identifier" {
+  description = <<-EOT
+    Name of the final snapshot taken on destroy when skip_final_snapshot is
+    false. Required (non-null, non-empty) whenever skip_final_snapshot = false;
+    ignored when skip_final_snapshot = true.
+  EOT
+  type        = string
+  default     = null
+
+  validation {
+    # Validate the AWS snapshot-name shape when an identifier is provided.
+    # The "required when skip_final_snapshot = false" coupling is enforced as a
+    # resource precondition in rds.tf (a variable validation cannot reference
+    # another variable).
+    condition = (
+      var.final_snapshot_identifier == null ||
+      can(regex("^[a-zA-Z][a-zA-Z0-9-]{0,254}$", var.final_snapshot_identifier))
+    )
+    error_message = "final_snapshot_identifier must start with a letter and contain only letters, numbers, and hyphens (max 255 chars), per AWS RDS snapshot naming rules."
+  }
+}
+
+variable "deletion_protection" {
+  description = <<-EOT
+    Whether the Aurora cluster is protected from deletion. Defaults to true.
+    Set to false ONLY when intentionally tearing down the environment. This is
+    the variable-driven runtime guard; note that Terraform's lifecycle
+    { prevent_destroy } block cannot reference a variable, so for the strongest
+    plan-time guarantee on a true prod cluster, also uncomment the
+    prevent_destroy lifecycle block in rds.tf before go-live.
+  EOT
+  type        = bool
+  default     = true
+}
+
+variable "secret_recovery_window_in_days" {
+  description = <<-EOT
+    Recovery window (in days) before a deleted Secrets Manager secret name can
+    be reused. AWS allows 0 (immediate deletion, no recovery) or 7-30. Defaults
+    to 7. Set to 0 in dev where fast destroy/recreate cycles need the same
+    secret names back immediately (issue #181 notes).
+  EOT
+  type        = number
+  default     = 7
+
+  validation {
+    condition = (
+      floor(var.secret_recovery_window_in_days) == var.secret_recovery_window_in_days &&
+      (var.secret_recovery_window_in_days == 0 || (var.secret_recovery_window_in_days >= 7 && var.secret_recovery_window_in_days <= 30))
+    )
+    error_message = "secret_recovery_window_in_days must be a whole number: 0 (force-delete) or between 7 and 30, per AWS Secrets Manager limits."
+  }
+}
+
 variable "backend_base_url" {
   description = <<-EOT
     Base URL of the backend API, used to construct OAuth redirect URIs.
@@ -121,6 +203,17 @@ variable "frontend_url" {
   description = "Public URL of the frontend. Defaults to CloudFront domain; override with custom domain once DNS is wired (e.g. https://auto-tiers.com)."
   type        = string
   default     = ""
+}
+
+variable "domain_name" {
+  description = <<-EOT
+    The application's root (apex) domain. Drives both the CloudFront aliases
+    (cdn.tf) and the apex/www/api Route 53 records (dns.tf) so the two can
+    never disagree. Must match the ACM certificate's covered names and the
+    Route 53 hosted zone these records live in (var.ses_route53_zone_name).
+  EOT
+  type        = string
+  default     = "auto-tiers.com"
 }
 
 ###############################################################################

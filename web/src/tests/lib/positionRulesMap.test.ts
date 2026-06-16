@@ -17,12 +17,16 @@ describe("positionRulesMap", () => {
     expect(POSITION_RULES_MAP["RB"].length).toBe(17);
   });
 
-  it("K tab has exactly 4 rules", () => {
-    expect(POSITION_RULES_MAP["K"].length).toBe(4);
+  it("K tab has exactly 7 rules incl. the three kicker-specific rules", () => {
+    expect(POSITION_RULES_MAP["K"].length).toBe(7);
     expect(POSITION_RULES_MAP["K"]).toContain("Projection Unavailable");
     expect(POSITION_RULES_MAP["K"]).toContain("Year After the Year After");
     expect(POSITION_RULES_MAP["K"]).toContain("Over the Hill");
     expect(POSITION_RULES_MAP["K"]).toContain("Favorites");
+    // The three kicker-specific builtin rules (backend positions=["K"]).
+    expect(POSITION_RULES_MAP["K"]).toContain("Dome Kicker");
+    expect(POSITION_RULES_MAP["K"]).toContain("Mile High Kicker");
+    expect(POSITION_RULES_MAP["K"]).toContain("Cold-Weather Kicker");
   });
 
   it("DST tab has exactly 2 rules", () => {

@@ -372,12 +372,25 @@ async def reset_password(
 
 @router.post("/email/resend-verification", status_code=202)
 async def resend_verification(
-    background_tasks: BackgroundTasks,
     user: User = require_user,
     db: AsyncSession = Depends(get_db),
     email_sender: EmailSender = Depends(get_email_sender),
 ) -> dict:
-    """Resend the email-verification link to the authenticated user."""
+    """Resend the email-verification link to the authenticated user.
+
+    The send is performed INLINE (awaited) rather than fire-and-forget in a
+    BackgroundTask, so that a real send failure (e.g. SES MessageRejected)
+    surfaces to the client as an error instead of a false 202. This is a
+    deliberate sync-over-async tradeoff (#274): honesty requires knowing the
+    send outcome before responding, and the latency cost is a single SES
+    SendEmail call on a rate-limited, user-initiated action. The user is
+    already waiting for the email, so the extra round-trip is acceptable.
+
+    NOTE: signup's verification email and the password-reset email remain
+    fire-and-forget BackgroundTasks on purpose — signup must succeed even if
+    email is slow, and the reset path is non-enumerating (it must not leak
+    account existence via a differential send-failure response).
+    """
     if not verify_rate_limiter.check_and_record(str(user.id)):
         raise HTTPException(status_code=429, detail="Too many requests; please wait before trying again")
 
@@ -390,12 +403,25 @@ async def resend_verification(
     await db.commit()
 
     verify_url = _make_verify_url(raw_token)
-    background_tasks.add_task(
-        _send_verification_email_task,
-        email_sender=email_sender,
-        to=user.email,
-        verify_url=verify_url,
-    )
+    try:
+        html, text = verify_email_email(verify_url)
+        await email_sender.send(
+            to=user.email,
+            subject="Verify your AutoTiers email",
+            html=html,
+            text=text,
+        )
+    except Exception:
+        # The user is authenticated and known, so there is no enumeration
+        # surface here — it is safe to tell them the send failed. 502 (not
+        # 5xx-generic) names the upstream email dependency as the cause; the
+        # frontend banner reverts to its retryable "default" state on any
+        # non-429 error.
+        logger.exception("Failed to send verification email to %s", user.email)
+        raise HTTPException(
+            status_code=502,
+            detail="Could not send the verification email. Please try again.",
+        )
 
     return {"detail": "Verification email sent."}
 
