@@ -1,19 +1,14 @@
 import asyncio
 import logging
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db, AsyncSessionLocal
 from app.data.fetcher import fetcher
 from app.data.status import get_all_status
-from app.config import settings
+from app.auth.admin import require_admin
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-async def require_admin(x_api_key: str = Header(default="")) -> None:
-    if settings.admin_api_key and x_api_key != settings.admin_api_key:
-        raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 async def _run_refresh() -> None:

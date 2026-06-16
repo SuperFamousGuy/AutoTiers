@@ -16,7 +16,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import get_db
 from app.models import Feedback, User
+from app.auth.admin import require_admin
 from app.auth.dependencies import get_current_user
 from app.auth.rate_limit import feedback_rate_limiter
 from app.auth.email_dep import get_email_sender
@@ -33,18 +34,6 @@ from app.email.templates import feedback_email
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["feedback"])
-
-
-async def require_admin(x_api_key: str = Header(default="")) -> None:
-    """Gate admin-only feedback routes behind the shared admin API key.
-
-    Identical contract to app.api.data.require_admin: when settings.admin_api_key
-    is set, the X-Api-Key header must match; otherwise (key unset, e.g. local
-    dev) the gate is open. This is the existing shared admin model — no new
-    per-user admin concept is introduced (#286).
-    """
-    if settings.admin_api_key and x_api_key != settings.admin_api_key:
-        raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 class FeedbackCategory(str, Enum):
@@ -180,7 +169,7 @@ async def list_feedback(
     db: AsyncSession = Depends(get_db),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
-) -> list[Feedback]:
+) -> list[FeedbackRecord]:
     """Admin-only: list persisted feedback, newest first.
 
     Gated by the shared admin API key (X-Api-Key). API-only — there is no UI.
@@ -192,4 +181,4 @@ async def list_feedback(
         .limit(limit)
         .offset(offset)
     )
-    return list(result.scalars().all())
+    return [FeedbackRecord.model_validate(row) for row in result.scalars().all()]
