@@ -1,7 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiFetch } from "./client";
 import { generateDebugCsvString } from "@/lib/csv";
-import { buildDraftXlsxBlob } from "@/lib/xlsx";
 import type { DraftCsvOptions } from "@/lib/csv";
 import type {
   DataStatusResponse,
@@ -69,6 +68,11 @@ export async function downloadDraftXlsx(
   tierLabelOverrides?: Partial<Record<number, string>>,
 ): Promise<void> {
   const options: DraftCsvOptions = { scoringFormat, tierLabelOverrides };
+  // Lazy-load the workbook builder (and the ~20 kB-gzip write-excel-file library
+  // it pulls in) so it is code-split into its own async chunk and only fetched
+  // when the user actually clicks Download Excel — keeping it out of the main
+  // initial-load bundle. Do not convert this back to a static import.
+  const { buildDraftXlsxBlob } = await import("@/lib/xlsx");
   const blob = await buildDraftXlsxBlob(players, options);
   triggerBlobDownload(blob, "tiers.xlsx");
 }

@@ -93,6 +93,28 @@ describe("file downloads", () => {
       ).resolves.not.toThrow();
       expect(click).toHaveBeenCalledOnce();
     });
+
+    // Sincerity guard for the lazy-load (bug-class #7). The xlsx builder + the
+    // ~20 kB write-excel-file library must be pulled in via a dynamic import()
+    // INSIDE downloadDraftXlsx so Rollup code-splits them out of the main chunk.
+    // This reads hooks.ts source directly and FAILS the moment someone reverts to
+    // a top-level `import { buildDraftXlsxBlob } from "@/lib/xlsx"`. A behavioural
+    // test can't distinguish static from dynamic here (both produce the same
+    // Blob), so the boundary is asserted structurally — which is the property the
+    // build relies on.
+    it("imports @/lib/xlsx dynamically, not statically (code-split boundary)", async () => {
+      const fs = await import("node:fs/promises");
+      const url = await import("node:url");
+      const path = await import("node:path");
+      const here = path.dirname(url.fileURLToPath(import.meta.url));
+      const hooksPath = path.resolve(here, "../../api/hooks.ts");
+      const src = await fs.readFile(hooksPath, "utf-8");
+
+      // No top-level VALUE import of the xlsx builder (a `import type` is fine).
+      expect(src).not.toMatch(/^\s*import\s+\{[^}]*buildDraftXlsxBlob[^}]*\}\s+from\s+["']@\/lib\/xlsx["']/m);
+      // The builder is loaded via a dynamic import() of @/lib/xlsx.
+      expect(src).toMatch(/await\s+import\(\s*["']@\/lib\/xlsx["']\s*\)/);
+    });
   });
 
   describe("downloadDebugCsv", () => {
