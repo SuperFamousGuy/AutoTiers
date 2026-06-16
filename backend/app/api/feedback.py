@@ -74,10 +74,11 @@ class FeedbackRequest(BaseModel):
     # work; an unknown string yields a 422 from Pydantic enum validation.
     category: FeedbackCategory = FeedbackCategory.idea
     # Optional screenshot (#287): base64-encoded image bytes WITHOUT the
-    # data-URL prefix, plus its filename and MIME type. All three must be
-    # present together or all absent. Validated server-side in the route.
-    # max_length caps the base64 string defensively before we even decode it
-    # (~2.8 MB base64 -> ~2 MB raw, with headroom).
+    # data-URL prefix, plus its MIME type and (optional) filename. The data and
+    # type are required together; the name is optional and falls back to a
+    # generic basename. Supplying name/type without data is rejected (422).
+    # Validated server-side in the route. max_length caps the base64 string
+    # defensively before we even decode it (~2.8 MB base64 -> ~2 MB raw).
     screenshot: Optional[str] = Field(default=None, max_length=3_000_000)
     screenshot_name: Optional[str] = Field(default=None, max_length=255)
     screenshot_type: Optional[str] = Field(default=None, max_length=100)
@@ -154,9 +155,13 @@ def _decode_screenshot(body: "FeedbackRequest") -> Optional[EmailAttachment]:
             detail="Screenshot must be under 2 MB.",
         )
 
-    # Sanitize filename to a basename; fall back to a generic name.
+    # Sanitize filename to a safe basename: drop path components and strip
+    # non-printable characters (CR/LF, tabs, other control chars) that could
+    # break or inject MIME headers in the raw-message builder. Fall back to a
+    # generic name if nothing usable remains.
     raw_name = body.screenshot_name or "screenshot"
-    safe_name = os.path.basename(raw_name).strip() or "screenshot"
+    base = os.path.basename(raw_name)
+    safe_name = "".join(c for c in base if c.isprintable()).strip() or "screenshot"
 
     return EmailAttachment(
         filename=safe_name,

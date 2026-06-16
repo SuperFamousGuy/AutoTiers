@@ -37,13 +37,31 @@ const DEFAULT_CATEGORY: FeedbackCategory = "idea";
 const ALLOWED_SCREENSHOT_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MAX_SCREENSHOT_BYTES = 2 * 1024 * 1024; // 2 MB
 
+/** Best-effort extraction of FastAPI's `{ detail }` string from an ApiError.
+ * The ApiError message is the raw response body (JSON for our backend). */
+function apiErrorDetail(e: ApiError): string | null {
+  try {
+    const parsed = JSON.parse(e.message);
+    if (parsed && typeof parsed.detail === "string") return parsed.detail;
+  } catch {
+    // Body wasn't JSON — nothing to surface.
+  }
+  return null;
+}
+
 /** Read a File into raw base64 (no data-URL prefix). */
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(reader.error ?? new Error("read failed"));
     reader.onload = () => {
-      const result = reader.result as string;
+      const result = reader.result;
+      if (typeof result !== "string") {
+        // readAsDataURL should always yield a string; guard so an unexpected
+        // null/ArrayBuffer rejects cleanly instead of throwing in onload.
+        reject(new Error("unexpected FileReader result"));
+        return;
+      }
       // Strip the "data:<type>;base64," prefix; keep only the payload.
       const comma = result.indexOf(",");
       resolve(comma >= 0 ? result.slice(comma + 1) : result);
@@ -122,7 +140,12 @@ export function FeedbackDialog({ open, onOpenChange, userEmail }: Props) {
       if (e instanceof ApiError && e.status === 429) {
         setError("You're sending feedback too quickly — please wait a moment and try again.");
       } else if (e instanceof ApiError && e.status === 422) {
-        setError("That image couldn't be accepted. Please try a smaller PNG, JPEG, or WebP.");
+        // 422 can be screenshot-specific OR another validation failure; prefer
+        // the backend's own user-facing detail when present.
+        setError(
+          apiErrorDetail(e) ??
+            "That image couldn't be accepted. Please try a smaller PNG, JPEG, or WebP.",
+        );
       } else {
         setError("Couldn't send your feedback right now. Please try again in a moment.");
       }

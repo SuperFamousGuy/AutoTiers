@@ -189,9 +189,9 @@ describe("FeedbackDialog", () => {
     const [msg, cat, attachment] = sendFeedbackMock.mock.calls[0];
     expect(msg).toBe("with image");
     expect(cat).toBe("idea");
-    expect(attachment).toMatchObject({ name: "shot.png", type: "image/png" });
-    expect(typeof attachment.base64).toBe("string");
-    expect(attachment.base64.length).toBeGreaterThan(0);
+    // Exact raw base64 of the bytes [1,2,3,4], with NO data-URL prefix — this
+    // is the wire contract the backend decodes.
+    expect(attachment).toEqual({ name: "shot.png", type: "image/png", base64: "AQIDBA==" });
   });
 
   it("removes an attached image when Remove is clicked", async () => {
@@ -266,7 +266,7 @@ describe("FeedbackDialog", () => {
     }
   });
 
-  it("shows the image-rejected message on a 422 from the server", async () => {
+  it("shows the generic image-rejected message on a 422 with a non-JSON body", async () => {
     sendFeedbackMock.mockRejectedValue(new ApiError(422, "bad image"));
     renderDialog();
 
@@ -275,6 +275,19 @@ describe("FeedbackDialog", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toMatch(/couldn't be accepted/i);
+  });
+
+  it("surfaces the backend detail string on a 422 with a JSON body", async () => {
+    sendFeedbackMock.mockRejectedValue(
+      new ApiError(422, JSON.stringify({ detail: "Screenshot metadata supplied without image data." })),
+    );
+    renderDialog();
+
+    await userEvent.type(screen.getByLabelText("Your feedback"), "metadata only");
+    await userEvent.click(screen.getByRole("button", { name: "Send Feedback" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/metadata supplied without image data/i);
   });
 
 });

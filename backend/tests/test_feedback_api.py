@@ -346,7 +346,8 @@ async def test_screenshot_disallowed_type_rejected(async_client, fake_sender):
 
 @pytest.mark.asyncio
 async def test_screenshot_over_size_limit_rejected(async_client, fake_sender):
-    # 2 MB + 1 byte of decoded data → rejected by the server gate.
+    # 2 MB + 4 bytes of decoded data (4-byte PNG magic + 2 MiB of zeros) →
+    # over the gate.
     big = _b64.b64encode(b"\x89PNG" + b"\x00" * (2 * 1024 * 1024)).decode()
     r = await async_client.post(
         "/api/feedback",
@@ -404,3 +405,22 @@ async def test_screenshot_filename_is_sanitized_to_basename(async_client, fake_s
     assert r.status_code == 202
     att = fake_sender.sent[0].attachments[0]
     assert att.filename == "passwd.png"  # basename only, no path components
+
+
+@pytest.mark.asyncio
+async def test_screenshot_filename_strips_header_breaking_chars(async_client, fake_sender):
+    # CR/LF (and other control chars) in the filename must not survive into the
+    # MIME builder, where they could break or inject headers.
+    r = await async_client.post(
+        "/api/feedback",
+        json={
+            "message": "crlf in name",
+            "screenshot": _png_b64(),
+            "screenshot_name": "shot\r\nBcc: evil@example.com.png",
+            "screenshot_type": "image/png",
+        },
+    )
+    assert r.status_code == 202
+    att = fake_sender.sent[0].attachments[0]
+    assert "\r" not in att.filename and "\n" not in att.filename
+    assert att.filename == "shotBcc: evil@example.com.png"
