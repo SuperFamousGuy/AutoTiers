@@ -4,19 +4,19 @@
     {
       "id": 1,
       "prompt": "Clean up this repo's GitHub — kill the merged branches and close any issues that are already done.",
-      "expected_output": "Skill infers owner/repo, scans for merged remote branches (union of merged-PR head branches and branches contained in the default branch), excludes default/protected/open-PR branches, finds local prune candidates, detects fixed-by-merged-PR issues, prints ONE dry-run plan table with action/target/reason/confidence columns, waits for a single batch approval, then executes and prints a summary. No destructive action before approval.",
+      "expected_output": "Skill infers owner/repo, scans for merged remote branches (union of merged-PR head branches and branches contained in the default branch), excludes default/protected/open-PR branches, finds local prune candidates, detects fixed-by-merged-PR issues, prints ONE dry-run plan table with action/target/reason/confidence columns, and STOPS to request a single batch approval. It performs no deletion or close in this turn; execution and the summary happen only after the user explicitly approves in a follow-up.",
       "files": []
     },
     {
       "id": 2,
       "prompt": "tidy up github, also look for duplicate and stale issues, stale meaning older than 60 days",
-      "expected_output": "Skill runs with --stale-days 60, includes the duplicate-by-similarity (low confidence) and stale (low confidence, pinned issues skipped) detectors alongside branch cleanup and fixed-by-PR issues, presents the combined dry-run plan, batch-approves, executes, summarizes skips.",
+      "expected_output": "Skill runs with --stale-days 60, includes the duplicate-by-similarity (low confidence) and stale (low confidence, pinned issues skipped) detectors alongside branch cleanup and fixed-by-PR issues, presents the combined dry-run plan, and STOPS to request a single batch approval. Execution and the skip summary happen only after the user explicitly approves in a follow-up.",
       "files": []
     },
     {
       "id": 3,
       "prompt": "delete merged branches only, leave the issues alone",
-      "expected_output": "Skill runs with --skip-issues, scans and deletes only merged remote branches plus local prune candidates after the single approval, never touches issues, reports a branches-only summary.",
+      "expected_output": "Skill runs with --skip-issues, scans only merged remote branches plus local prune candidates, never touches issues, and STOPS to request a single batch approval after printing the branches-only plan. Deletion and the branches-only summary happen only after the user explicitly approves in a follow-up.",
       "files": []
     },
     {

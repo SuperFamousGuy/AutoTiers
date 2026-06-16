@@ -45,14 +45,20 @@ gh api repos/$OWNER/$REPO/branches --paginate --jq '.[].name'
 ancestor check in 2c):
 
 ```bash
-gh pr list --state merged --json headRefName,number --limit 200
+# --limit caps results silently — set it well above the repo's merged-PR count,
+# or old squash-merged branches (only catchable here) get skipped
+gh pr list --state merged --json headRefName,number --limit 1000
 ```
 
 **2c. Branches contained in the default branch** — for each live branch from 2a,
 check whether its tip is already in the default branch:
 
 ```bash
-gh api "repos/$OWNER/$REPO/compare/$DEFAULT_BRANCH...<branch>" --jq '.status'
+# Branch names contain "/" (e.g. feat/foo). The compare endpoint reads
+# BASE...HEAD as a single path segment, so the head ref's slashes MUST be
+# URL-encoded or the request 404s / miscompares and the merged branch is missed.
+branch_enc=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "<branch>")
+gh api "repos/$OWNER/$REPO/compare/$DEFAULT_BRANCH...$branch_enc" --jq '.status'
 # keep the branch when status is "identical" or "behind"
 ```
 
@@ -74,7 +80,10 @@ branches and 2c's contained branches.
 
 ```bash
 git fetch --prune
-git branch --merged "$DEFAULT_BRANCH" --format '%(refname:short)'
+# Compare against the freshly-fetched remote tip, not a possibly-stale local
+# $DEFAULT_BRANCH (which may not be checked out or pulled) — that ref can
+# under- or over-prune.
+git branch --merged "origin/$DEFAULT_BRANCH" --format '%(refname:short)'
 # drop the current branch and $DEFAULT_BRANCH from this list
 ```
 
@@ -90,7 +99,9 @@ detector, keep the highest-confidence hit and list it once.
 **3a. Fixed-by-merged-PR — confidence: high**
 
 ```bash
-gh pr list --state merged --json number,title,body --limit 200
+# Raise --limit above the repo's merged-PR count; older PRs are dropped
+# silently otherwise, and their closing-keyword references go undetected.
+gh pr list --state merged --json number,title,body --limit 1000
 ```
 
 Scan each PR's title+body for closing keywords (case-insensitive):
@@ -110,7 +121,9 @@ Reason: `resolved by #<pr>`.
 **3b. Duplicate by similarity — confidence: low**
 
 ```bash
-gh issue list --state open --json number,title,body --limit 300
+# --limit caps silently; set it above the repo's open-issue count or
+# duplicate detection only sees the first N and produces an incomplete plan.
+gh issue list --state open --json number,title,body --limit 1000
 ```
 
 Normalize titles (lowercase, strip punctuation, tokenize) and cluster by
@@ -122,7 +135,9 @@ Reason: `duplicate of #<older>`.
 **3c. Stale — confidence: low**
 
 ```bash
-gh issue list --state open --json number,title,updatedAt,isPinned --limit 300
+# --limit caps silently; set it above the repo's open-issue count or stale
+# issues beyond the first N are missed, producing a surprising no-op run.
+gh issue list --state open --json number,title,updatedAt,isPinned --limit 1000
 ```
 
 Flag issues whose `updatedAt` is older than `--stale-days` (default 90).
@@ -211,7 +226,7 @@ If nothing matched, say so and stop.
   the default branch, so the Stage 2c `compare` check returns `diverged`. This
   is exactly why Stage 2b (merged-PR head branches) is unioned in — do not drop it.
 - **`git branch -d` refuses a branch:** that means git does not consider it
-  merged into the *currently checked-out* branch. Check `git branch --merged $DEFAULT_BRANCH` was computed against the default branch, not the current one.
+  merged into the *currently checked-out* branch. Check `git branch --merged origin/$DEFAULT_BRANCH` was computed against the remote default tip, not the current one.
 - **Deleting a remote branch returns 422 "reference does not exist":** it was
   already deleted (e.g. GitHub's auto-delete-on-merge). Record as skipped/already-gone, continue.
 - **Closing-keyword false positives:** `"see #12 for context"` is not a close;
