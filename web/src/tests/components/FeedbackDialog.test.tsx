@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { FeedbackDialog } from "@/components/FeedbackDialog";
 import { ApiError } from "@/api/client";
@@ -215,6 +215,66 @@ describe("FeedbackDialog", () => {
     await waitFor(() => expect(sendFeedbackMock).toHaveBeenCalledTimes(1));
     const [, , attachment] = sendFeedbackMock.mock.calls[0];
     expect(attachment).toBeNull();
+  });
+
+  it("clears the attachment when a change event carries no file", async () => {
+    renderDialog();
+    const input = screen.getByLabelText("Attach screenshot (optional)") as HTMLInputElement;
+
+    // Attach first, then fire a change with an empty file list (cancelled picker).
+    const png = new File([new Uint8Array([1, 2, 3, 4])], "shot.png", { type: "image/png" });
+    await userEvent.upload(input, png);
+    expect(await screen.findByText(/Attached: shot.png/i)).toBeInTheDocument();
+
+    fireEvent.change(input, { target: { files: [] } });
+    await waitFor(() =>
+      expect(screen.queryByText(/Attached:/i)).not.toBeInTheDocument(),
+    );
+  });
+
+  it("rejects an image larger than 2 MB without attaching it", async () => {
+    renderDialog();
+    const input = screen.getByLabelText("Attach screenshot (optional)") as HTMLInputElement;
+
+    const big = new File([new Uint8Array([1, 2, 3, 4])], "huge.png", { type: "image/png" });
+    Object.defineProperty(big, "size", { value: 2 * 1024 * 1024 + 1 });
+    await userEvent.upload(input, big);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/under 2 MB/i);
+    expect(screen.queryByText(/Attached:/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a read error when the file cannot be read", async () => {
+    const spy = vi
+      .spyOn(FileReader.prototype, "readAsDataURL")
+      .mockImplementation(function (this: FileReader) {
+        // Simulate a read failure: the dialog rejects and surfaces an error.
+        this.onerror?.(new ProgressEvent("error") as ProgressEvent<FileReader>);
+      });
+    try {
+      renderDialog();
+      const input = screen.getByLabelText("Attach screenshot (optional)") as HTMLInputElement;
+      const png = new File([new Uint8Array([1, 2, 3, 4])], "shot.png", { type: "image/png" });
+      await userEvent.upload(input, png);
+
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toMatch(/couldn't read that image/i);
+      expect(screen.queryByText(/Attached:/i)).not.toBeInTheDocument();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("shows the image-rejected message on a 422 from the server", async () => {
+    sendFeedbackMock.mockRejectedValue(new ApiError(422, "bad image"));
+    renderDialog();
+
+    await userEvent.type(screen.getByLabelText("Your feedback"), "image fails server-side");
+    await userEvent.click(screen.getByRole("button", { name: "Send Feedback" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/couldn't be accepted/i);
   });
 
 });
