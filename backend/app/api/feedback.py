@@ -11,14 +11,20 @@ background), feedback is sent synchronously and surfaces transport failures to
 the caller as a 502, so the user learns whether their message actually went out.
 """
 import logging
+import uuid
+from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.models import User
+from app.database import get_db
+from app.models import Feedback, User
+from app.auth.admin import require_admin
 from app.auth.dependencies import get_current_user
 from app.auth.rate_limit import feedback_rate_limiter
 from app.auth.email_dep import get_email_sender
@@ -61,6 +67,19 @@ class FeedbackRequest(BaseModel):
     category: FeedbackCategory = FeedbackCategory.idea
 
 
+class FeedbackRecord(BaseModel):
+    """Admin read-model for a persisted feedback row."""
+
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    user_id: Optional[uuid.UUID]
+    submitter_email: Optional[str]
+    category: str
+    message: str
+    created_at: datetime
+
+
 def _client_ip(request: Request) -> str:
     """Best-effort client IP for rate-limiting. Falls back to 'unknown'.
 
@@ -86,8 +105,9 @@ async def submit_feedback(
     request: Request,
     current_user: Optional[User] = get_current_user,
     email_sender: EmailSender = Depends(get_email_sender),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Email a feedback message to the fixed team inbox.
+    """Persist a feedback message and email it to the fixed team inbox.
 
     Returns 202 on success. Returns 422 for empty/oversize input (Pydantic),
     429 when rate-limited, and 502 if the email transport fails.
@@ -109,6 +129,18 @@ async def submit_feedback(
     category_label = CATEGORY_LABELS[body.category]
     html, text = feedback_email(message, sender_email, category_label)
 
+    # Persist BEFORE sending (#286): a feedback row is the durable record, so a
+    # later email-transport failure does not lose the submission. The email is
+    # best-effort notification on top of the stored row.
+    record = Feedback(
+        user_id=current_user.id if current_user is not None else None,
+        submitter_email=sender_email,
+        category=body.category.value,
+        message=message,
+    )
+    db.add(record)
+    await db.commit()
+
     try:
         await email_sender.send(
             to=settings.feedback_recipient,
@@ -129,3 +161,24 @@ async def submit_feedback(
         )
 
     return {"detail": "Thanks for the feedback!"}
+
+
+@router.get("/feedback", response_model=list[FeedbackRecord])
+async def list_feedback(
+    _: None = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> list[FeedbackRecord]:
+    """Admin-only: list persisted feedback, newest first.
+
+    Gated by the shared admin API key (X-Api-Key). API-only — there is no UI.
+    Paginated with limit/offset; newest-first ordering for triage.
+    """
+    result = await db.execute(
+        select(Feedback)
+        .order_by(Feedback.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return [FeedbackRecord.model_validate(row) for row in result.scalars().all()]
