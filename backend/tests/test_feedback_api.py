@@ -172,3 +172,119 @@ async def test_unknown_category_rejected(async_client, fake_sender):
     )
     assert r.status_code == 422
     assert fake_sender.sent == []
+
+
+# --- #286: persistence + admin read endpoint ----------------------------------
+
+
+@pytest.mark.asyncio
+async def test_feedback_persists_row_on_submit(async_client, fake_sender, test_db):
+    from sqlalchemy import select
+    from app.models import Feedback
+
+    r = await async_client.post(
+        "/api/feedback", json={"message": "persist me", "category": "bug"}
+    )
+    assert r.status_code == 202
+
+    rows = (await test_db.execute(select(Feedback))).scalars().all()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.message == "persist me"
+    assert row.category == "bug"
+    assert row.user_id is None          # anonymous
+    assert row.submitter_email is None
+    assert row.created_at is not None
+
+
+@pytest.mark.asyncio
+async def test_authenticated_feedback_persists_user_and_email(async_client, fake_sender, test_db):
+    from sqlalchemy import select
+    from app.models import Feedback, User
+
+    await async_client.post("/api/auth/signup", json={
+        "email": "bob@example.com",
+        "password": "correct horse battery",
+    })
+    fake_sender.clear()
+
+    r = await async_client.post("/api/feedback", json={"message": "from bob", "category": "idea"})
+    assert r.status_code == 202
+
+    row = (await test_db.execute(select(Feedback))).scalars().one()
+    assert row.submitter_email == "bob@example.com"
+    assert row.message == "from bob"
+    user = (await test_db.execute(select(User).where(User.email == "bob@example.com"))).scalars().one()
+    assert row.user_id == user.id
+
+
+@pytest.mark.asyncio
+async def test_feedback_row_persists_even_when_email_send_fails(async_client, fake_sender, monkeypatch, test_db):
+    # persist-then-send: a transport failure still leaves the durable row.
+    from sqlalchemy import select
+    from app.models import Feedback
+
+    async def boom(*args, **kwargs):
+        raise RuntimeError("SES down")
+
+    monkeypatch.setattr(fake_sender, "send", boom)
+    r = await async_client.post("/api/feedback", json={"message": "save despite bounce"})
+    assert r.status_code == 502  # caller still told the email failed
+
+    rows = (await test_db.execute(select(Feedback))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].message == "save despite bounce"
+
+
+@pytest.mark.asyncio
+async def test_admin_list_requires_api_key(async_client, fake_sender, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "admin_api_key", "s3cret")
+    # No header → 401.
+    r = await async_client.get("/api/feedback")
+    assert r.status_code == 401
+    # Wrong header → 401.
+    r = await async_client.get("/api/feedback", headers={"X-Api-Key": "nope"})
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_list_returns_rows_newest_first(async_client, fake_sender, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "admin_api_key", "s3cret")
+    await async_client.post("/api/feedback", json={"message": "first", "category": "bug"})
+    await async_client.post("/api/feedback", json={"message": "second", "category": "other"})
+
+    r = await async_client.get("/api/feedback", headers={"X-Api-Key": "s3cret"})
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data) == 2
+    # Newest first.
+    assert data[0]["message"] == "second"
+    assert data[0]["category"] == "other"
+    assert data[1]["message"] == "first"
+    # Shape includes the admin read-model fields.
+    assert set(data[0].keys()) == {
+        "id", "user_id", "submitter_email", "category", "message", "created_at"
+    }
+
+
+@pytest.mark.asyncio
+async def test_admin_list_pagination(async_client, fake_sender, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "admin_api_key", "s3cret")
+    for i in range(3):
+        await async_client.post("/api/feedback", json={"message": f"m{i}"})
+
+    r = await async_client.get(
+        "/api/feedback?limit=1&offset=0", headers={"X-Api-Key": "s3cret"}
+    )
+    assert r.status_code == 200
+    assert len(r.json()) == 1
+    r2 = await async_client.get(
+        "/api/feedback?limit=1&offset=1", headers={"X-Api-Key": "s3cret"}
+    )
+    assert r2.json()[0]["message"] != r.json()[0]["message"]

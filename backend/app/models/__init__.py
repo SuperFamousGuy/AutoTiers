@@ -10,5 +10,6 @@ from app.models.profile import Profile
 from app.models.linked_league import LinkedLeague
 from app.models.user_favorites import UserFavorites
 from app.models.auth_token import AuthToken
+from app.models.feedback import Feedback
 
-__all__ = ["Player", "PlayerStat", "Projection", "ADPData", "TeamContext", "TeamSeason", "PlayerContract", "DataSourceStatus", "User", "Profile", "LinkedLeague", "UserFavorites", "AuthToken"]
+__all__ = ["Player", "PlayerStat", "Projection", "ADPData", "TeamContext", "TeamSeason", "PlayerContract", "DataSourceStatus", "User", "Profile", "LinkedLeague", "UserFavorites", "AuthToken", "Feedback"]
