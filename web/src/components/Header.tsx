@@ -76,6 +76,11 @@ function HamburgerMenu({ currentState, onOpenLinkedAccounts, activeProfileName, 
               Privacy Policy
             </a>
           </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <a href="/terms.html" target="_blank" rel="noopener noreferrer">
+              Terms of Service
+            </a>
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       <AuthDialog open={authOpen} onOpenChange={setAuthOpen} initialState={currentState} />
