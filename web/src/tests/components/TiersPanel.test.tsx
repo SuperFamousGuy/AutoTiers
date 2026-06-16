@@ -137,11 +137,11 @@ describe("TiersPanel", () => {
     expect(screen.getByText(/WR2/)).toBeInTheDocument();
   });
 
-  it("calls onDownloadCsv when CSV button clicked", async () => {
+  it("calls onDownloadCsv when the Excel download button clicked", async () => {
     const onDownload = vi.fn();
     render(<TiersPanel result={response} isPending={false} onDownloadCsv={onDownload} />);
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /^download csv$/i }));
+    await user.click(screen.getByRole("button", { name: /^download excel$/i }));
     expect(onDownload).toHaveBeenCalled();
   });
 

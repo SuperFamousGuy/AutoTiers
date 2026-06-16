@@ -16,7 +16,7 @@ import { EmailVerificationBanner, shouldShowVerificationBanner, dismissVerificat
 import { AuthDialog } from "@/components/AuthDialog";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
-import { useRules, useGenerateMutation, downloadDraftCsv, downloadDebugCsv } from "@/api/hooks";
+import { useRules, useGenerateMutation, downloadDraftXlsx, downloadDebugCsv } from "@/api/hooks";
 import { useAuth } from "@/contexts/AuthContext";
 import { verifyEmail } from "@/api/auth";
 import { createProfile, updateProfile, deleteProfile, activateProfile } from "@/api/profiles";
@@ -437,7 +437,7 @@ export default function App() {
             isPending={generate.isPending}
             onDownloadCsv={() => {
               if (generate.data) {
-                downloadDraftCsv(
+                void downloadDraftXlsx(
                   generate.data.players,
                   settings.scoring_format,
                   buildResolvedTierNames(

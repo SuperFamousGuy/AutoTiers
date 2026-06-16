@@ -32,7 +32,8 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "tailwind-merge": "^3.6.0",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "write-excel-file": "4.1.1"
   },
   "optionalDependencies": {
     "lightningcss-linux-x64-gnu": "^1.32.0",

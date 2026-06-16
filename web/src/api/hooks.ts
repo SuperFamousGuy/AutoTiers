@@ -1,6 +1,8 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiFetch } from "./client";
-import { generateDebugCsvString, generateDraftCsvString } from "@/lib/csv";
+import { generateDebugCsvString } from "@/lib/csv";
+import { buildDraftXlsxBlob } from "@/lib/xlsx";
+import type { DraftCsvOptions } from "@/lib/csv";
 import type {
   DataStatusResponse,
   GenerateRequest,
@@ -36,9 +38,8 @@ export function useGenerateMutation() {
   });
 }
 
-/** Triggers a browser download of `content` as a file named `filename`. */
-function triggerCsvDownload(content: string, filename: string): void {
-  const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
+/** Triggers a browser download of an already-constructed Blob as `filename`. */
+function triggerBlobDownload(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -49,14 +50,27 @@ function triggerCsvDownload(content: string, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-/** Downloads the customer-facing draft cheat-sheet CSV as `tiers.csv`. */
-export function downloadDraftCsv(
+/** Triggers a browser download of `content` as a CSV file named `filename`. */
+function triggerCsvDownload(content: string, filename: string): void {
+  triggerBlobDownload(
+    new Blob([content], { type: "text/csv;charset=utf-8;" }),
+    filename,
+  );
+}
+
+/**
+ * Downloads the customer-facing draft cheat-sheet as a multi-tab workbook
+ * `tiers.xlsx`: an "All" sheet plus one sheet per position that has players.
+ * Async because workbook construction (write-excel-file) is async.
+ */
+export async function downloadDraftXlsx(
   players: TieredPlayer[],
   scoringFormat: ScoringFormat,
   tierLabelOverrides?: Partial<Record<number, string>>,
-): void {
-  const csv = generateDraftCsvString(players, { scoringFormat, tierLabelOverrides });
-  triggerCsvDownload(csv, "tiers.csv");
+): Promise<void> {
+  const options: DraftCsvOptions = { scoringFormat, tierLabelOverrides };
+  const blob = await buildDraftXlsxBlob(players, options);
+  triggerBlobDownload(blob, "tiers.xlsx");
 }
 
 /** Downloads the full debug CSV as `tiers-debug.csv` (dev-only, ?debug=1). */
