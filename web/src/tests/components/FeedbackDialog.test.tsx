@@ -8,7 +8,8 @@ const sendFeedbackMock = vi.fn();
 const toastMock = vi.fn();
 
 vi.mock("@/api/feedback", () => ({
-  sendFeedback: (msg: string, category?: string) => sendFeedbackMock(msg, category),
+  sendFeedback: (msg: string, category?: string, attachment?: unknown) =>
+    sendFeedbackMock(msg, category, attachment),
 }));
 
 vi.mock("@/components/ui/toast", () => ({
@@ -50,7 +51,7 @@ describe("FeedbackDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: "Send Feedback" }));
 
     await waitFor(() =>
-      expect(sendFeedbackMock).toHaveBeenCalledWith("hello team", "idea"),
+      expect(sendFeedbackMock).toHaveBeenCalledWith("hello team", "idea", null),
     );
     expect(toastMock).toHaveBeenCalledWith({
       title: "Thanks for the feedback!",
@@ -102,7 +103,7 @@ describe("FeedbackDialog", () => {
     await userEvent.keyboard("{Control>}{Enter}{/Control}");
 
     await waitFor(() =>
-      expect(sendFeedbackMock).toHaveBeenCalledWith("quick send", "idea"),
+      expect(sendFeedbackMock).toHaveBeenCalledWith("quick send", "idea", null),
     );
   });
 
@@ -118,7 +119,7 @@ describe("FeedbackDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: "Send Feedback" }));
 
     await waitFor(() =>
-      expect(sendFeedbackMock).toHaveBeenCalledWith("default cat", "idea"),
+      expect(sendFeedbackMock).toHaveBeenCalledWith("default cat", "idea", null),
     );
   });
 
@@ -135,7 +136,7 @@ describe("FeedbackDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: "Send Feedback" }));
 
     await waitFor(() =>
-      expect(sendFeedbackMock).toHaveBeenCalledWith("tagged", wire),
+      expect(sendFeedbackMock).toHaveBeenCalledWith("tagged", wire, null),
     );
   });
 
@@ -153,6 +154,67 @@ describe("FeedbackDialog", () => {
 
     expect(screen.getByRole("radio", { name: "Idea" })).toBeChecked();
     expect(screen.getByRole("radio", { name: "Bug" })).not.toBeChecked();
+  });
+
+
+  it("rejects a non-image file with an inline error and does not attach it", async () => {
+    sendFeedbackMock.mockResolvedValue(undefined);
+    renderDialog();
+
+    const input = screen.getByLabelText("Attach screenshot (optional)") as HTMLInputElement;
+    const txt = new File(["hello"], "notes.txt", { type: "text/plain" });
+    // accept="" would block this at the browser; bypass to exercise the JS guard
+    // that also defends against drag-drop / renamed files.
+    await userEvent.upload(input, txt, { applyAccept: false });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/PNG, JPEG, or WebP/i);
+    expect(screen.queryByText(/Attached:/i)).not.toBeInTheDocument();
+  });
+
+  it("attaches a valid image and sends it as base64", async () => {
+    sendFeedbackMock.mockResolvedValue(undefined);
+    renderDialog();
+
+    const input = screen.getByLabelText("Attach screenshot (optional)") as HTMLInputElement;
+    const png = new File([new Uint8Array([1, 2, 3, 4])], "shot.png", { type: "image/png" });
+    await userEvent.upload(input, png);
+
+    expect(await screen.findByText(/Attached: shot.png/i)).toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText("Your feedback"), "with image");
+    await userEvent.click(screen.getByRole("button", { name: "Send Feedback" }));
+
+    await waitFor(() => expect(sendFeedbackMock).toHaveBeenCalledTimes(1));
+    const [msg, cat, attachment] = sendFeedbackMock.mock.calls[0];
+    expect(msg).toBe("with image");
+    expect(cat).toBe("idea");
+    expect(attachment).toMatchObject({ name: "shot.png", type: "image/png" });
+    expect(typeof attachment.base64).toBe("string");
+    expect(attachment.base64.length).toBeGreaterThan(0);
+  });
+
+  it("removes an attached image when Remove is clicked", async () => {
+    renderDialog();
+    const input = screen.getByLabelText("Attach screenshot (optional)") as HTMLInputElement;
+    const png = new File([new Uint8Array([1, 2, 3, 4])], "shot.png", { type: "image/png" });
+    await userEvent.upload(input, png);
+    expect(await screen.findByText(/Attached: shot.png/i)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Remove" }));
+    expect(screen.queryByText(/Attached:/i)).not.toBeInTheDocument();
+  });
+
+  it("sends no attachment when none is selected", async () => {
+    sendFeedbackMock.mockResolvedValue(undefined);
+    renderDialog();
+
+    await userEvent.type(screen.getByLabelText("Your feedback"), "text only");
+    await userEvent.click(screen.getByRole("button", { name: "Send Feedback" }));
+
+    await waitFor(() => expect(sendFeedbackMock).toHaveBeenCalledTimes(1));
+    const [, , attachment] = sendFeedbackMock.mock.calls[0];
+    expect(attachment).toBeNull();
   });
 
 });

@@ -288,3 +288,119 @@ async def test_admin_list_pagination(async_client, fake_sender, monkeypatch):
         "/api/feedback?limit=1&offset=1", headers={"X-Api-Key": "s3cret"}
     )
     assert r2.json()[0]["message"] != r.json()[0]["message"]
+
+
+# --- #287: screenshot attachment (SES raw-MIME inline) -------------------------
+
+import base64 as _b64
+
+
+def _png_b64(num_bytes: int = 64) -> str:
+    # A minimal valid-enough PNG header + padding; content is opaque to the
+    # endpoint (it only checks declared type + decoded size), so bytes suffice.
+    data = b"\x89PNG\r\n\x1a\n" + b"\x00" * max(0, num_bytes - 8)
+    return _b64.b64encode(data).decode()
+
+
+@pytest.mark.asyncio
+async def test_feedback_with_screenshot_attaches_to_email(async_client, fake_sender):
+    r = await async_client.post(
+        "/api/feedback",
+        json={
+            "message": "see attached",
+            "screenshot": _png_b64(),
+            "screenshot_name": "bug.png",
+            "screenshot_type": "image/png",
+        },
+    )
+    assert r.status_code == 202
+    sent = fake_sender.sent[0]
+    assert len(sent.attachments) == 1
+    att = sent.attachments[0]
+    assert att.filename == "bug.png"
+    assert att.content_type == "image/png"
+    assert att.content.startswith(b"\x89PNG")
+
+
+@pytest.mark.asyncio
+async def test_feedback_without_screenshot_has_no_attachment(async_client, fake_sender):
+    r = await async_client.post("/api/feedback", json={"message": "no image"})
+    assert r.status_code == 202
+    assert fake_sender.sent[0].attachments == []
+
+
+@pytest.mark.asyncio
+async def test_screenshot_disallowed_type_rejected(async_client, fake_sender):
+    r = await async_client.post(
+        "/api/feedback",
+        json={
+            "message": "bad type",
+            "screenshot": _png_b64(),
+            "screenshot_name": "evil.svg",
+            "screenshot_type": "image/svg+xml",
+        },
+    )
+    assert r.status_code == 422
+    assert fake_sender.sent == []
+
+
+@pytest.mark.asyncio
+async def test_screenshot_over_size_limit_rejected(async_client, fake_sender):
+    # 2 MB + 1 byte of decoded data → rejected by the server gate.
+    big = _b64.b64encode(b"\x89PNG" + b"\x00" * (2 * 1024 * 1024)).decode()
+    r = await async_client.post(
+        "/api/feedback",
+        json={
+            "message": "too big",
+            "screenshot": big,
+            "screenshot_name": "huge.png",
+            "screenshot_type": "image/png",
+        },
+    )
+    assert r.status_code == 422
+    assert fake_sender.sent == []
+
+
+@pytest.mark.asyncio
+async def test_screenshot_invalid_base64_rejected(async_client, fake_sender):
+    r = await async_client.post(
+        "/api/feedback",
+        json={
+            "message": "not base64",
+            "screenshot": "!!!not base64!!!",
+            "screenshot_name": "x.png",
+            "screenshot_type": "image/png",
+        },
+    )
+    assert r.status_code == 422
+    assert fake_sender.sent == []
+
+
+@pytest.mark.asyncio
+async def test_screenshot_metadata_without_data_rejected(async_client, fake_sender):
+    r = await async_client.post(
+        "/api/feedback",
+        json={
+            "message": "meta only",
+            "screenshot_name": "x.png",
+            "screenshot_type": "image/png",
+        },
+    )
+    assert r.status_code == 422
+    assert fake_sender.sent == []
+
+
+@pytest.mark.asyncio
+async def test_screenshot_filename_is_sanitized_to_basename(async_client, fake_sender):
+    r = await async_client.post(
+        "/api/feedback",
+        json={
+            "message": "path traversal name",
+            "screenshot": _png_b64(),
+            "screenshot_name": "../../etc/passwd.png",
+            "screenshot_type": "image/png",
+        },
+    )
+    assert r.status_code == 202
+    att = fake_sender.sent[0].attachments[0]
+    assert att.filename == "passwd.png"  # basename only, no path components
