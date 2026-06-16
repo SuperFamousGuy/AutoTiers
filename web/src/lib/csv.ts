@@ -49,7 +49,12 @@ function adpForFormat(p: TieredPlayer, format: ScoringFormat): number | null {
   }
 }
 
-const DRAFT_CSV_HEADERS = [
+/**
+ * Column headers for the customer-facing draft cheat-sheet. Exported so the XLSX
+ * exporter (web/src/lib/xlsx.ts) renders the "All" sheet — and every per-position
+ * sheet — with exactly the same columns in the same order as the legacy CSV.
+ */
+export const DRAFT_CSV_HEADERS = [
   "Rank",
   "Player",
   "Pos",
@@ -62,6 +67,35 @@ const DRAFT_CSV_HEADERS = [
   "Value",
   "Flags",
 ] as const;
+
+/**
+ * Builds one draft cheat-sheet row as an array of raw (un-escaped) cell values,
+ * aligned 1:1 with DRAFT_CSV_HEADERS. This is the single source of truth for the
+ * draft export's per-row projection: generateDraftCsvString CSV-escapes these
+ * values, and the XLSX exporter consumes them directly. `null`/`undefined` cells
+ * render as empty (matching the CSV's empty-field behaviour).
+ */
+export function draftRowValues(
+  p: TieredPlayer,
+  options: DraftCsvOptions,
+): (string | number | null | undefined)[] {
+  const { scoringFormat, tierLabelOverrides } = options;
+  const tierLabel = getCustomTierLabel(p.overall_tier, tierLabelOverrides);
+  const adp = adpForFormat(p, scoringFormat);
+  return [
+    p.overall_rank,
+    p.name,
+    p.position,
+    p.team,
+    p.age,
+    p.overall_tier,
+    tierLabel,
+    p.positional_tier,
+    adp,
+    p.vbd_score.toFixed(1),
+    p.flags.join("; "),
+  ];
+}
 
 export interface DraftCsvOptions {
   scoringFormat: ScoringFormat;
@@ -78,27 +112,10 @@ export function generateDraftCsvString(
   players: TieredPlayer[],
   options: DraftCsvOptions,
 ): string {
-  const { scoringFormat, tierLabelOverrides } = options;
   const rows: string[] = [DRAFT_CSV_HEADERS.join(",")];
 
   for (const p of players) {
-    const tierLabel = getCustomTierLabel(p.overall_tier, tierLabelOverrides);
-    const adp = adpForFormat(p, scoringFormat);
-
-    const row = [
-      csvField(p.overall_rank),
-      csvField(p.name),
-      csvField(p.position),
-      csvField(p.team),
-      csvField(p.age),
-      csvField(p.overall_tier),
-      csvField(tierLabel),
-      csvField(p.positional_tier),
-      csvField(adp),
-      csvField(p.vbd_score.toFixed(1)),
-      csvField(p.flags.join("; ")),
-    ].join(",");
-
+    const row = draftRowValues(p, options).map(csvField).join(",");
     rows.push(row);
   }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { downloadDraftCsv, downloadDebugCsv } from "@/api/hooks";
+import { downloadDraftXlsx, downloadDebugCsv } from "@/api/hooks";
 import type { TieredPlayer } from "@/api/types";
 
 const basePlayer: TieredPlayer = {
@@ -30,7 +30,7 @@ const basePlayer: TieredPlayer = {
   is_favorite_team: null,
 };
 
-describe("CSV downloads", () => {
+describe("file downloads", () => {
   let createObjectURL: ReturnType<typeof vi.fn>;
   let revokeObjectURL: ReturnType<typeof vi.fn>;
   let appendChild: ReturnType<typeof vi.fn>;
@@ -64,29 +64,56 @@ describe("CSV downloads", () => {
     vi.restoreAllMocks();
   });
 
-  describe("downloadDraftCsv", () => {
-    it("creates a download link and clicks it", () => {
-      downloadDraftCsv([basePlayer], "standard");
+  describe("downloadDraftXlsx", () => {
+    it("builds a non-empty xlsx Blob, links, and clicks it", async () => {
+      await downloadDraftXlsx([basePlayer], "standard");
 
       expect(createObjectURL).toHaveBeenCalledOnce();
+      const blobArg = createObjectURL.mock.calls[0][0] as Blob;
+      expect(blobArg).toBeInstanceOf(Blob);
+      expect(blobArg.size).toBeGreaterThan(0);
       expect(click).toHaveBeenCalledOnce();
       expect(revokeObjectURL).toHaveBeenCalledWith("blob:fake-url");
     });
 
-    it("downloads as tiers.csv", () => {
-      downloadDraftCsv([basePlayer], "standard");
-      expect(anchor.download).toBe("tiers.csv");
+    it("downloads as tiers.xlsx", async () => {
+      await downloadDraftXlsx([basePlayer], "standard");
+      expect(anchor.download).toBe("tiers.xlsx");
     });
 
-    it("does not make a network request", () => {
+    it("does not make a network request", async () => {
       const fetchSpy = vi.spyOn(global, "fetch");
-      downloadDraftCsv([basePlayer], "ppr");
+      await downloadDraftXlsx([basePlayer], "ppr");
       expect(fetchSpy).not.toHaveBeenCalled();
     });
 
-    it("accepts tier label overrides without throwing", () => {
-      expect(() => downloadDraftCsv([basePlayer], "standard", { 1: "Studs" })).not.toThrow();
+    it("accepts tier label overrides without throwing", async () => {
+      await expect(
+        downloadDraftXlsx([basePlayer], "standard", { 1: "Studs" }),
+      ).resolves.toBeUndefined();
       expect(click).toHaveBeenCalledOnce();
+    });
+
+    // Sincerity guard for the lazy-load (bug-class #7). The xlsx builder + the
+    // ~20 kB write-excel-file library must be pulled in via a dynamic import()
+    // INSIDE downloadDraftXlsx so Rollup code-splits them out of the main chunk.
+    // This reads hooks.ts source directly and FAILS the moment someone reverts to
+    // a top-level `import { buildDraftXlsxBlob } from "@/lib/xlsx"`. A behavioural
+    // test can't distinguish static from dynamic here (both produce the same
+    // Blob), so the boundary is asserted structurally — which is the property the
+    // build relies on.
+    it("imports @/lib/xlsx dynamically, not statically (code-split boundary)", async () => {
+      const fs = await import("node:fs/promises");
+      const url = await import("node:url");
+      const path = await import("node:path");
+      const here = path.dirname(url.fileURLToPath(import.meta.url));
+      const hooksPath = path.resolve(here, "../../api/hooks.ts");
+      const src = await fs.readFile(hooksPath, "utf-8");
+
+      // No top-level VALUE import of the xlsx builder (a `import type` is fine).
+      expect(src).not.toMatch(/^\s*import\s+\{[^}]*buildDraftXlsxBlob[^}]*\}\s+from\s+["']@\/lib\/xlsx["']/m);
+      // The builder is loaded via a dynamic import() of @/lib/xlsx.
+      expect(src).toMatch(/await\s+import\(\s*["']@\/lib\/xlsx["']\s*\)/);
     });
   });
 

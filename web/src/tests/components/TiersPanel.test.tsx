@@ -43,30 +43,30 @@ const tier7Response: GenerateResponse = {
 
 describe("TiersPanel", () => {
   it("shows placeholder when no result", () => {
-    render(<TiersPanel result={null} isPending={false} onDownloadCsv={() => {}} />);
+    render(<TiersPanel result={null} isPending={false} onDownloadXlsx={() => {}} />);
     expect(screen.getByText(/click generate/i)).toBeInTheDocument();
   });
 
   it("shows skeleton when pending", () => {
-    render(<TiersPanel result={null} isPending={true} onDownloadCsv={() => {}} />);
+    render(<TiersPanel result={null} isPending={true} onDownloadXlsx={() => {}} />);
     expect(screen.getByText(/generating/i)).toBeInTheDocument();
   });
 
   it("renders all players grouped by tier", () => {
-    render(<TiersPanel result={response} isPending={false} onDownloadCsv={() => {}} />);
+    render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
     expect(screen.getByText("Ja'Marr Chase")).toBeInTheDocument();
     expect(screen.getByText("Bijan Robinson")).toBeInTheDocument();
     expect(screen.getByText("Josh Allen")).toBeInTheDocument();
   });
 
   it("renders tier headers", () => {
-    render(<TiersPanel result={response} isPending={false} onDownloadCsv={() => {}} />);
+    render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
     expect(screen.getByText(/tier 1/i)).toBeInTheDocument();
     expect(screen.getByText(/tier 2/i)).toBeInTheDocument();
   });
 
   it("shows descriptive label 'Elite' in the Tier 1 header span", () => {
-    render(<TiersPanel result={response} isPending={false} onDownloadCsv={() => {}} />);
+    render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
     // Verify "Elite" is co-located with "Tier 1" in the same header span, not elsewhere in the DOM.
     // eliteEl.parentElement is the outer bold <span> that also contains the tier number text node.
     const eliteEl = screen.getByText("Elite");
@@ -74,19 +74,19 @@ describe("TiersPanel", () => {
   });
 
   it("shows descriptive label 'Strong Starter' in the Tier 2 header span", () => {
-    render(<TiersPanel result={response} isPending={false} onDownloadCsv={() => {}} />);
+    render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
     const starterEl = screen.getByText("Strong Starter");
     expect(starterEl.parentElement).toHaveTextContent(/Tier 2/);
   });
 
   it("shows 'Deep Sleepers' label in the Tier 7 header span (tier 7 is now named)", () => {
-    render(<TiersPanel result={tier7Response} isPending={false} onDownloadCsv={() => {}} />);
+    render(<TiersPanel result={tier7Response} isPending={false} onDownloadXlsx={() => {}} />);
     const deepSleepersEl = screen.getByText("Deep Sleepers");
     expect(deepSleepersEl.parentElement).toHaveTextContent(/Tier 7/);
   });
 
   it("does not show ALL-view descriptive labels when WR position filter is active", async () => {
-    render(<TiersPanel result={response} isPending={false} onDownloadCsv={() => {}} />);
+    render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /^wr$/i }));
     // ALL-view labels disappear when position-filtered
@@ -95,7 +95,7 @@ describe("TiersPanel", () => {
   });
 
   it("shows 'Flex WR' descriptive label for WR4 when WR filter is active", async () => {
-    render(<TiersPanel result={response} isPending={false} onDownloadCsv={() => {}} />);
+    render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /^wr$/i }));
     const flexWREl = screen.getByText("Flex WR");
@@ -103,7 +103,7 @@ describe("TiersPanel", () => {
   });
 
   it("shows 'Elite TE' descriptive label for TE1 when TE filter is active", async () => {
-    render(<TiersPanel result={response} isPending={false} onDownloadCsv={() => {}} />);
+    render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /^te$/i }));
     const eliteTEEl = screen.getByText("Elite TE");
@@ -111,7 +111,7 @@ describe("TiersPanel", () => {
   });
 
   it("shows 'Elite QB' descriptive label for QB1 when QB filter is active", async () => {
-    render(<TiersPanel result={response} isPending={false} onDownloadCsv={() => {}} />);
+    render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /^qb$/i }));
     const eliteQBEl = screen.getByText("Elite QB");
@@ -119,7 +119,7 @@ describe("TiersPanel", () => {
   });
 
   it("filters by position when a position chip is clicked", async () => {
-    render(<TiersPanel result={response} isPending={false} onDownloadCsv={() => {}} />);
+    render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /^wr$/i }));
     expect(screen.getByText("Ja'Marr Chase")).toBeInTheDocument();
@@ -129,7 +129,7 @@ describe("TiersPanel", () => {
   });
 
   it("groups by positional tier when filtered to a position", async () => {
-    render(<TiersPanel result={response} isPending={false} onDownloadCsv={() => {}} />);
+    render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /^wr$/i }));
     // Now the tier headers should be position-relative (WR1, WR2) not overall (Tier 1, Tier 2).
@@ -137,17 +137,17 @@ describe("TiersPanel", () => {
     expect(screen.getByText(/WR2/)).toBeInTheDocument();
   });
 
-  it("calls onDownloadCsv when CSV button clicked", async () => {
+  it("calls onDownloadXlsx when the Excel download button is clicked", async () => {
     const onDownload = vi.fn();
-    render(<TiersPanel result={response} isPending={false} onDownloadCsv={onDownload} />);
+    render(<TiersPanel result={response} isPending={false} onDownloadXlsx={onDownload} />);
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /^download csv$/i }));
+    await user.click(screen.getByRole("button", { name: /^download excel$/i }));
     expect(onDownload).toHaveBeenCalled();
   });
 
   describe("debug CSV button", () => {
     it("is hidden when debugMode is falsy", () => {
-      render(<TiersPanel result={response} isPending={false} onDownloadCsv={() => {}} />);
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
       expect(screen.queryByRole("button", { name: /download debug csv/i })).not.toBeInTheDocument();
     });
 
@@ -156,7 +156,7 @@ describe("TiersPanel", () => {
         <TiersPanel
           result={response}
           isPending={false}
-          onDownloadCsv={() => {}}
+          onDownloadXlsx={() => {}}
           debugMode={true}
           onDownloadDebugCsv={() => {}}
         />,
@@ -170,7 +170,7 @@ describe("TiersPanel", () => {
         <TiersPanel
           result={response}
           isPending={false}
-          onDownloadCsv={() => {}}
+          onDownloadXlsx={() => {}}
           debugMode={true}
           onDownloadDebugCsv={onDebug}
         />,
@@ -187,7 +187,7 @@ describe("TiersPanel", () => {
         <TiersPanel
           result={response}
           isPending={false}
-          onDownloadCsv={() => {}}
+          onDownloadXlsx={() => {}}
           tierLabelOverrides={{ 1: "Studs" }}
         />,
       );
@@ -200,7 +200,7 @@ describe("TiersPanel", () => {
         <TiersPanel
           result={response}
           isPending={false}
-          onDownloadCsv={() => {}}
+          onDownloadXlsx={() => {}}
           tierLabelOverrides={{ 1: "Studs" }}
         />,
       );
@@ -212,7 +212,7 @@ describe("TiersPanel", () => {
         <TiersPanel
           result={response}
           isPending={false}
-          onDownloadCsv={() => {}}
+          onDownloadXlsx={() => {}}
           tierLabelOverrides={undefined}
         />,
       );
@@ -225,7 +225,7 @@ describe("TiersPanel", () => {
         <TiersPanel
           result={response}
           isPending={false}
-          onDownloadCsv={() => {}}
+          onDownloadXlsx={() => {}}
           tierLabelOverrides={{ 1: "Studs" }}
         />,
       );
