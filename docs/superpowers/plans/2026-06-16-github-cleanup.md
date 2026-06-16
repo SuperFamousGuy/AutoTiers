@@ -12,40 +12,41 @@
 
 ## Important context for the implementer
 
-- **Skill location:** `~/.claude/skills/github-cleanup/` (i.e. `/Users/karlkell/.claude/skills/github-cleanup/`). This is a personal, repo-agnostic skill — it lives next to `resolve-pr-comments` and `fix-pr-checks`, NOT inside the AutoTiers git repo. Do not `git add` the skill files to AutoTiers.
-- **Plan/spec location:** the design spec is `docs/superpowers/specs/2026-06-16-github-cleanup-design.md` inside the AutoTiers repo. Read it before starting.
+- **Skill location:** `.claude/skills/github-cleanup/`, relative to the repo root. This repo versions its skills in-tree under `.claude/skills/` (next to `resolve-pr-comments` and `fix-pr-checks`), so the skill IS committed to the repo like any other file. All paths in this plan are repo-relative; run commands from the repo root (`cd "$(git rev-parse --show-toplevel)"`).
+- **Plan/spec location:** the design spec is `docs/superpowers/specs/2026-06-16-github-cleanup-design.md` inside the repo. Read it before starting.
 - **The skill is prose, not a program.** There is no application to run. "Tests" for a skill are: eval scenarios (define intended behavior), `shellcheck` on the embedded bash (catch syntax errors), and live smoke-runs of the *read-only* commands against a real repo (prove the commands actually work). NEVER run the destructive commands (branch delete / issue close) during implementation.
 - **Frontmatter contract** (match the sibling skills exactly): `name`, `description`, `when_to_use` keys, all on the top YAML block.
-- **`jq` is not installed on this machine** (per project memory). Smoke-runs that need JSON parsing must use `python3 -c`, and the SKILL.md must offer the `python3` fallback wherever it uses `jq`, exactly like `resolve-pr-comments` does.
+- **JSON parsing:** `gh`'s built-in `-q/--jq` flag does NOT require the standalone `jq` binary, so `gh ... --jq` works regardless. Only a raw pipe into `jq` needs the binary — and `jq` is not installed on this machine, so any such step (and the SKILL.md itself) must use a `python3 -c` fallback, exactly like `resolve-pr-comments` does.
 
 ## File Structure
 
-- Create: `~/.claude/skills/github-cleanup/SKILL.md` — the whole skill (frontmatter + 6 stages + summary + failure modes). Built up section by section across Tasks 2–7.
-- Create: `~/.claude/skills/github-cleanup/evals/evals.json` — scenario prompts + expected outputs. Task 1.
-- Verification scratch: a temp file holding extracted bash for `shellcheck`. Task 8. Not committed.
+- Create: `.claude/skills/github-cleanup/SKILL.md` — the whole skill (frontmatter + 6 stages + summary + failure modes). Built up section by section across Tasks 2–7.
+- Create: `.claude/skills/github-cleanup/evals/evals.json` — scenario prompts + expected outputs. Task 1.
+- Verification scratch: a temp file holding extracted bash for `shellcheck`. Task 7. Not committed.
 
-Because the skill is one cohesive document, tasks append sections to the same `SKILL.md` in stage order. Each task ends by smoke-testing the read-only commands it introduced, then committing (the skill dir is its own git history concern — see Task 1 Step 1).
+Because the skill is one cohesive document, tasks append sections to the same `SKILL.md` in stage order. Each task ends by smoke-testing the read-only commands it introduced. All skill and doc files are committed to the repo as a normal change.
 
 ---
 
 ### Task 1: Scaffold + eval scenarios (behavior-first)
 
 **Files:**
-- Create: `~/.claude/skills/github-cleanup/evals/evals.json`
+- Create: `.claude/skills/github-cleanup/evals/evals.json`
 
 - [ ] **Step 1: Create the skill directory**
 
 ```bash
-mkdir -p ~/.claude/skills/github-cleanup/evals
+cd "$(git rev-parse --show-toplevel)"
+mkdir -p .claude/skills/github-cleanup/evals
 ```
 
-The `~/.claude/skills/` tree is not a git repo of its own here (the siblings were created with plain `mkdir`/files). Do not init a repo; just create files. Commits in the steps below refer to whatever VCS state that tree has — if `git -C ~/.claude/skills status` errors with "not a git repository", skip the commit steps for the skill files and instead note completion in the plan checkbox. (The AutoTiers repo only ever receives the plan/spec docs.)
+The `.claude/skills/` tree is part of this repo (the sibling skills are committed there). The skill files are committed alongside the plan/spec docs as a normal repo change — there is no separate VCS concern.
 
 - [ ] **Step 2: Write the eval scenarios**
 
 These define what "done" means for the skill — write them before the prose, then make the prose satisfy them.
 
-Create `~/.claude/skills/github-cleanup/evals/evals.json`:
+Create `.claude/skills/github-cleanup/evals/evals.json`:
 
 ```json
 {
@@ -81,23 +82,26 @@ Create `~/.claude/skills/github-cleanup/evals/evals.json`:
 
 - [ ] **Step 3: Validate the JSON parses**
 
-Run: `python3 -c "import json; print(len(json.load(open('/Users/karlkell/.claude/skills/github-cleanup/evals/evals.json'))['evals']), 'evals OK')"`
+Run: `python3 -c "import json; print(len(json.load(open('.claude/skills/github-cleanup/evals/evals.json'))['evals']), 'evals OK')"`
 Expected: `4 evals OK`
 
-- [ ] **Step 4: Commit (AutoTiers repo only — plan progress)**
+- [ ] **Step 4: Commit the eval scenarios**
 
-The skill files live outside the repo, so there is nothing to commit in AutoTiers for this task. Mark the checkbox and move on. (If you later choose to version `~/.claude/skills`, do it separately from AutoTiers.)
+```bash
+git add .claude/skills/github-cleanup/evals/evals.json
+git commit -m "test(skills): add github-cleanup eval scenarios"
+```
 
 ---
 
 ### Task 2: Frontmatter + Preflight + Branch scan
 
 **Files:**
-- Create: `~/.claude/skills/github-cleanup/SKILL.md`
+- Create: `.claude/skills/github-cleanup/SKILL.md`
 
 - [ ] **Step 1: Write the frontmatter and intro**
 
-Create `~/.claude/skills/github-cleanup/SKILL.md` with:
+Create `.claude/skills/github-cleanup/SKILL.md` with:
 
 ````markdown
 ---
@@ -154,7 +158,11 @@ gh pr list --state merged --json headRefName,number --limit 200
 check whether its tip is already in the default branch:
 
 ```bash
-gh api repos/$OWNER/$REPO/compare/$DEFAULT_BRANCH...<branch> --jq '.status'
+# Branch names contain "/" (e.g. feat/foo). The compare endpoint reads
+# BASE...HEAD as a single path segment, so the head ref's slashes MUST be
+# URL-encoded or the request 404s / miscompares and the merged branch is missed.
+branch_enc=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "<branch>")
+gh api "repos/$OWNER/$REPO/compare/$DEFAULT_BRANCH...$branch_enc" --jq '.status'
 # keep the branch when status is "identical" or "behind"
 ```
 
@@ -190,7 +198,7 @@ These are safe (read-only). Run from the AutoTiers repo to prove they work.
 Expected: each returns without error and produces plausible output.
 
 ```bash
-cd /Users/karlkell/Code/AutoTiers
+cd "$(git rev-parse --show-toplevel)"
 gh repo view --json owner,name,defaultBranchRef
 gh pr list --state merged --json headRefName,number --limit 5
 gh api repos/$(gh repo view --json owner --jq .owner.login)/$(gh repo view --json name --jq .name)/branches --paginate --jq '.[].name' | head
@@ -199,14 +207,19 @@ git branch --merged main --format '%(refname:short)'
 
 Expected: owner/name/default branch printed; a short list of merged-PR branch names; a list of remote branch names; local merged branches. If `jq` errors ("command not found"), confirm the `python3` fallback in the frontmatter intro works instead.
 
-- [ ] **Step 3: Mark complete** (skill file is outside AutoTiers — no repo commit).
+- [ ] **Step 3: Commit the branch-scan stage**
+
+```bash
+git add .claude/skills/github-cleanup/SKILL.md
+git commit -m "feat(skills): github-cleanup preflight + branch scan"
+```
 
 ---
 
 ### Task 3: Issue scan — three detectors
 
 **Files:**
-- Modify: `~/.claude/skills/github-cleanup/SKILL.md` (append Stage 3)
+- Modify: `.claude/skills/github-cleanup/SKILL.md` (append Stage 3)
 
 - [ ] **Step 1: Append the issue-scan stage**
 
@@ -264,7 +277,7 @@ Flag issues whose `updatedAt` is older than `--stale-days` (default 90).
 - [ ] **Step 2: Smoke-test the read-only issue commands against AutoTiers**
 
 ```bash
-cd /Users/karlkell/Code/AutoTiers
+cd "$(git rev-parse --show-toplevel)"
 gh pr list --state merged --json number,title,body --limit 3
 gh issue list --state open --json number,title,updatedAt,isPinned --limit 5
 ```
@@ -278,7 +291,7 @@ Expected: merged PRs with bodies (verify the closing-keyword regex would match e
 ### Task 4: Dry-run plan table (the approval gate)
 
 **Files:**
-- Modify: `~/.claude/skills/github-cleanup/SKILL.md` (append Stage 4)
+- Modify: `.claude/skills/github-cleanup/SKILL.md` (append Stage 4)
 
 - [ ] **Step 1: Append the dry-run plan stage**
 
@@ -292,7 +305,7 @@ category; do not ask per item.
 action                | target        | reason                        | confidence
 ----------------------|---------------|-------------------------------|------------
 delete remote branch  | feat/old-x    | merged PR #210                | high
-delete local branch   | feat/old-x    | merged into main              | high
+delete local branch   | feat/old-x    | merged into default branch    | high
 close issue           | #88           | resolved by #284              | high
 close issue (dup)     | #91 -> #74    | duplicate of #74              | low
 close issue (stale)   | #45           | no activity since 2026-01-10  | low
@@ -318,7 +331,7 @@ Re-read the Stage 4 text. Confirm it states (a) one table, (b) one approval, (c)
 ### Task 5: Execute + Summary
 
 **Files:**
-- Modify: `~/.claude/skills/github-cleanup/SKILL.md` (append Stages 5 & 6 + safety invariants)
+- Modify: `.claude/skills/github-cleanup/SKILL.md` (append Stages 5 & 6 + safety invariants)
 
 - [ ] **Step 1: Append execute, summary, and safety sections**
 
@@ -385,7 +398,7 @@ If nothing matched, say so and stop.
 ### Task 6: Common failure modes
 
 **Files:**
-- Modify: `~/.claude/skills/github-cleanup/SKILL.md` (append failure-modes section)
+- Modify: `.claude/skills/github-cleanup/SKILL.md` (append failure-modes section)
 
 - [ ] **Step 1: Append the failure-modes section**
 
@@ -407,8 +420,9 @@ Match the `resolve-pr-comments` precedent of a concrete gotcha list.
 - **An issue closed by GitHub auto-close still shows in 3a:** always re-check
   `state == OPEN` right before proposing a close — the merged-PR scan can name
   issues that GitHub already closed.
-- **`jq` not installed:** parse JSON with `python3 -c "import sys,json; ..."`
-  instead, as shown in Stage 1.
+- **Don't rely on the standalone `jq` binary:** `gh`'s built-in `-q/--jq`
+  flag works without it, but a raw pipe into `jq` does not — and `jq` may be
+  absent. Parse those with `python3 -c "import sys,json; ..."`, as shown in Stage 1.
 - **Pinned issue swept as stale:** the stale detector MUST filter
   `isPinned == true`; pinned issues are intentionally long-lived.
 - **`--paginate` matters:** repos with >30 branches will silently truncate
@@ -423,7 +437,7 @@ Match the `resolve-pr-comments` precedent of a concrete gotcha list.
 ### Task 7: shellcheck pass + discoverability + self-review
 
 **Files:**
-- Read: `~/.claude/skills/github-cleanup/SKILL.md`
+- Read: `.claude/skills/github-cleanup/SKILL.md`
 
 - [ ] **Step 1: Extract and shellcheck every bash block**
 
@@ -435,7 +449,7 @@ style warnings — those are fine; you are looking for genuine syntax errors
 ```bash
 python3 - <<'PY' > /tmp/github-cleanup-blocks.sh
 import re
-src = open('/Users/karlkell/.claude/skills/github-cleanup/SKILL.md').read()
+src = open('.claude/skills/github-cleanup/SKILL.md').read()
 for block in re.findall(r'```bash\n(.*?)```', src, re.S):
     print(block)
 PY
@@ -455,7 +469,7 @@ appear with its `when_to_use` text. At minimum, validate the YAML frontmatter:
 ```bash
 python3 - <<'PY'
 import re
-src = open('/Users/karlkell/.claude/skills/github-cleanup/SKILL.md').read()
+src = open('.claude/skills/github-cleanup/SKILL.md').read()
 m = re.match(r'^---\n(.*?)\n---\n', src, re.S)
 assert m, "no frontmatter block"
 fm = m.group(1)
@@ -479,15 +493,15 @@ every section maps to skill content:
 
 Fix any gaps inline.
 
-- [ ] **Step 4: Commit the plan-progress in AutoTiers**
+- [ ] **Step 4: Commit any final fixes**
 
-The skill itself lives outside the repo. Commit only the (already-saved) plan
-and any spec tweaks made during implementation:
+Commit any spec tweaks or skill fixes made during the self-review (the
+per-task commits above already cover the bulk of the skill):
 
 ```bash
-cd /Users/karlkell/Code/AutoTiers
-git add docs/superpowers/
-git commit -m "docs: github-cleanup skill plan + spec"
+cd "$(git rev-parse --show-toplevel)"
+git add .claude/skills/github-cleanup/ docs/superpowers/
+git commit -m "docs: github-cleanup skill final review fixes"
 ```
 
 ---

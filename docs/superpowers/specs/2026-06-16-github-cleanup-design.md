@@ -57,8 +57,11 @@ squash-merges, which break ancestor-based detection):
 1. Head branches of merged PRs:
    `gh pr list --state merged --json headRefName,number --limit 200`
 2. Branches whose tip is contained in the default branch:
-   for each live branch, `gh api repos/$OWNER/$REPO/compare/$DEFAULT_BRANCH...<branch> --jq .status`
-   → keep when status is `identical` or `behind`.
+   for each live branch, `gh api "repos/$OWNER/$REPO/compare/$DEFAULT_BRANCH...$branch_enc" --jq .status`
+   → keep when status is `identical` or `behind`. The head ref **must** be
+   URL-encoded (`/` → `%2F`, e.g. via `urllib.parse.quote`) — the compare
+   endpoint reads `BASE...HEAD` as one path segment, so an un-encoded
+   `feat/foo` 404s / miscompares and the merged branch is silently missed.
 
 Live branch list: `gh api repos/$OWNER/$REPO/branches --paginate --jq '.[].name'`.
 
@@ -115,7 +118,7 @@ Print a single table covering branches and issues together:
 | action | target | reason | confidence |
 |--------|--------|--------|------------|
 | delete remote branch | `feat/old-x` | merged PR #210 | high |
-| delete local branch | `feat/old-x` | merged into main | high |
+| delete local branch | `feat/old-x` | merged into default branch | high |
 | close issue | #88 | resolved by #284 | high |
 | close issue (dup) | #91 → #74 | duplicate of #74 | low |
 | close issue (stale) | #45 | no activity since 2026-01-10 | low |
