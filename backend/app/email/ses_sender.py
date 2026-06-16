@@ -8,10 +8,15 @@ The caller (app.state.email_sender) is created once at startup; the
 aiobotocore session and client are created fresh per send() call to avoid
 connection-pool issues across async task contexts.
 
-IAM requirement: ses:SendEmail on the verified sender identity ARN.
+IAM requirement: ses:SendEmail (simple sends) and ses:SendRawEmail
+(attachment sends) on the verified sender identity ARN.
 """
 import logging
-from typing import Optional
+from email.message import EmailMessage
+from email.utils import make_msgid
+from typing import Optional, Sequence
+
+from app.email.sender import EmailAttachment
 
 logger = logging.getLogger(__name__)
 
@@ -39,23 +44,36 @@ class SesSender:
         html: str,
         text: str,
         reply_to: Optional[str] = None,
+        attachments: Optional[Sequence[EmailAttachment]] = None,
     ) -> None:
-        """Send via SES SendEmail API.
+        """Send via SES.
 
         Creates a fresh aiobotocore session per call. This is intentional —
         aiobotocore sessions are not concurrency-safe across async contexts
         when sharing a single client, and at the current call volume
         (transactional, low-frequency) the overhead is negligible.
 
-        When ``reply_to`` is provided it is passed as SES ReplyToAddresses so
-        the recipient's reply is directed to that address rather than the
-        verified From sender. Omitted entirely when None to leave all other
-        transactional mail unchanged.
+        With no attachments this uses the SES SendEmail API exactly as before.
+        With attachments it builds a MIME multipart message and uses
+        SendRawEmail so the files ride along inline. reply_to maps to either
+        ReplyToAddresses (SendEmail) or a Reply-To header (raw MIME).
         """
         import aiobotocore.session  # import here to keep it optional for tests
 
         session = aiobotocore.session.get_session()
         async with session.create_client("ses", region_name=self._region) as client:
+            if attachments:
+                raw = self._build_raw_message(
+                    to=to,
+                    subject=subject,
+                    html=html,
+                    text=text,
+                    reply_to=reply_to,
+                    attachments=attachments,
+                )
+                await client.send_raw_email(RawMessage={"Data": raw})
+                return
+
             kwargs: dict = {
                 "Source": self._from_address,
                 "Destination": {"ToAddresses": [to]},
@@ -70,3 +88,45 @@ class SesSender:
             if reply_to:
                 kwargs["ReplyToAddresses"] = [reply_to]
             await client.send_email(**kwargs)
+
+    def _build_raw_message(
+        self,
+        *,
+        to: str,
+        subject: str,
+        html: str,
+        text: str,
+        reply_to: Optional[str],
+        attachments: Sequence[EmailAttachment],
+    ) -> bytes:
+        """Build a MIME message with text+html body and file attachments.
+
+        Uses the stdlib EmailMessage builder, which produces a correctly
+        structured multipart/mixed -> multipart/alternative tree.
+        """
+        msg = EmailMessage()
+        msg["From"] = self._from_address
+        msg["To"] = to
+        msg["Subject"] = subject
+        if reply_to:
+            msg["Reply-To"] = reply_to
+        msg["Message-ID"] = make_msgid()
+
+        # text + html alternative body.
+        msg.set_content(text)
+        msg.add_alternative(html, subtype="html")
+
+        for att in attachments:
+            maintype, _, subtype = att.content_type.partition("/")
+            if not maintype or not subtype:
+                # Defensive: fall back to a generic binary type so a bad
+                # content_type never crashes the send.
+                maintype, subtype = "application", "octet-stream"
+            msg.add_attachment(
+                att.content,
+                maintype=maintype,
+                subtype=subtype,
+                filename=att.filename,
+            )
+
+        return msg.as_bytes()

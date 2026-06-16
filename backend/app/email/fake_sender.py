@@ -8,9 +8,12 @@ Usage in tests:
     assert fake.sent[0].to == "user@example.com"
     assert "reset" in fake.sent[0].subject.lower()
     assert fake.sent[0].reply_to == "submitter@example.com"
+    assert fake.sent[0].attachments[0].filename == "screenshot.png"
 """
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Optional, Sequence
+
+from app.email.sender import EmailAttachment
 
 
 @dataclass
@@ -20,6 +23,7 @@ class SentEmail:
     html: str
     text: str
     reply_to: Optional[str] = None
+    attachments: list[EmailAttachment] = field(default_factory=list)
 
 
 class FakeSender:
@@ -40,9 +44,17 @@ class FakeSender:
         html: str,
         text: str,
         reply_to: Optional[str] = None,
+        attachments: Optional[Sequence[EmailAttachment]] = None,
     ) -> None:
         self.sent.append(
-            SentEmail(to=to, subject=subject, html=html, text=text, reply_to=reply_to)
+            SentEmail(
+                to=to,
+                subject=subject,
+                html=html,
+                text=text,
+                reply_to=reply_to,
+                attachments=list(attachments or []),
+            )
         )
 
     def clear(self) -> None:
