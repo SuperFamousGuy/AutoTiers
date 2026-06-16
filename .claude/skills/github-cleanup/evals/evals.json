@@ -1,0 +1,29 @@
+{
+  "skill_name": "github-cleanup",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Clean up this repo's GitHub — kill the merged branches and close any issues that are already done.",
+      "expected_output": "Skill infers owner/repo, scans for merged remote branches (union of merged-PR head branches and branches contained in the default branch), excludes default/protected/open-PR branches, finds local prune candidates, detects fixed-by-merged-PR issues, prints ONE dry-run plan table with action/target/reason/confidence columns, waits for a single batch approval, then executes and prints a summary. No destructive action before approval.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "tidy up github, also look for duplicate and stale issues, stale meaning older than 60 days",
+      "expected_output": "Skill runs with --stale-days 60, includes the duplicate-by-similarity (low confidence) and stale (low confidence, pinned issues skipped) detectors alongside branch cleanup and fixed-by-PR issues, presents the combined dry-run plan, batch-approves, executes, summarizes skips.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "delete merged branches only, leave the issues alone",
+      "expected_output": "Skill runs with --skip-issues, scans and deletes only merged remote branches plus local prune candidates after the single approval, never touches issues, reports a branches-only summary.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "github-cleanup but don't actually delete anything yet, I just want to see what it would do",
+      "expected_output": "Skill performs the scan and prints the dry-run plan table, then stops at the approval gate without executing anything when the user does not approve. Confirms nothing was changed.",
+      "files": []
+    }
+  ]
+}
