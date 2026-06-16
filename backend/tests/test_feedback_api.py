@@ -24,6 +24,8 @@ async def test_anonymous_feedback_sends_to_fixed_inbox(async_client, fake_sender
     # Anonymous submission is labelled as such, and subject says "anonymous".
     assert "anonymous" in sent.subject.lower()
     assert "anonymous" in sent.text.lower()
+    # #288: no submitter address → no Reply-To header.
+    assert sent.reply_to is None
 
 
 @pytest.mark.asyncio
@@ -44,6 +46,8 @@ async def test_authenticated_feedback_attaches_user_email(async_client, fake_sen
     assert "alice@example.com" in sent.subject
     assert "alice@example.com" in sent.text
     assert "Found a bug in tiers" in sent.text
+    # #288: Reply-To is the authenticated submitter so the team can reply directly.
+    assert sent.reply_to == "alice@example.com"
 
 
 @pytest.mark.asyncio
@@ -126,3 +130,45 @@ async def test_transport_failure_returns_502(async_client, fake_sender, monkeypa
     r = await async_client.post("/api/feedback", json={"message": "will fail"})
     assert r.status_code == 502
     assert "try again" in r.json()["detail"].lower()
+
+
+# --- #285: category selector ---------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "category,label",
+    [("bug", "Bug"), ("idea", "Idea"), ("other", "Other")],
+)
+async def test_category_appears_in_subject_and_body(
+    async_client, fake_sender, category, label
+):
+    r = await async_client.post(
+        "/api/feedback", json={"message": "categorized", "category": category}
+    )
+    assert r.status_code == 202
+    sent = fake_sender.sent[0]
+    # Label in subject as a bracketed tag, and as a "Type:" line in both bodies.
+    assert f"[{label}]" in sent.subject
+    assert f"Type: {label}" in sent.text
+    assert f"<strong>Type:</strong> {label}" in sent.html
+
+
+@pytest.mark.asyncio
+async def test_category_defaults_to_idea_when_omitted(async_client, fake_sender):
+    # Backward compatibility: an old client sending no category still works and
+    # is treated as "idea".
+    r = await async_client.post("/api/feedback", json={"message": "no category field"})
+    assert r.status_code == 202
+    sent = fake_sender.sent[0]
+    assert "[Idea]" in sent.subject
+    assert "Type: Idea" in sent.text
+
+
+@pytest.mark.asyncio
+async def test_unknown_category_rejected(async_client, fake_sender):
+    r = await async_client.post(
+        "/api/feedback", json={"message": "bad", "category": "wishlist"}
+    )
+    assert r.status_code == 422
+    assert fake_sender.sent == []

@@ -11,6 +11,7 @@ connection-pool issues across async task contexts.
 IAM requirement: ses:SendEmail on the verified sender identity ARN.
 """
 import logging
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ class SesSender:
         subject: str,
         html: str,
         text: str,
+        reply_to: Optional[str] = None,
     ) -> None:
         """Send via SES SendEmail API.
 
@@ -44,19 +46,27 @@ class SesSender:
         aiobotocore sessions are not concurrency-safe across async contexts
         when sharing a single client, and at the current call volume
         (transactional, low-frequency) the overhead is negligible.
+
+        When ``reply_to`` is provided it is passed as SES ReplyToAddresses so
+        the recipient's reply is directed to that address rather than the
+        verified From sender. Omitted entirely when None to leave all other
+        transactional mail unchanged.
         """
         import aiobotocore.session  # import here to keep it optional for tests
 
         session = aiobotocore.session.get_session()
         async with session.create_client("ses", region_name=self._region) as client:
-            await client.send_email(
-                Source=self._from_address,
-                Destination={"ToAddresses": [to]},
-                Message={
+            kwargs: dict = {
+                "Source": self._from_address,
+                "Destination": {"ToAddresses": [to]},
+                "Message": {
                     "Subject": {"Data": subject, "Charset": "UTF-8"},
                     "Body": {
                         "Text": {"Data": text, "Charset": "UTF-8"},
                         "Html": {"Data": html, "Charset": "UTF-8"},
                     },
                 },
-            )
+            }
+            if reply_to:
+                kwargs["ReplyToAddresses"] = [reply_to]
+            await client.send_email(**kwargs)

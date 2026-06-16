@@ -5,11 +5,12 @@ Usage in tests:
     app.state.email_sender = fake
     # ... make HTTP calls ...
     assert len(fake.sent) == 1
-    assert fake.sent[0]["to"] == "user@example.com"
-    assert "reset" in fake.sent[0]["subject"].lower()
+    assert fake.sent[0].to == "user@example.com"
+    assert "reset" in fake.sent[0].subject.lower()
+    assert fake.sent[0].reply_to == "submitter@example.com"
 """
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
+from typing import Optional
 
 
 @dataclass
@@ -18,6 +19,7 @@ class SentEmail:
     subject: str
     html: str
     text: str
+    reply_to: Optional[str] = None
 
 
 class FakeSender:
@@ -37,8 +39,11 @@ class FakeSender:
         subject: str,
         html: str,
         text: str,
+        reply_to: Optional[str] = None,
     ) -> None:
-        self.sent.append(SentEmail(to=to, subject=subject, html=html, text=text))
+        self.sent.append(
+            SentEmail(to=to, subject=subject, html=html, text=text, reply_to=reply_to)
+        )
 
     def clear(self) -> None:
         self.sent.clear()

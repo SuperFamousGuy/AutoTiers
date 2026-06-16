@@ -7,8 +7,9 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/components/ui/toast";
-import { sendFeedback } from "@/api/feedback";
+import { sendFeedback, type FeedbackCategory } from "@/api/feedback";
 import { ApiError } from "@/api/client";
 
 interface Props {
@@ -18,9 +19,19 @@ interface Props {
   userEmail?: string | null;
 }
 
+/** Selectable feedback categories, in display order. Default is "idea". */
+const CATEGORY_OPTIONS: { value: FeedbackCategory; label: string }[] = [
+  { value: "bug", label: "Bug" },
+  { value: "idea", label: "Idea" },
+  { value: "other", label: "Other" },
+];
+
+const DEFAULT_CATEGORY: FeedbackCategory = "idea";
+
 export function FeedbackDialog({ open, onOpenChange, userEmail }: Props) {
   const { toast } = useToast();
   const [message, setMessage] = useState("");
+  const [category, setCategory] = useState<FeedbackCategory>(DEFAULT_CATEGORY);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -29,6 +40,7 @@ export function FeedbackDialog({ open, onOpenChange, userEmail }: Props) {
   useEffect(() => {
     if (open) {
       setMessage("");
+      setCategory(DEFAULT_CATEGORY);
       setError(null);
       setBusy(false);
     }
@@ -41,7 +53,7 @@ export function FeedbackDialog({ open, onOpenChange, userEmail }: Props) {
     setBusy(true);
     setError(null);
     try {
-      await sendFeedback(message.trim());
+      await sendFeedback(message.trim(), category);
       toast({ title: "Thanks for the feedback!", variant: "success" });
       onOpenChange(false);
     } catch (e) {
@@ -69,7 +81,34 @@ export function FeedbackDialog({ open, onOpenChange, userEmail }: Props) {
           Found a bug or have an idea? Tell us — it goes straight to the AutoTiers team.
         </DialogDescription>
 
-        <div className="mt-2 space-y-2">
+        <div className="mt-3 space-y-2">
+          <span id="feedback-type-label" className="text-xs font-medium text-foreground">
+            Type
+          </span>
+          <RadioGroup
+            aria-labelledby="feedback-type-label"
+            className="flex gap-4"
+            value={category}
+            onValueChange={(v) => setCategory(v as FeedbackCategory)}
+            disabled={busy}
+          >
+            {CATEGORY_OPTIONS.map((opt) => (
+              <label
+                key={opt.value}
+                htmlFor={`feedback-category-${opt.value}`}
+                className="flex items-center gap-2 text-xs text-foreground"
+              >
+                <RadioGroupItem
+                  id={`feedback-category-${opt.value}`}
+                  value={opt.value}
+                />
+                {opt.label}
+              </label>
+            ))}
+          </RadioGroup>
+        </div>
+
+        <div className="mt-3 space-y-2">
           <label htmlFor="feedback-message" className="text-xs font-medium text-foreground">
             Your feedback
           </label>
