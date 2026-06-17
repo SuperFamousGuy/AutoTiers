@@ -194,7 +194,8 @@ PLAYERS: list[dict] = [
     # QB3..QB24 - realistic 2025-era starters with a smooth, monotone decline.
     # QB is a single-format-equivalent position, so ppr == half_ppr == standard.
     # The decline is engineered so the QB12 replacement baseline (12-team league)
-    # lands ~281 ppr and QB24 ~243 ppr - a real replacement-level player rather
+    # lands ~285 ppr (Dak Prescott, ESPN) and QB24 ~243 ppr - a real
+    # replacement-level player rather
     # than the degenerate 2-QB fallback. Prereq for #310 QB VBD recalibration.
     {
         "id": "qb_daniels", "name": "Jayden Daniels", "position": "QB", "team": "WAS",
