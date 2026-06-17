@@ -12,6 +12,18 @@ if (typeof globalThis.ResizeObserver === "undefined") {
   };
 }
 
+// jsdom lacks the pointer-capture and scrollIntoView APIs that Radix Select's
+// trigger relies on to open its listbox. Without these, clicking the trigger in a
+// test throws and the options never render. Stub them so Select interactions work.
+if (!Element.prototype.hasPointerCapture) {
+  Element.prototype.hasPointerCapture = () => false;
+  Element.prototype.setPointerCapture = () => {};
+  Element.prototype.releasePointerCapture = () => {};
+}
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => {};
+}
+
 // ---------------------------------------------------------------------------
 // Defence in depth against jsdom's error-cascade hang (radix-ui/primitives#3432)
 // ---------------------------------------------------------------------------

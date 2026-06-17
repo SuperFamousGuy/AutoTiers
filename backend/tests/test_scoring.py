@@ -1,7 +1,7 @@
 import pytest
 from app.engine.scoring import (
     ScoringFormat, LeagueType, LeagueSettings, PlayerStats,
-    calculate_fantasy_points, blend_scores,
+    calculate_fantasy_points, blend_scores, _games_scale, PriorYearRamp,
 )
 
 
@@ -252,6 +252,91 @@ def test_blend_games_discount_is_monotonic_in_games():
     b6 = blend_scores(42.3, None, 287.8, s, prior_year_games=6, full_season_games=14)
     b10 = blend_scores(42.3, None, 287.8, s, prior_year_games=10, full_season_games=14)
     assert b2 > b6 > b10
+
+
+# Issue #315 — configurable games-played threshold + selectable ramp shape.
+# Mathematician sign-off: full_season_games validated to [1, 17]; STEEP = base**2
+# (convex, tighter discount than LINEAR on the open interval). Invariants below
+# map 1:1 to the sign-off's enumerated assertions.
+
+
+def test_games_scale_linear_endpoints_and_clamp():
+    """scale(0)=0, scale(F)=1, scale(>F) clamps to 1, interior is the fraction."""
+    assert _games_scale(0, 14) == 0.0
+    assert _games_scale(14, 14) == 1.0
+    assert _games_scale(17, 14) == 1.0  # 17-game season under a 14 threshold
+    assert _games_scale(7, 14) == pytest.approx(0.5)
+
+
+def test_games_scale_steep_is_convex_and_tighter_than_linear():
+    """STEEP <= LINEAR strictly on 0 < g < F, equal at the endpoints."""
+    for g in range(1, 14):
+        assert _games_scale(g, 14, PriorYearRamp.STEEP) < _games_scale(g, 14, PriorYearRamp.LINEAR)
+    assert _games_scale(0, 14, PriorYearRamp.STEEP) == 0.0
+    assert _games_scale(14, 14, PriorYearRamp.STEEP) == 1.0
+    assert _games_scale(4, 14, PriorYearRamp.STEEP) == pytest.approx((4 / 14) ** 2)
+
+
+def test_games_scale_monotonic_non_decreasing_both_shapes():
+    """More games never decreases the retained prior-year weight."""
+    for shape in (PriorYearRamp.LINEAR, PriorYearRamp.STEEP):
+        vals = [_games_scale(g, 14, shape) for g in range(0, 20)]
+        assert all(later >= earlier for earlier, later in zip(vals, vals[1:]))
+
+
+def test_games_scale_non_positive_threshold_disables_discount():
+    """F <= 0 is a degenerate threshold -> no discount, games ignored, any shape."""
+    assert _games_scale(0, 0) == 1.0
+    assert _games_scale(3, -5) == 1.0
+    assert _games_scale(3, 0, PriorYearRamp.STEEP) == 1.0
+
+
+def test_games_scale_rejects_unknown_ramp_shape():
+    """An unrecognized shape must raise, not silently fall back to linear."""
+    with pytest.raises(ValueError):
+        _games_scale(4, 14, "exponential")
+
+
+def test_blend_configurable_threshold_changes_discount():
+    """A smaller threshold treats the same games as more complete (less discount)."""
+    s = _settings(weight_prior_year=0.30, weight_espn=0.0, weight_consensus=0.70)
+    default_f = blend_scores(42.3, None, 287.8, s, prior_year_games=7, full_season_games=14)
+    small_f = blend_scores(42.3, None, 287.8, s, prior_year_games=7, full_season_games=8)
+    # Less discount keeps more of the (low) prior, pulling the blend lower.
+    assert small_f < default_f
+    assert small_f == pytest.approx(220.85, abs=0.02)  # F=8, g=7 -> scale 0.875
+    # games >= threshold => full credit => identical to the no-games baseline.
+    full = blend_scores(42.3, None, 287.8, s, prior_year_games=8, full_season_games=8)
+    assert full == blend_scores(42.3, None, 287.8, s)
+
+
+def test_blend_ramp_none_games_is_shape_invariant():
+    """prior_year_games=None => scale 1.0 regardless of ramp_shape (backward compat)."""
+    s = _settings(weight_prior_year=0.40, weight_espn=0.0, weight_consensus=0.60)
+    baseline = blend_scores(300.0, None, 340.0, s)
+    steep_none = blend_scores(300.0, None, 340.0, s, prior_year_games=None, ramp_shape=PriorYearRamp.STEEP)
+    assert steep_none == baseline
+
+
+def test_blend_mccaffrey_linear_vs_steep_pinned():
+    """Mathematician-pinned numbers for the McCaffrey case (g=4, F=14)."""
+    s = _settings(weight_prior_year=0.30, weight_espn=0.0, weight_consensus=0.70)
+    linear = blend_scores(42.3, None, 287.8, s, prior_year_games=4, full_season_games=14,
+                          ramp_shape=PriorYearRamp.LINEAR)
+    steep = blend_scores(42.3, None, 287.8, s, prior_year_games=4, full_season_games=14,
+                         ramp_shape=PriorYearRamp.STEEP)
+    assert linear == pytest.approx(261.02, abs=0.02)
+    assert steep == pytest.approx(279.50, abs=0.02)
+    # STEEP applies a lighter prior-year pull -> closer to projection-only (287.8).
+    assert linear < steep < 287.8
+
+
+def test_blend_ramp_shape_accepts_raw_string():
+    """The enum and its raw string value must produce identical results."""
+    s = _settings(weight_prior_year=0.30, weight_espn=0.0, weight_consensus=0.70)
+    enum_call = blend_scores(42.3, None, 287.8, s, prior_year_games=4, ramp_shape=PriorYearRamp.STEEP)
+    str_call = blend_scores(42.3, None, 287.8, s, prior_year_games=4, ramp_shape="steep")
+    assert enum_call == str_call
 
 
 # Step 1.1: New tests for factored helpers

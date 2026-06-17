@@ -279,3 +279,49 @@ describe("SettingsPanel — tier count control", () => {
     expect(maxTierCount).toBeGreaterThanOrEqual(maxLeagueSize);
   });
 });
+
+describe("SettingsPanel — Prior-Year Injury Discount section (#315)", () => {
+  function RampPanel({ onChangeSpy = vi.fn(), initial = baseSettings }: { onChangeSpy?: ReturnType<typeof vi.fn>; initial?: SettingsState }) {
+    const [value, setValue] = useState<SettingsState>(initial);
+    return (
+      <SettingsPanel
+        value={value}
+        onChange={(next) => {
+          setValue(next);
+          onChangeSpy(next);
+        }}
+      />
+    );
+  }
+
+  it("defaults to the 14-game threshold and linear ramp when unset", () => {
+    render(<RampPanel />);
+    expect(screen.getByLabelText("Full Season Games")).toHaveTextContent("14 games");
+    expect(screen.getByRole("radio", { name: "Linear" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Steep" })).not.toBeChecked();
+  });
+
+  it("reflects a stored steep ramp", () => {
+    render(<RampPanel initial={{ ...baseSettings, prior_year_ramp: "steep" }} />);
+    expect(screen.getByRole("radio", { name: "Steep" })).toBeChecked();
+  });
+
+  it("selecting the steep ramp propagates prior_year_ramp", async () => {
+    const spy = vi.fn();
+    render(<RampPanel onChangeSpy={spy} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("radio", { name: "Steep" }));
+    const last = spy.mock.calls[spy.mock.calls.length - 1][0] as SettingsState;
+    expect(last.prior_year_ramp).toBe("steep");
+  });
+
+  it("selecting a different full-season threshold propagates full_season_games", async () => {
+    const spy = vi.fn();
+    render(<RampPanel onChangeSpy={spy} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("combobox", { name: "Full Season Games" }));
+    await user.click(await screen.findByRole("option", { name: "16 games" }));
+    const last = spy.mock.calls[spy.mock.calls.length - 1][0] as SettingsState;
+    expect(last.full_season_games).toBe(16);
+  });
+});
