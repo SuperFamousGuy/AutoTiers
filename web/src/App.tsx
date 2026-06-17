@@ -35,6 +35,8 @@ const DEFAULT_SETTINGS: SettingsState = {
   bonus_100yd_receiving: false,
   bonus_first_downs: false,
   weights: { prior: 30, consensus: 70 },
+  full_season_games: 14,
+  prior_year_ramp: "linear",
 };
 
 export default function App() {
@@ -316,6 +318,8 @@ export default function App() {
       weight_prior_year: settings.weights.prior / 100,
       weight_espn: 0,
       weight_consensus: settings.weights.consensus / 100,
+      full_season_games: settings.full_season_games,
+      prior_year_ramp: settings.prior_year_ramp,
       draft_rounds: settings.draft_rounds,
       overall_tier_count: settings.tier_count ?? settings.league_size,
       rules: positionRules,

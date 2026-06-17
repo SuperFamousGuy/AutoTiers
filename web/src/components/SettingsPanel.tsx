@@ -24,6 +24,11 @@ export interface SettingsState {
   weights: Weights;
   tier_labels?: Partial<Record<number, string>>;
   tier_count?: number;
+  // Prior-year injury discount (#315). full_season_games is the games threshold
+  // below which last season's total is treated as injury-shortened; prior_year_ramp
+  // picks the discount curve. Optional — omitted profiles use the backend defaults.
+  full_season_games?: number;
+  prior_year_ramp?: "linear" | "steep";
 }
 
 interface SettingsPanelProps {
@@ -39,6 +44,11 @@ export const DRAFT_ROUNDS_OPTIONS = [10, 12, 14, 15, 16, 18, 20, 25] as const;
 // Must cover every value reachable via the league_size fallback (effectiveTierCount = tier_count ?? league_size).
 // LEAGUE_SIZES is [8, 10, 12, 14, 16] — all within this range — enforced by the guard test in SettingsPanel.test.tsx.
 export const TIER_COUNT_OPTIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25] as const;
+// Games-played threshold for the prior-year injury discount (#315). Backend
+// validates [1, 17]; we offer the realistic full-season range. Default 14.
+export const FULL_SEASON_GAMES_OPTIONS = [10, 11, 12, 13, 14, 15, 16, 17] as const;
+export const DEFAULT_FULL_SEASON_GAMES = 14;
+export const DEFAULT_PRIOR_YEAR_RAMP = "linear" as const;
 
 export function SettingsPanel({ value, onChange, linkedLeague, profileId, onRefreshLink }: SettingsPanelProps) {
   const set = <K extends keyof SettingsState>(key: K, v: SettingsState[K]) =>
@@ -184,6 +194,50 @@ export function SettingsPanel({ value, onChange, linkedLeague, profileId, onRefr
             disabled
             aria-disabled="true"
           />
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div className="space-y-0.5">
+          <Label>Prior-Year Injury Discount</Label>
+          <p className="text-xs text-muted-foreground">
+            Down-weights last season for players who missed games. Tune the
+            full-season threshold and how aggressively short seasons are discounted.
+          </p>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="full-season-games-select">Full Season Games</Label>
+          <Select
+            value={String(value.full_season_games ?? DEFAULT_FULL_SEASON_GAMES)}
+            onValueChange={(v) => set("full_season_games", Number(v))}
+          >
+            <SelectTrigger id="full-season-games-select" aria-label="Full Season Games">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {FULL_SEASON_GAMES_OPTIONS.map((n) => (
+                <SelectItem key={n} value={String(n)}>{n} games</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Discount Ramp</Label>
+          <RadioGroup
+            value={value.prior_year_ramp ?? DEFAULT_PRIOR_YEAR_RAMP}
+            onValueChange={(v) => set("prior_year_ramp", v as "linear" | "steep")}
+            className="flex gap-4"
+          >
+            {([
+              ["linear", "Linear"],
+              ["steep", "Steep"],
+            ] as const).map(([val, label]) => (
+              <div key={val} className="flex items-center gap-2">
+                <RadioGroupItem value={val} id={`ramp-${val}`} />
+                <Label htmlFor={`ramp-${val}`} className="cursor-pointer">{label}</Label>
+              </div>
+            ))}
+          </RadioGroup>
         </div>
       </div>
 

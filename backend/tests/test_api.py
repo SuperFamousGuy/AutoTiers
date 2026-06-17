@@ -503,6 +503,45 @@ async def test_generate_validates_prior_year_games_knobs(async_client):
     assert resp.status_code == 200
 
 
+async def test_generate_prior_year_knobs_change_blended_score(async_client, test_db):
+    """#315: full_season_games and prior_year_ramp must actually reach blend_scores.
+
+    This is the wiring test — deleting the two kwargs from the generate call site
+    must make it FAIL (the three requests would otherwise all return the default
+    blend). Seeds an injury-shortened RB (4 games) whose high consensus projection
+    dwarfs the low prior actual, so the discount has a visible effect.
+    """
+    rb = Player(id="test-injured-knob", name="Test Injured Knob",
+                position="RB", team="SF", age=26, years_exp=4)
+    test_db.add(rb)
+    # PPR prior actual ~83 pts over only 4 games (rec 40 + rush 25 + 3 TDs * 6).
+    test_db.add(PlayerStat(
+        player_id=rb.id, season=2025,
+        rush_att=50, receptions=20, rec_yards=200.0, rec_tds=1,
+        rush_yards=250.0, rush_tds=2, pass_att=0, pass_yards=0.0,
+        pass_tds=0, interceptions=0, targets=28, games_played=4,
+    ))
+    test_db.add(Projection(player_id=rb.id, source="fantasypros",
+                           scoring_format="ppr", projected_points=280.0, last_updated=date.today()))
+    await test_db.commit()
+
+    async def _raw_score(**overrides) -> float:
+        resp = await async_client.post("/api/generate", json={**_GENERATE_BODY, **overrides})
+        assert resp.status_code == 200
+        p = next(p for p in resp.json()["players"] if p["player_id"] == rb.id)
+        return p["projected_score_raw"]
+
+    default_linear = await _raw_score()                                   # F=14, linear
+    steep = await _raw_score(prior_year_ramp="steep")                     # F=14, steep
+    threshold_met = await _raw_score(full_season_games=4)                 # 4 games == full season -> no discount
+
+    # No discount keeps the full (low) prior -> lowest blend. Linear discounts it,
+    # steep discounts it harder -> each step moves toward projection-only (280).
+    assert threshold_met < default_linear < steep < 280.0
+    # Sanity-pin the steep value against the Mathematician's curve.
+    assert steep == pytest.approx(273.3, abs=0.5)
+
+
 @pytest.mark.asyncio
 async def test_over_the_hill_position_aware_thresholds(async_client, test_db):
     """is_over_the_hill should be position-aware: 28 for RB, 31 for WR, 31 for TE, 36 for QB, 40 for K."""

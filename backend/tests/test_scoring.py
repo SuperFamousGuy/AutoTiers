@@ -304,6 +304,7 @@ def test_blend_configurable_threshold_changes_discount():
     small_f = blend_scores(42.3, None, 287.8, s, prior_year_games=7, full_season_games=8)
     # Less discount keeps more of the (low) prior, pulling the blend lower.
     assert small_f < default_f
+    assert small_f == pytest.approx(220.85, abs=0.02)  # F=8, g=7 -> scale 0.875
     # games >= threshold => full credit => identical to the no-games baseline.
     full = blend_scores(42.3, None, 287.8, s, prior_year_games=8, full_season_games=8)
     assert full == blend_scores(42.3, None, 287.8, s)

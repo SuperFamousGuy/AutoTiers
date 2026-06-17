@@ -59,9 +59,13 @@ def _games_scale(
     if full_season_games <= 0:
         return 1.0
     base = min(1.0, max(0.0, games / full_season_games))
+    if shape == PriorYearRamp.LINEAR:
+        return base
     if shape == PriorYearRamp.STEEP:
         return base * base
-    return base
+    # Defensive: a newly-added enum member must opt into a curve explicitly
+    # rather than silently inheriting linear behaviour.
+    raise ValueError(f"Unhandled ramp shape: {shape!r}")
 
 
 @dataclass
