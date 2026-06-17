@@ -43,6 +43,9 @@ export interface GenerateRequest {
   scoring_format: ScoringFormat;
   league_type: LeagueType;
   league_size: LeagueSize;
+  // Number of QB slots the league starts per team: 1 = standard, 2 = superflex/2-QB.
+  // Backend-only for now (no UI control yet); deepens the QB VBD replacement baseline.
+  qb_starters?: 1 | 2;
   qb_td_points: QbTdPoints;
   bonus_100yd_rushing: boolean;
   bonus_100yd_receiving: boolean;

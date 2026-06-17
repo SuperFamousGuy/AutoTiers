@@ -1,5 +1,13 @@
 import pytest
-from app.engine.tiers import TieredPlayer, assign_tiers, _quantile_breaks, _compute_overall_breaks
+from app.engine.tiers import (
+    TieredPlayer,
+    assign_tiers,
+    _quantile_breaks,
+    _compute_overall_breaks,
+    _qb_replacement_multiplier,
+    _QB_SUPERFLEX_MULTIPLIER,
+    _REPLACEMENT_MULTIPLIERS,
+)
 
 
 def _player(pid: str, position: str, score: float, **kwargs) -> TieredPlayer:
@@ -140,6 +148,79 @@ def test_vbd_subtracts_position_replacement():
     assert qb8.vbd_score == 0.0
     assert qb9.vbd_score == -10.0
     assert qb1.position_replacement == 330.0
+
+
+def test_qb_replacement_scales_with_qb_starters():
+    """QB replacement rank deepens for superflex / 2-QB leagues (#319).
+
+    start-1 (standard) anchors at the position's base QB multiplier; superflex
+    (qb_starters=2) anchors at the deeper ``_QB_SUPERFLEX_MULTIPLIER``, while
+    start-1 stays exactly where it was. Expected replacement scores are derived
+    from those constants so the test keeps validating the *scaling* behaviour
+    regardless of how either QB multiplier is calibrated.
+    """
+    LEAGUE, TOP, STEP = 12, 400.0, 10.0
+    pool = [_player(f"qb_{i}", "QB", TOP - i * STEP) for i in range(24)]
+
+    def expected_replacement(mult: float) -> float:
+        # Mirrors _compute_vbd: replacement rank = round(league_size * mult).
+        idx = max(1, round(LEAGUE * mult)) - 1
+        return round(TOP - idx * STEP, 2)
+
+    start1_repl = expected_replacement(_REPLACEMENT_MULTIPLIERS["QB"])
+    superflex_repl = expected_replacement(_QB_SUPERFLEX_MULTIPLIER)
+
+    # Standard start-1 (default) — anchors at the base QB multiplier.
+    standard = assign_tiers([_player(p.player_id, "QB", p.adjusted_score) for p in pool], league_size=LEAGUE)
+    s_qb1 = next(p for p in standard if p.player_id == "qb_0")
+    assert s_qb1.position_replacement == start1_repl
+    assert s_qb1.vbd_score == round(TOP - start1_repl, 2)
+
+    # Explicit qb_starters=1 must match the default exactly.
+    start1 = assign_tiers(
+        [_player(p.player_id, "QB", p.adjusted_score) for p in pool],
+        league_size=LEAGUE,
+        qb_starters=1,
+    )
+    e_qb1 = next(p for p in start1 if p.player_id == "qb_0")
+    assert e_qb1.position_replacement == s_qb1.position_replacement
+    assert e_qb1.vbd_score == s_qb1.vbd_score
+
+    # Superflex start-2 — replacement moves to the deeper anchor, VBD rises.
+    superflex = assign_tiers(
+        [_player(p.player_id, "QB", p.adjusted_score) for p in pool],
+        league_size=LEAGUE,
+        qb_starters=2,
+    )
+    sf_qb1 = next(p for p in superflex if p.player_id == "qb_0")
+    assert sf_qb1.position_replacement == superflex_repl
+    assert sf_qb1.vbd_score == round(TOP - superflex_repl, 2)
+    # Superflex deepens the baseline → strictly higher VBD than start-1.
+    assert sf_qb1.vbd_score > s_qb1.vbd_score
+
+
+def test_qb_starters_only_affects_qb_replacement():
+    """qb_starters must not change the replacement level of non-QB positions."""
+    def pool():
+        players = [_player(f"qb_{i}", "QB", 400.0 - i * 10) for i in range(24)]
+        players += [_player(f"rb_{i}", "RB", 300.0 - i * 5) for i in range(40)]
+        return players
+
+    standard = {p.player_id: p for p in assign_tiers(pool(), league_size=12, qb_starters=1)}
+    superflex = {p.player_id: p for p in assign_tiers(pool(), league_size=12, qb_starters=2)}
+
+    # RB replacement (rank 30 = round(12 * 2.5)) is identical across formats.
+    assert standard["rb_0"].position_replacement == superflex["rb_0"].position_replacement
+    # QB replacement changed.
+    assert standard["qb_0"].position_replacement != superflex["qb_0"].position_replacement
+
+
+def test_qb_replacement_multiplier_helper():
+    """start-1 reads the base QB multiplier; start-2+ uses the superflex anchor."""
+    assert _qb_replacement_multiplier(1) == _REPLACEMENT_MULTIPLIERS["QB"]
+    assert _qb_replacement_multiplier(2) == _QB_SUPERFLEX_MULTIPLIER
+    # Defensive: any deeper start count still resolves to the superflex anchor.
+    assert _qb_replacement_multiplier(3) == _QB_SUPERFLEX_MULTIPLIER
 
 
 def test_vbd_ranking_top_rb_beats_top_qb():
