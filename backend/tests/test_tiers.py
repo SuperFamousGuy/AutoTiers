@@ -555,6 +555,22 @@ def _seed_tiered_players():
     return out
 
 
+def _recalibration_fixture():
+    """Controlled board for the QB-recalibration ordering gate.
+
+    Builds from the dev seed but DROPS the generated RB/WR depth players
+    (``*_depth_*``), leaving the 24-QB ladder and the hand-tuned elite skill
+    players. The QB8 replacement baseline (rank-8 = 308) is what this test
+    pins, so the QB pool must stay intact; the RB/WR depth is irrelevant to the
+    recalibration and actively harmful here. Issue #318 expanded that depth,
+    which correctly interleaves realistic skill players between the elite WR and
+    the deflated QBs — true on the live board, but it would mask this gate.
+    Decoupling keeps the exact top-3 assertion meaningful regardless of how deep
+    the dev seed's RB/WR pools grow.
+    """
+    return [p for p in _seed_tiered_players() if "_depth_" not in p.player_id]
+
+
 def test_seed_has_24_qbs_for_real_replacement_baseline():
     """Guard the Phase-1 fixture: the recalibration test is only meaningful if the
     seed carries a full QB pool. Fewer than 24 QBs degenerates the QB8 baseline."""
@@ -573,8 +589,12 @@ def test_310_qb_recalibration_locks_overall_ordering():
     Asserts the EXACT top-3 ids (not a bound): under the old mult=1.0 the order
     was Lamar, Allen, Chase — so this assertion is false unless the recalibration
     is in effect. Sincerity gate per bug-class #7.
+
+    Uses ``_recalibration_fixture`` (seed minus RB/WR depth) so the gate stays
+    pinned to the QB8 baseline and is unaffected by the dev seed's realistic
+    skill-position depth (#318).
     """
-    ranked = assign_tiers(_seed_tiered_players(), league_size=12, tiebreak_adp_attr="adp_ppr")
+    ranked = assign_tiers(_recalibration_fixture(), league_size=12, tiebreak_adp_attr="adp_ppr")
     by_rank = {p.overall_rank: p for p in ranked}
 
     # Exact top-3 ordering after the fix.

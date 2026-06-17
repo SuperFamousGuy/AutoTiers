@@ -23,7 +23,12 @@ from app.models.adp import ADPData
 # Each entry: id, name, position, team, age, years_exp, prior-year stats,
 # projections per format, and ADP per format. Values are reasonable order-of-
 # magnitude estimates for dev testing — not real projections.
-PLAYERS: list[dict] = [
+#
+# The hand-tuned elite players below carry rich (xfp-relevant) stats. The RB/WR
+# pools are then padded out to realistic depth (~32 each) by _build_depth() so
+# their VBD replacement baselines (RB30/WR30 at mult 2.5 in a 12-team league)
+# land on real mid-pack players instead of the degenerate worst-of-4 fallback.
+_ELITE: list[dict] = [
     # ---------- WR ----------
     {
         "id": "wr_chase",
@@ -374,6 +379,169 @@ PLAYERS: list[dict] = [
         "adp": {"ppr": 162.0, "half_ppr": 162.0, "standard": 160.0, "dynasty": 200.0},
     },
 ]
+
+
+# ---------------------------------------------------------------------------
+# Depth pools
+#
+# Real player names in approximate redraft order, used to pad the RB/WR pools
+# out to realistic depth below the hand-tuned elite above. Each (name, team)
+# gets a synthetic but smoothly-declining projection curve so the sorted pool
+# is strictly monotone with no cliffs in the mid-pack — exactly the region the
+# VBD replacement baseline (RB30/WR30) reads from.
+# ---------------------------------------------------------------------------
+_WR_DEPTH: list[tuple[str, str]] = [
+    ("Amon-Ra St. Brown", "DET"), ("A.J. Brown", "PHI"), ("Puka Nacua", "LAR"),
+    ("Malik Nabers", "NYG"), ("Brian Thomas Jr.", "JAX"), ("Nico Collins", "HOU"),
+    ("Drake London", "ATL"), ("Garrett Wilson", "NYJ"), ("Davante Adams", "LV"),
+    ("Marvin Harrison Jr.", "ARI"), ("DK Metcalf", "SEA"), ("Mike Evans", "TB"),
+    ("DeVonta Smith", "PHI"), ("Terry McLaurin", "WAS"), ("Jaylen Waddle", "MIA"),
+    ("Chris Olave", "NO"), ("DJ Moore", "CHI"), ("Tee Higgins", "CIN"),
+    ("Zay Flowers", "BAL"), ("George Pickens", "DAL"), ("Cooper Kupp", "SEA"),
+    ("Calvin Ridley", "TEN"), ("Jaxon Smith-Njigba", "SEA"), ("Jordan Addison", "MIN"),
+    ("Rashee Rice", "KC"), ("Keon Coleman", "BUF"), ("Jameson Williams", "DET"),
+    ("Rome Odunze", "CHI"), ("Jerry Jeudy", "CLE"), ("Christian Kirk", "HOU"),
+    ("Courtland Sutton", "DEN"), ("Stefon Diggs", "NE"),
+]
+
+_RB_DEPTH: list[tuple[str, str]] = [
+    ("Jahmyr Gibbs", "DET"), ("Jonathan Taylor", "IND"), ("De'Von Achane", "MIA"),
+    ("Ashton Jeanty", "LV"), ("Josh Jacobs", "GB"), ("Kyren Williams", "LAR"),
+    ("Breece Hall", "NYJ"), ("Chase Brown", "CIN"), ("Kenneth Walker III", "SEA"),
+    ("James Cook", "BUF"), ("Alvin Kamara", "NO"), ("Joe Mixon", "HOU"),
+    ("Bucky Irving", "TB"), ("Chuba Hubbard", "CAR"), ("David Montgomery", "DET"),
+    ("Aaron Jones", "MIN"), ("James Conner", "ARI"), ("D'Andre Swift", "CHI"),
+    ("Tony Pollard", "TEN"), ("Rhamondre Stevenson", "NE"), ("Najee Harris", "LAC"),
+    ("Isiah Pacheco", "KC"), ("Brian Robinson Jr.", "WAS"), ("Travis Etienne", "JAX"),
+    ("Rachaad White", "TB"), ("Zamir White", "LV"), ("Tyjae Spears", "TEN"),
+    ("Jaylen Warren", "PIT"), ("Jordan Mason", "MIN"), ("Tyrone Tracy Jr.", "NYG"),
+    ("Javonte Williams", "DAL"), ("J.K. Dobbins", "DEN"),
+]
+
+# Per-position settings for the synthetic depth curve. `top`/`floor` bracket the
+# PPR projection range the depth tier spans; it starts just below the lowest
+# elite PPR projection so the combined sorted pool stays monotone. `curve` > 1
+# makes the decline mildly convex (more separation up top, compression at the
+# back) the way a real positional value curve behaves. `half`/`std` are the
+# format multipliers applied to the PPR value (RBs lose less without PPR).
+_DEPTH_CURVES = {
+    "WR": {"top": 240.0, "floor": 120.0, "curve": 1.25, "half": 0.82, "std": 0.64},
+    "RB": {"top": 240.0, "floor": 95.0, "curve": 1.3, "half": 0.93, "std": 0.87},
+}
+
+# FantasyPros source runs slightly above ESPN, mirroring the elite entries.
+_FP_FACTOR = 1.02
+
+
+def _decline(top: float, floor: float, n: int, rank: int, curve: float) -> float:
+    """Monotone-decreasing value for 0-indexed `rank` in a pool of `n`.
+
+    Interpolates from `top` (rank 0) down to `floor` (rank n-1) along a convex
+    curve. Strictly decreasing in `rank` for curve > 0, so the resulting pool
+    has no ties or upward steps.
+    """
+    if n <= 1:
+        return top
+    t = rank / (n - 1)
+    return round(floor + (top - floor) * ((1.0 - t) ** curve), 1)
+
+
+def _depth_projections(position: str, ppr: float) -> dict:
+    """Build the per-format projection block for a depth player from its PPR value."""
+    c = _DEPTH_CURVES[position]
+    half = round(ppr * c["half"], 1)
+    std = round(ppr * c["std"], 1)
+    return {
+        "ppr": (ppr, round(ppr * _FP_FACTOR, 1)),
+        "half_ppr": (half, round(half * _FP_FACTOR, 1)),
+        "standard": (std, round(std * _FP_FACTOR, 1)),
+    }
+
+
+def _depth_stats(position: str, ppr: float, season: int) -> dict:
+    """Reasonable, non-degenerate prior-year stats derived from the PPR projection.
+
+    Scales with the projection so deeper players don't all share identical
+    volume (which would flatten the xfp-style rules in the dev container).
+    """
+    if position == "WR":
+        receptions = round(ppr * 0.33)
+        targets = round(receptions / 0.65)
+        rec_tds = max(1, round(ppr * 0.022))
+        return {
+            "season": season,
+            "targets": targets, "receptions": receptions,
+            "rec_yards": round(receptions * 13), "rec_tds": rec_tds,
+            "games_played": 17, "snap_pct": round(min(0.9, 0.55 + ppr / 800), 2),
+            "target_share": round(min(0.30, 0.10 + ppr / 1500), 2),
+            "actual_tds": rec_tds, "expected_tds": rec_tds,
+            "red_zone_looks": rec_tds * 3,
+        }
+    # RB
+    rush_att = round(ppr * 0.8)
+    rush_tds = max(1, round(ppr * 0.03))
+    targets = round(ppr * 0.18)
+    receptions = round(targets * 0.78)
+    rec_tds = max(0, round(ppr * 0.005))
+    return {
+        "season": season,
+        "rush_att": rush_att, "rush_yards": round(rush_att * 4.3), "rush_tds": rush_tds,
+        "targets": targets, "receptions": receptions, "rec_yards": round(receptions * 8),
+        "rec_tds": rec_tds,
+        "games_played": 17, "snap_pct": round(min(0.8, 0.40 + ppr / 700), 2),
+        "carry_share": round(min(0.70, 0.30 + ppr / 600), 2),
+        "actual_tds": rush_tds + rec_tds, "expected_tds": rush_tds + rec_tds,
+        "red_zone_looks": (rush_tds + rec_tds) * 3,
+    }
+
+
+def _build_depth(season: int = 2025) -> list[dict]:
+    """Expand the RB/WR pools to realistic depth with a smooth, monotone curve."""
+    out: list[dict] = []
+    for position, roster in (("WR", _WR_DEPTH), ("RB", _RB_DEPTH)):
+        c = _DEPTH_CURVES[position]
+        # Fail-fast invariant: the depth curve must start strictly below the
+        # weakest elite PPR projection. The elite tier is hand-tuned and the
+        # depth `top` is a constant, so if someone lowers an elite projection (or
+        # raises the curve) the combined elite+depth board silently goes
+        # non-monotone — a generated depth player would outrank a real elite.
+        # Guard it here so the seed blows up at build time instead.
+        min_elite_ppr = min(
+            p["projections"]["ppr"][0] for p in _ELITE if p["position"] == position
+        )
+        if c["top"] >= min_elite_ppr:
+            raise ValueError(
+                f"{position} depth top {c['top']} must stay below the weakest "
+                f"elite PPR projection {min_elite_ppr} to keep the combined "
+                "board monotone"
+            )
+        n = len(roster)
+        for rank, (name, team) in enumerate(roster):
+            ppr = _decline(c["top"], c["floor"], n, rank, c["curve"])
+            # Overall draft slot for this depth player: elite occupy the very top,
+            # so depth ADP starts in the late 2nd round and fans out from there.
+            adp = round(20.0 + rank * 5.0, 1)
+            age = 23 + (rank % 8)
+            out.append({
+                "id": f"{position.lower()}_depth_{rank + 5:02d}",
+                "name": name,
+                "position": position,
+                "team": team,
+                "age": age,
+                "years_exp": max(1, age - 22),
+                "stats": _depth_stats(position, ppr, season),
+                "projections": _depth_projections(position, ppr),
+                "adp": {
+                    "ppr": adp, "half_ppr": adp,
+                    "standard": round(adp * 1.05, 1),
+                    "dynasty": round(adp * 1.1, 1),
+                },
+            })
+    return out
+
+
+# Final seed roster: hand-tuned elite + generated depth.
+PLAYERS: list[dict] = _ELITE + _build_depth()
 
 
 def _stat_kwargs(s: dict) -> dict:
