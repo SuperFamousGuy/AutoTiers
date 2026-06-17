@@ -197,6 +197,63 @@ def test_blend_all_missing_returns_zero():
     assert result == 0.0
 
 
+# Issue #309 — prior-year weight conditioned on games played for injury-shortened seasons.
+
+
+def test_blend_games_played_none_is_no_op():
+    """Default (prior_year_games=None) must reproduce the pre-#309 behaviour exactly."""
+    s = _settings(weight_prior_year=0.40, weight_espn=0.0, weight_consensus=0.60)
+    without_games = blend_scores(300.0, None, 340.0, s)
+    with_none = blend_scores(300.0, None, 340.0, s, prior_year_games=None)
+    assert with_none == without_games
+
+
+def test_blend_full_season_unaffected():
+    """A healthy full-season prior (>= full_season_games) is NOT discounted."""
+    s = _settings(weight_prior_year=0.40, weight_espn=0.0, weight_consensus=0.60)
+    baseline = blend_scores(300.0, None, 340.0, s)
+    full = blend_scores(300.0, None, 340.0, s, prior_year_games=17)
+    assert full == baseline
+
+
+def test_blend_injury_shortened_lifts_toward_projection():
+    """A low-games prior is down-weighted, pulling the blend toward consensus."""
+    s = _settings(weight_prior_year=0.30, weight_espn=0.0, weight_consensus=0.70)
+    # McCaffrey scenario from issue #309: prior 42.3 over ~4 games, consensus 287.8.
+    dragged = blend_scores(42.3, None, 287.8, s, prior_year_games=None)
+    discounted = blend_scores(42.3, None, 287.8, s, prior_year_games=4, full_season_games=14)
+    assert dragged == 214.15  # locks the pre-fix drag
+    # Discount must lift the blend strictly toward projection-only (287.8)...
+    assert dragged < discounted < 287.8
+    # ...and land within ~1 tier (~30 pts here) of projection-only.
+    assert (287.8 - discounted) < 35.0
+
+
+def test_blend_zero_games_drops_prior_entirely():
+    """Zero games => prior weight scaled to 0 => blend equals projection-only."""
+    s = _settings(weight_prior_year=0.30, weight_espn=0.0, weight_consensus=0.70)
+    result = blend_scores(42.3, None, 287.8, s, prior_year_games=0, full_season_games=14)
+    assert result == 287.8
+
+
+def test_blend_rookie_zero_prior_year_unaffected_by_games():
+    """Rookie (prior_year_actual=None) is unaffected regardless of games value."""
+    s = _settings(weight_prior_year=0.30, weight_espn=0.0, weight_consensus=0.70)
+    baseline = blend_scores(None, None, 200.0, s)
+    rookie = blend_scores(None, None, 200.0, s, prior_year_games=0, full_season_games=14)
+    assert rookie == baseline == 200.0
+
+
+def test_blend_games_discount_is_monotonic_in_games():
+    """More games played => prior carries more weight => blend closer to prior."""
+    s = _settings(weight_prior_year=0.30, weight_espn=0.0, weight_consensus=0.70)
+    # prior (42.3) is far below consensus (287.8); more games => lower blend.
+    b2 = blend_scores(42.3, None, 287.8, s, prior_year_games=2, full_season_games=14)
+    b6 = blend_scores(42.3, None, 287.8, s, prior_year_games=6, full_season_games=14)
+    b10 = blend_scores(42.3, None, 287.8, s, prior_year_games=10, full_season_games=14)
+    assert b2 > b6 > b10
+
+
 # Step 1.1: New tests for factored helpers
 
 

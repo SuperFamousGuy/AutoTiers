@@ -310,6 +310,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
             espn_projection=None,
             consensus_projection=avg_proj,
             settings=settings,
+            prior_year_games=(stat.games_played if stat is not None else None),
         )
 
         projection_unavailable = avg_proj is None
