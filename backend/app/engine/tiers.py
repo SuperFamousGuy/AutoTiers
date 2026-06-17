@@ -20,7 +20,12 @@ _JENKS_TIER_THRESHOLD = 11
 # position is the replacement-level player whose adjusted_score is subtracted
 # off when computing VBD.
 _REPLACEMENT_MULTIPLIERS = {
-    "QB": 1.0,
+    # QB recalibrated 1.0 -> 0.67 (replacement QB12 -> QB8) for #310. A 12-team
+    # league starts 1 QB; the start-1 replacement baseline is the last reliably
+    # startable QB (~QB8), not QB12. At 1.0, elite QBs' VBD was inflated enough
+    # to crowd premium overall tiers ahead of elite WR/RB. Mathematician sign-off
+    # 2026-06-17 (data-backed sweep: target band QB6-QB9, mult 0.5-0.75).
+    "QB": 0.67,
     "RB": 2.5,
     "WR": 2.5,
     "TE": 1.25,
