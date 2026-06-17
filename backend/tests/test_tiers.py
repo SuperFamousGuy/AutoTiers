@@ -151,41 +151,48 @@ def test_vbd_subtracts_position_replacement():
 def test_qb_replacement_scales_with_qb_starters():
     """QB replacement rank deepens for superflex / 2-QB leagues (#319).
 
-    Standard start-1 anchors at the position's base QB multiplier (QB12 in a
-    12-team league here); superflex (qb_starters=2) deepens to QB18 (mult 1.5),
-    while standard start-1 stays exactly where it was.
-
-    24 QBs, adjusted_score 400, 390, ... 170:
-      - start-1: replacement = QB12 (index 11) = 290 → top QB VBD = 110.
-      - start-2: replacement = QB18 (index 17) = 230 → top QB VBD = 170.
+    start-1 (standard) anchors at the position's base QB multiplier; superflex
+    (qb_starters=2) anchors at the deeper ``_QB_SUPERFLEX_MULTIPLIER``, while
+    start-1 stays exactly where it was. Expected replacement scores are derived
+    from those constants so the test keeps validating the *scaling* behaviour
+    regardless of how either QB multiplier is calibrated.
     """
-    pool = [_player(f"qb_{i}", "QB", 400.0 - i * 10) for i in range(24)]
+    LEAGUE, TOP, STEP = 12, 400.0, 10.0
+    pool = [_player(f"qb_{i}", "QB", TOP - i * STEP) for i in range(24)]
 
-    # Standard start-1 (default) — unchanged behaviour.
-    standard = assign_tiers([_player(p.player_id, "QB", p.adjusted_score) for p in pool], league_size=12)
+    def expected_replacement(mult: float) -> float:
+        # Mirrors _compute_vbd: replacement rank = round(league_size * mult).
+        idx = max(1, round(LEAGUE * mult)) - 1
+        return round(TOP - idx * STEP, 2)
+
+    start1_repl = expected_replacement(_REPLACEMENT_MULTIPLIERS["QB"])
+    superflex_repl = expected_replacement(_QB_SUPERFLEX_MULTIPLIER)
+
+    # Standard start-1 (default) — anchors at the base QB multiplier.
+    standard = assign_tiers([_player(p.player_id, "QB", p.adjusted_score) for p in pool], league_size=LEAGUE)
     s_qb1 = next(p for p in standard if p.player_id == "qb_0")
-    assert s_qb1.position_replacement == 290.0  # QB12
-    assert s_qb1.vbd_score == 110.0
+    assert s_qb1.position_replacement == start1_repl
+    assert s_qb1.vbd_score == round(TOP - start1_repl, 2)
 
     # Explicit qb_starters=1 must match the default exactly.
     start1 = assign_tiers(
         [_player(p.player_id, "QB", p.adjusted_score) for p in pool],
-        league_size=12,
+        league_size=LEAGUE,
         qb_starters=1,
     )
     e_qb1 = next(p for p in start1 if p.player_id == "qb_0")
     assert e_qb1.position_replacement == s_qb1.position_replacement
     assert e_qb1.vbd_score == s_qb1.vbd_score
 
-    # Superflex start-2 — replacement moves to QB18, VBD scores rise accordingly.
+    # Superflex start-2 — replacement moves to the deeper anchor, VBD rises.
     superflex = assign_tiers(
         [_player(p.player_id, "QB", p.adjusted_score) for p in pool],
-        league_size=12,
+        league_size=LEAGUE,
         qb_starters=2,
     )
     sf_qb1 = next(p for p in superflex if p.player_id == "qb_0")
-    assert sf_qb1.position_replacement == 230.0  # QB18
-    assert sf_qb1.vbd_score == 170.0
+    assert sf_qb1.position_replacement == superflex_repl
+    assert sf_qb1.vbd_score == round(TOP - superflex_repl, 2)
     # Superflex deepens the baseline → strictly higher VBD than start-1.
     assert sf_qb1.vbd_score > s_qb1.vbd_score
 

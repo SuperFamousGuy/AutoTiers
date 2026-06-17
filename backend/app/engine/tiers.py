@@ -35,13 +35,10 @@ _REPLACEMENT_MULTIPLIERS = {
 # discount reflects waiver availability. Mathematician sign-off (#319).
 #
 # Invariant: the start-2 replacement rank should sit roughly one full league
-# above the start-1 rank — i.e. close to
+# deeper than the start-1 rank — i.e. close to
 #   round(league_size * _REPLACEMENT_MULTIPLIERS["QB"]) + league_size
-# minus a couple of ranks for the waiver discount. With the start-1 multiplier
-# at 0.67 (QB8 in a 12-team league, per PR #317) this holds tightly: QB18 ~=
-# QB8 + 12 - 2. While start-1 is still 1.0 (QB12) on main the gap is wider
-# (QB18 vs QB24); the superflex value of 1.5 is the target either way. If either
-# multiplier changes, revisit the other so the gap stays sane.
+# minus a couple of ranks for the waiver discount. If the base QB multiplier
+# is recalibrated, revisit this constant so that gap stays sane.
 _QB_SUPERFLEX_MULTIPLIER = 1.5
 
 
