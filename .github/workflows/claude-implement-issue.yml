@@ -68,9 +68,15 @@ jobs:
             Process — follow the repo's own lifecycle:
             1. Invoke the `autotiers-sdlc` skill and follow it for this change.
             2. Implement the change. Write tests alongside it.
-            3. Run the relevant suites using the `autotiers-test-running` skill
-               (pytest for backend, vitest + tsc for web). Deps are already
-               installed.
+            3. Run the relevant suites. The `autotiers-test-running` skill explains
+               WHICH tests matter and the gotchas (OOM on `tests/test_sources`,
+               warnings to ignore, the 80% diff-coverage gate), but its commands
+               are written for a local checkout. THIS IS CI: ignore its
+               `/Users/...` paths and `venv/bin/` prefix — dependencies are already
+               installed on the runner. Run instead:
+                 - backend:  `cd backend && pytest -q --ignore=tests/test_sources`
+                 - web tests: `cd web && npx vitest run`
+                 - web types: `cd web && npx tsc --noEmit`
             4. If tests do not pass, do NOT open a PR. Instead post a comment on
                issue #${{ github.event.issue.number }} explaining the blocker, and
                stop.
