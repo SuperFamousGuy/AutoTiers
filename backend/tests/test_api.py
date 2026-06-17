@@ -476,6 +476,28 @@ async def test_generate_validates_draft_rounds_range(async_client):
 
 
 @pytest.mark.asyncio
+async def test_generate_validates_qb_starters(async_client):
+    """qb_starters must be 1 (standard) or 2 (superflex/2-QB); else 422 (#319)."""
+    base_payload = {
+        "scoring_format": "ppr", "league_type": "standard", "league_size": 12,
+        "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
+        "bonus_first_downs": False, "weight_prior_year": 0.40, "weight_espn": 0.30,
+        "weight_consensus": 0.30, "rules": {},
+    }
+    # Out of range
+    resp = await async_client.post("/api/generate", json={**base_payload, "qb_starters": 0})
+    assert resp.status_code == 422
+    resp = await async_client.post("/api/generate", json={**base_payload, "qb_starters": 3})
+    assert resp.status_code == 422
+    # Superflex is accepted
+    resp = await async_client.post("/api/generate", json={**base_payload, "qb_starters": 2})
+    assert resp.status_code == 200
+    # Default (omit) should work
+    resp = await async_client.post("/api/generate", json=base_payload)
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_over_the_hill_position_aware_thresholds(async_client, test_db):
     """is_over_the_hill should be position-aware: 28 for RB, 31 for WR, 31 for TE, 36 for QB, 40 for K."""
     from app.models import Player, Projection

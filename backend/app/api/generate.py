@@ -483,6 +483,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
         league_size=req.league_size,
         tiebreak_adp_attr=tiebreak_adp_attr,
         overall_tier_count=overall_tier_count,
+        qb_starters=req.qb_starters,
     )
 
 
