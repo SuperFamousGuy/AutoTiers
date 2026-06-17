@@ -1,0 +1,94 @@
+name: claude-implement-issue
+
+# When a trusted author opens an issue, Claude implements it end-to-end on a
+# branch and opens a PR that closes the issue. Design:
+# docs/superpowers/specs/2026-06-16-auto-implement-issues-design.md
+
+on:
+  issues:
+    types: [opened]
+
+concurrency:
+  group: claude-issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  implement:
+    name: implement issue
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # SAFETY GATE: public repo. Only run for trusted authors so a stranger's
+    # issue body cannot drive Claude with the repo's API key + write token.
+    # github-actions[bot] resolves to NONE, so the action cannot recurse.
+    if: contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Pre-provision the toolchain so the SDLC test step is fast and reliable,
+      # mirroring versions in .github/workflows/tests.yml.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install backend deps
+        working-directory: backend
+        run: pip install -e ".[dev]"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install web deps
+        working-directory: web
+        run: npm ci
+
+      - name: Implement issue
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            You are implementing GitHub issue #${{ github.event.issue.number }} in
+            this repository, end-to-end, with no further human input until a PR is
+            open.
+
+            Issue title: ${{ github.event.issue.title }}
+
+            Read the full issue (title and body) for #${{ github.event.issue.number }}
+            and treat it as the spec for the change.
+
+            Process — follow the repo's own lifecycle:
+            1. Invoke the `autotiers-sdlc` skill and follow it for this change.
+            2. Implement the change. Write tests alongside it.
+            3. Run the relevant suites. The `autotiers-test-running` skill explains
+               WHICH tests matter and the gotchas (OOM on `tests/test_sources`,
+               warnings to ignore, the 80% diff-coverage gate), but its commands
+               are written for a local checkout. THIS IS CI: ignore its
+               `/Users/...` paths and `venv/bin/` prefix — dependencies are already
+               installed on the runner. Run instead:
+                 - backend:  `cd backend && pytest -q --ignore=tests/test_sources`
+                 - web tests: `cd web && npx vitest run`
+                 - web types: `cd web && npx tsc --noEmit`
+            4. If tests do not pass, do NOT open a PR. Instead post a comment on
+               issue #${{ github.event.issue.number }} explaining the blocker, and
+               stop.
+            5. If tests pass, create a branch named
+               `claude/issue-${{ github.event.issue.number }}`, commit the work,
+               push it, and open a pull request whose body starts with
+               `Closes #${{ github.event.issue.number }}` and summarizes the change,
+               your assumptions, and any known gaps.
+
+            The repo's `.claude/skills/` and `.claude/agents/` are present in the
+            checkout — use them.
+          claude_args: |
+            --model claude-opus-4-8
+            --max-turns 80
+            --allowedTools Edit,Write,Read,Glob,Grep,Bash,Task
