@@ -9,6 +9,7 @@ class GenerateRequest(BaseModel):
     scoring_format: ScoringFormat
     league_type: LeagueType
     league_size: int
+    qb_starters: int = 1  # 1 = standard, 2 = superflex / 2-QB
     qb_td_points: float = 4.0
     bonus_100yd_rushing: bool = False
     bonus_100yd_receiving: bool = False
@@ -33,6 +34,13 @@ class GenerateRequest(BaseModel):
     def valid_league_size(cls, v: int) -> int:
         if v not in {8, 10, 12, 14, 16}:
             raise ValueError("league_size must be one of: 8, 10, 12, 14, 16")
+        return v
+
+    @field_validator("qb_starters")
+    @classmethod
+    def valid_qb_starters(cls, v: int) -> int:
+        if v not in {1, 2}:
+            raise ValueError("qb_starters must be 1 (standard) or 2 (superflex / 2-QB)")
         return v
 
     overall_tier_count: Optional[int] = None  # None -> defaults to league_size in the API layer
