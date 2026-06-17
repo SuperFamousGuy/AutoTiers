@@ -314,4 +314,14 @@ describe("SettingsPanel — Prior-Year Injury Discount section (#315)", () => {
     const last = spy.mock.calls[spy.mock.calls.length - 1][0] as SettingsState;
     expect(last.prior_year_ramp).toBe("steep");
   });
+
+  it("selecting a different full-season threshold propagates full_season_games", async () => {
+    const spy = vi.fn();
+    render(<RampPanel onChangeSpy={spy} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("combobox", { name: "Full Season Games" }));
+    await user.click(await screen.findByRole("option", { name: "16 games" }));
+    const last = spy.mock.calls[spy.mock.calls.length - 1][0] as SettingsState;
+    expect(last.full_season_games).toBe(16);
+  });
 });

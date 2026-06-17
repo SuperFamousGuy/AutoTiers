@@ -4,7 +4,7 @@ import { useDarkMode } from "@/hooks/useDarkMode";
 import { useOnboarding } from "@/hooks/useOnboarding";
 import { OnboardingTour } from "@/components/OnboardingTour";
 import { ONBOARDING_STEPS } from "@/lib/onboardingSteps";
-import { SettingsPanel, type SettingsState } from "@/components/SettingsPanel";
+import { SettingsPanel, DEFAULT_FULL_SEASON_GAMES, DEFAULT_PRIOR_YEAR_RAMP, type SettingsState } from "@/components/SettingsPanel";
 import { RulesPanel } from "@/components/RulesPanel";
 import { TiersPanel } from "@/components/TiersPanel";
 import { ProfilePicker } from "@/components/ProfilePicker";
@@ -35,8 +35,8 @@ const DEFAULT_SETTINGS: SettingsState = {
   bonus_100yd_receiving: false,
   bonus_first_downs: false,
   weights: { prior: 30, consensus: 70 },
-  full_season_games: 14,
-  prior_year_ramp: "linear",
+  full_season_games: DEFAULT_FULL_SEASON_GAMES,
+  prior_year_ramp: DEFAULT_PRIOR_YEAR_RAMP,
 };
 
 export default function App() {
