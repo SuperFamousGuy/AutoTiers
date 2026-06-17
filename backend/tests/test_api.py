@@ -476,6 +476,34 @@ async def test_generate_validates_draft_rounds_range(async_client):
 
 
 @pytest.mark.asyncio
+async def test_generate_validates_prior_year_games_knobs(async_client):
+    """#315: full_season_games must be 1-17 and prior_year_ramp must be a known shape."""
+    base_payload = {
+        "scoring_format": "ppr", "league_type": "standard", "league_size": 12,
+        "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
+        "bonus_first_downs": False, "weight_prior_year": 0.40, "weight_espn": 0.30,
+        "weight_consensus": 0.30, "rules": {},
+    }
+    # full_season_games out of range -> 422
+    resp = await async_client.post("/api/generate", json={**base_payload, "full_season_games": 0})
+    assert resp.status_code == 422
+    resp = await async_client.post("/api/generate", json={**base_payload, "full_season_games": 18})
+    assert resp.status_code == 422
+    # Unknown ramp shape -> 422
+    resp = await async_client.post("/api/generate", json={**base_payload, "prior_year_ramp": "exponential"})
+    assert resp.status_code == 422
+    # Valid overrides accepted
+    resp = await async_client.post(
+        "/api/generate",
+        json={**base_payload, "full_season_games": 17, "prior_year_ramp": "steep"},
+    )
+    assert resp.status_code == 200
+    # Defaults (omit both) still work -> behaviour unchanged when unset
+    resp = await async_client.post("/api/generate", json=base_payload)
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_over_the_hill_position_aware_thresholds(async_client, test_db):
     """is_over_the_hill should be position-aware: 28 for RB, 31 for WR, 31 for TE, 36 for QB, 40 for K."""
     from app.models import Player, Projection

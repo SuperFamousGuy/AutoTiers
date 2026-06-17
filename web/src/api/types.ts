@@ -50,6 +50,10 @@ export interface GenerateRequest {
   weight_prior_year: number;
   weight_espn: number;
   weight_consensus: number;
+  // Prior-year games-played discount knobs (#315). Optional: omitted profiles
+  // fall back to the backend defaults (14 / "linear") unchanged.
+  full_season_games?: number;
+  prior_year_ramp?: "linear" | "steep";
   draft_rounds: number;
   overall_tier_count?: number;
   rules: Record<string, Array<{ name: string; enabled: boolean; weight: number }>>;

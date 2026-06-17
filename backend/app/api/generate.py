@@ -311,6 +311,8 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
             consensus_projection=avg_proj,
             settings=settings,
             prior_year_games=(stat.games_played if stat is not None else None),
+            full_season_games=req.full_season_games,
+            ramp_shape=req.prior_year_ramp,
         )
 
         projection_unavailable = avg_proj is None
