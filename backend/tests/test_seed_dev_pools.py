@@ -40,21 +40,27 @@ def test_player_ids_are_unique():
 
 @pytest.mark.parametrize("position", ["RB", "WR"])
 @pytest.mark.parametrize("fmt", SOURCES)
-def test_projection_decline_is_monotone(position, fmt):
-    """Sorted descending, every source's projection is non-increasing.
+def test_analyst_feeds_agree_on_ranking(position, fmt):
+    """Within each scoring format, the two analyst feeds rank players the same way.
 
-    Monotone in all three formats and both source feeds (espn, fantasypros) —
-    no upward steps anywhere in the pool. (Strict decline through the depth tier
-    is asserted separately; the elite tier may carry an occasional tie from the
-    hand-tuned real-player values.)
+    Orders the pool by the ESPN projection for the format, then asserts the
+    FantasyPros projection is non-increasing along that *fixed* order. Sorting a
+    feed by its own values would be tautological (always non-increasing) and
+    catch nothing; ranking by one feed and checking the other actually fails if
+    the seed introduces a player the two sources disagree on.
+
+    Cross-FORMAT reordering is intentional and deliberately not asserted: a
+    pass-catching back outranks an early-down back in PPR but not in standard, so
+    ordering by PPR would (correctly) show upward steps in the standard column.
     """
     pool = _pool(position)
-    for source_idx in (0, 1):  # (espn, fantasypros)
-        values = sorted((p["projections"][fmt][source_idx] for p in pool), reverse=True)
-        for hi, lo in zip(values, values[1:]):
-            assert hi >= lo, (
-                f"{position} {fmt} source#{source_idx} not monotone: {hi} < {lo}"
-            )
+    ordered = sorted(pool, key=lambda p: p["projections"][fmt][0], reverse=True)
+    fp_values = [p["projections"][fmt][1] for p in ordered]
+    for hi, lo in zip(fp_values, fp_values[1:]):
+        assert hi >= lo, (
+            f"{position} {fmt}: analyst feeds disagree on order — "
+            f"fantasypros steps up ({hi} < {lo}) against the espn ranking"
+        )
 
 
 @pytest.mark.parametrize("position", ["RB", "WR"])

@@ -318,6 +318,21 @@ def _build_depth(season: int = 2025) -> list[dict]:
     out: list[dict] = []
     for position, roster in (("WR", _WR_DEPTH), ("RB", _RB_DEPTH)):
         c = _DEPTH_CURVES[position]
+        # Fail-fast invariant: the depth curve must start strictly below the
+        # weakest elite PPR projection. The elite tier is hand-tuned and the
+        # depth `top` is a constant, so if someone lowers an elite projection (or
+        # raises the curve) the combined elite+depth board silently goes
+        # non-monotone — a generated depth player would outrank a real elite.
+        # Guard it here so the seed blows up at build time instead.
+        min_elite_ppr = min(
+            p["projections"]["ppr"][0] for p in _ELITE if p["position"] == position
+        )
+        if c["top"] >= min_elite_ppr:
+            raise ValueError(
+                f"{position} depth top {c['top']} must stay below the weakest "
+                f"elite PPR projection {min_elite_ppr} to keep the combined "
+                "board monotone"
+            )
         n = len(roster)
         for rank, (name, team) in enumerate(roster):
             ppr = _decline(c["top"], c["floor"], n, rank, c["curve"])
