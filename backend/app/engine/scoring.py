@@ -3,8 +3,11 @@ from enum import Enum
 from typing import Optional
 
 
-# A "full" NFL fantasy season for a healthy starter is ~15-17 games. Below this
-# threshold, last season's point TOTAL under-represents the player's true
+# Discount ramp threshold (NOT the NFL schedule length, which is ~15-17 games for
+# a healthy starter). This is the games_played value at which the prior-year term
+# reaches its full configured weight: weight scales by clamp(games_played / 14).
+# Set below a typical full schedule on purpose so near-full seasons still get full
+# weight. Below it, last season's point TOTAL under-represents the player's true
 # per-season value (the missing games are zeros baked into the total), so the
 # prior-year term is down-weighted toward zero as games_played falls to 0.
 # Calibrated so an injury-shortened McCaffrey-type season (~4 games) lands within
