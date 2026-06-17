@@ -20,13 +20,43 @@ _JENKS_TIER_THRESHOLD = 11
 # position is the replacement-level player whose adjusted_score is subtracted
 # off when computing VBD.
 _REPLACEMENT_MULTIPLIERS = {
-    "QB": 1.0,
+    # QB recalibrated 1.0 -> 0.67 (replacement QB12 -> QB8) for #310. A 12-team
+    # league starts 1 QB; the start-1 replacement baseline is the last reliably
+    # startable QB (~QB8), not QB12. At 1.0, elite QBs' VBD was inflated enough
+    # to crowd premium overall tiers ahead of elite WR/RB. Mathematician sign-off
+    # 2026-06-17 (data-backed sweep: target band QB6-QB9, mult 0.5-0.75).
+    "QB": 0.67,
     "RB": 2.5,
     "WR": 2.5,
     "TE": 1.25,
     "K": 1.0,
     "DST": 1.0,
 }
+
+# Superflex / 2-QB leagues start more than one QB per team, which pushes the
+# replacement-level QB much deeper. With qb_starters == 2 the replacement
+# anchors at ~QB18 in a 12-team league (mult 1.5), the upper edge of the
+# streamer band rather than the literal QB24 (= 2 QBs x 12 teams); the ~2-rank
+# discount reflects waiver availability. Mathematician sign-off (#319).
+#
+# Invariant: the start-2 replacement rank should sit roughly one full league
+# deeper than the start-1 rank — i.e. close to
+#   round(league_size * _REPLACEMENT_MULTIPLIERS["QB"]) + league_size
+# minus a couple of ranks for the waiver discount. If the base QB multiplier
+# is recalibrated, revisit this constant so that gap stays sane.
+_QB_SUPERFLEX_MULTIPLIER = 1.5
+
+
+def _qb_replacement_multiplier(qb_starters: int) -> float:
+    """QB replacement multiplier as a function of the league's QB-start count.
+
+    start-1 (standard) reads the position's base multiplier so it composes with
+    any standard-QB recalibration. start-2+ (superflex / 2-QB) uses the deeper
+    superflex anchor.
+    """
+    if qb_starters >= 2:
+        return _QB_SUPERFLEX_MULTIPLIER
+    return _REPLACEMENT_MULTIPLIERS["QB"]
 
 
 @dataclass
@@ -157,13 +187,19 @@ def _cluster_position(players: list[TieredPlayer], position: str, max_tiers: int
         p.positional_tier = f"{position}{tier_num}"
 
 
-def _compute_vbd(all_players: list[TieredPlayer], league_size: int) -> None:
+def _compute_vbd(
+    all_players: list[TieredPlayer], league_size: int, qb_starters: int = 1
+) -> None:
     """Compute ``vbd_score`` and ``position_replacement`` for each player, in place.
 
     Replacement is the Nth-best player at the position, where N is
     ``round(league_size * multiplier)`` (e.g. QB → league_size, RB/WR →
     league_size * 2.5, TE → league_size * 1.25). If the position has fewer
     than N players, the worst-ranked player is used as replacement.
+
+    ``qb_starters`` is the number of QB slots the league format starts per team
+    (1 for standard, 2 for superflex / 2-QB). It deepens only the QB
+    replacement rank; all other positions are unaffected.
     """
     by_position: dict[str, list[TieredPlayer]] = {}
     for p in all_players:
@@ -172,7 +208,10 @@ def _compute_vbd(all_players: list[TieredPlayer], league_size: int) -> None:
         if not group:
             continue
         group.sort(key=lambda x: x.adjusted_score, reverse=True)
-        mult = _REPLACEMENT_MULTIPLIERS.get(pos, 1.0)
+        if pos == "QB":
+            mult = _qb_replacement_multiplier(qb_starters)
+        else:
+            mult = _REPLACEMENT_MULTIPLIERS.get(pos, 1.0)
         replacement_rank = max(1, round(league_size * mult))  # 1-indexed
         idx = min(replacement_rank - 1, len(group) - 1)
         replacement_score = group[idx].adjusted_score
@@ -186,12 +225,13 @@ def assign_tiers(
     league_size: int = 12,
     tiebreak_adp_attr: str = "adp_ppr",
     overall_tier_count: int = 10,
+    qb_starters: int = 1,
 ) -> list[TieredPlayer]:
     if not all_players:
         return []
 
     # Compute VBD first; subsequent ranking and clustering use vbd_score.
-    _compute_vbd(all_players, league_size)
+    _compute_vbd(all_players, league_size, qb_starters)
 
     def _max_tiers(position: str) -> int:
         base = POSITION_MAX_TIERS.get(position, 3)

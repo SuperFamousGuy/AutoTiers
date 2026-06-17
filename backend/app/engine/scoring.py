@@ -3,6 +3,19 @@ from enum import Enum
 from typing import Optional
 
 
+# Discount ramp threshold (NOT the NFL schedule length, which is ~15-17 games for
+# a healthy starter). This is the games_played value at which the prior-year term
+# reaches its full configured weight: weight scales by clamp(games_played / 14).
+# Set below a typical full schedule on purpose so near-full seasons still get full
+# weight. Below it, last season's point TOTAL under-represents the player's true
+# per-season value (the missing games are zeros baked into the total), so the
+# prior-year term is down-weighted toward zero as games_played falls to 0.
+# Calibrated so an injury-shortened McCaffrey-type season (~4 games) lands within
+# ~1 tier of his projection-only score, while healthy 15-17 game seasons and
+# rookies (no prior) are completely unaffected. See blend_scores().
+FULL_SEASON_GAMES = 14
+
+
 class ScoringFormat(str, Enum):
     STANDARD = "standard"
     HALF_PPR = "half_ppr"
@@ -13,6 +26,49 @@ class LeagueType(str, Enum):
     STANDARD = "standard"
     DYNASTY = "dynasty"
     KEEPER = "keeper"
+
+
+class PriorYearRamp(str, Enum):
+    """Shape of the games-played discount applied to the prior-year term.
+
+    LINEAR  — scale = clamp(games / full_season_games, 0, 1). The default;
+              behaviour predates this enum.
+    STEEP   — that fraction squared (convex). Discounts partial seasons more
+              aggressively, reaching near-full credit only close to a complete
+              season. Use when a partial prior season should be treated as
+              closer to noise. Signed off by the Mathematician for #315.
+    """
+    LINEAR = "linear"
+    STEEP = "steep"
+
+
+def _games_scale(
+    games: int,
+    full_season_games: int,
+    ramp_shape: "PriorYearRamp | str" = PriorYearRamp.LINEAR,
+) -> float:
+    """Fraction of the prior-year weight to keep given ``games`` played.
+
+    ``base = clamp(games / full_season_games, 0, 1)``; LINEAR returns ``base``,
+    STEEP returns ``base ** 2``. Invariants (enforced in tests): non-decreasing
+    in ``games``; ``scale(0) == 0``; ``scale(games >= full_season_games) == 1``;
+    ``steep <= linear`` on the open interval ``0 < games < full_season_games``.
+
+    ``full_season_games <= 0`` disables the discount (returns ``1.0``); ``games``
+    is then irrelevant. An unrecognized ``ramp_shape`` raises ``ValueError``
+    rather than silently falling back to linear.
+    """
+    shape = PriorYearRamp(ramp_shape)  # raises ValueError on an unknown value
+    if full_season_games <= 0:
+        return 1.0
+    base = min(1.0, max(0.0, games / full_season_games))
+    if shape == PriorYearRamp.LINEAR:
+        return base
+    if shape == PriorYearRamp.STEEP:
+        return base * base
+    # Defensive: a newly-added enum member must opt into a curve explicitly
+    # rather than silently inheriting linear behaviour.
+    raise ValueError(f"Unhandled ramp shape: {shape!r}")
 
 
 @dataclass
@@ -98,6 +154,9 @@ def blend_scores(
     espn_projection: Optional[float],
     consensus_projection: Optional[float],
     settings: LeagueSettings,
+    prior_year_games: Optional[int] = None,
+    full_season_games: int = FULL_SEASON_GAMES,
+    ramp_shape: "PriorYearRamp | str" = PriorYearRamp.LINEAR,
 ) -> float:
     """Weighted blend of available projection sources with renormalization.
 
@@ -123,10 +182,36 @@ def blend_scores(
       if its value is present (user explicitly disabled it).
     - value=0.0 is NOT treated as missing — a player who scored zero is distinct
       from one with no stats on record.
+
+    Games-played discount on the prior-year term:
+    - ``prior_year_games`` is the number of games behind ``prior_year_actual``.
+      When provided and below ``full_season_games``, the prior-year weight is
+      scaled by ``_games_scale(prior_year_games, full_season_games, ramp_shape)``
+      BEFORE the active-set selection and renormalization. This corrects
+      injury-shortened seasons whose point TOTAL understates true value (the
+      missing games are zeros baked into the total) without pro-rating, which
+      would inject small-sample per-game noise and double-count against the
+      already injury-aware consensus projection.
+    - ``full_season_games`` and ``ramp_shape`` are per-profile tuning knobs
+      (#315). ``full_season_games`` defaults to ``FULL_SEASON_GAMES`` (14) so the
+      default behaviour is unchanged; the API layer validates it to [1, 17].
+      ``ramp_shape`` selects the discount curve — LINEAR (default) or the more
+      aggressive STEEP. See ``PriorYearRamp`` / ``_games_scale``.
+    - ``prior_year_games=None`` (default) means "no games information" and applies
+      NO discount — behaviour is identical to before this parameter existed. This
+      keeps the function backward compatible for callers that do not pass games.
+    - A scale of 0 (zero games) drops prior-year from the active set entirely; the
+      blend converges to projection-only, exactly when the prior is least reliable.
+    - Rookies have ``prior_year_actual=None`` and are unaffected regardless of games.
     """
     active: list[tuple[float, float]] = []
-    if prior_year_actual is not None and settings.weight_prior_year > 0:
-        active.append((prior_year_actual, settings.weight_prior_year))
+    if prior_year_games is None:
+        prior_year_scale = 1.0
+    else:
+        prior_year_scale = _games_scale(prior_year_games, full_season_games, ramp_shape)
+    prior_year_weight = settings.weight_prior_year * prior_year_scale
+    if prior_year_actual is not None and prior_year_weight > 0:
+        active.append((prior_year_actual, prior_year_weight))
     if espn_projection is not None and settings.weight_espn > 0:
         active.append((espn_projection, settings.weight_espn))
     if consensus_projection is not None and settings.weight_consensus > 0:

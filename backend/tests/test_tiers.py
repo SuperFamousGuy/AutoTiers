@@ -1,5 +1,13 @@
 import pytest
-from app.engine.tiers import TieredPlayer, assign_tiers, _quantile_breaks, _compute_overall_breaks
+from app.engine.tiers import (
+    TieredPlayer,
+    assign_tiers,
+    _quantile_breaks,
+    _compute_overall_breaks,
+    _qb_replacement_multiplier,
+    _QB_SUPERFLEX_MULTIPLIER,
+    _REPLACEMENT_MULTIPLIERS,
+)
 
 
 def _player(pid: str, position: str, score: float, **kwargs) -> TieredPlayer:
@@ -114,7 +122,8 @@ def test_empty_input_returns_empty():
 def test_vbd_subtracts_position_replacement():
     """Each player's vbd_score equals adjusted_score minus the position's replacement level.
 
-    In a 12-team league, the QB replacement is QB12 (1-indexed → list index 11).
+    In a 12-team league with the recalibrated QB multiplier 0.67 (#310), the QB
+    replacement rank is round(12 * 0.67) = 8, i.e. QB8 (1-indexed → list index 7).
     """
     # 13 QBs with adjusted_score 400, 390, ... 280.
     players = [
@@ -130,20 +139,94 @@ def test_vbd_subtracts_position_replacement():
         for i in range(13)
     ]
     ranked = assign_tiers(players, league_size=12, tiebreak_adp_attr="adp_ppr")
-    # QB12 (index 11) score = 290 → replacement. Top QB VBD = 400 - 290 = 110.
+    # QB8 (index 7) score = 400 - 7*10 = 330 → replacement (mult 0.67, #310).
+    # Top QB VBD = 400 - 330 = 70. QB8 itself has VBD 0; QB9 (index 8) = -10.
     qb1 = next(p for p in ranked if p.player_id == "qb_0")
-    qb12 = next(p for p in ranked if p.player_id == "qb_11")
-    qb13 = next(p for p in ranked if p.player_id == "qb_12")
-    assert qb1.vbd_score == 110.0
-    assert qb12.vbd_score == 0.0
-    assert qb13.vbd_score == -10.0
-    assert qb1.position_replacement == 290.0
+    qb8 = next(p for p in ranked if p.player_id == "qb_7")
+    qb9 = next(p for p in ranked if p.player_id == "qb_8")
+    assert qb1.vbd_score == 70.0
+    assert qb8.vbd_score == 0.0
+    assert qb9.vbd_score == -10.0
+    assert qb1.position_replacement == 330.0
+
+
+def test_qb_replacement_scales_with_qb_starters():
+    """QB replacement rank deepens for superflex / 2-QB leagues (#319).
+
+    start-1 (standard) anchors at the position's base QB multiplier; superflex
+    (qb_starters=2) anchors at the deeper ``_QB_SUPERFLEX_MULTIPLIER``, while
+    start-1 stays exactly where it was. Expected replacement scores are derived
+    from those constants so the test keeps validating the *scaling* behaviour
+    regardless of how either QB multiplier is calibrated.
+    """
+    LEAGUE, TOP, STEP = 12, 400.0, 10.0
+    pool = [_player(f"qb_{i}", "QB", TOP - i * STEP) for i in range(24)]
+
+    def expected_replacement(mult: float) -> float:
+        # Mirrors _compute_vbd: replacement rank = round(league_size * mult).
+        idx = max(1, round(LEAGUE * mult)) - 1
+        return round(TOP - idx * STEP, 2)
+
+    start1_repl = expected_replacement(_REPLACEMENT_MULTIPLIERS["QB"])
+    superflex_repl = expected_replacement(_QB_SUPERFLEX_MULTIPLIER)
+
+    # Standard start-1 (default) — anchors at the base QB multiplier.
+    standard = assign_tiers([_player(p.player_id, "QB", p.adjusted_score) for p in pool], league_size=LEAGUE)
+    s_qb1 = next(p for p in standard if p.player_id == "qb_0")
+    assert s_qb1.position_replacement == start1_repl
+    assert s_qb1.vbd_score == round(TOP - start1_repl, 2)
+
+    # Explicit qb_starters=1 must match the default exactly.
+    start1 = assign_tiers(
+        [_player(p.player_id, "QB", p.adjusted_score) for p in pool],
+        league_size=LEAGUE,
+        qb_starters=1,
+    )
+    e_qb1 = next(p for p in start1 if p.player_id == "qb_0")
+    assert e_qb1.position_replacement == s_qb1.position_replacement
+    assert e_qb1.vbd_score == s_qb1.vbd_score
+
+    # Superflex start-2 — replacement moves to the deeper anchor, VBD rises.
+    superflex = assign_tiers(
+        [_player(p.player_id, "QB", p.adjusted_score) for p in pool],
+        league_size=LEAGUE,
+        qb_starters=2,
+    )
+    sf_qb1 = next(p for p in superflex if p.player_id == "qb_0")
+    assert sf_qb1.position_replacement == superflex_repl
+    assert sf_qb1.vbd_score == round(TOP - superflex_repl, 2)
+    # Superflex deepens the baseline → strictly higher VBD than start-1.
+    assert sf_qb1.vbd_score > s_qb1.vbd_score
+
+
+def test_qb_starters_only_affects_qb_replacement():
+    """qb_starters must not change the replacement level of non-QB positions."""
+    def pool():
+        players = [_player(f"qb_{i}", "QB", 400.0 - i * 10) for i in range(24)]
+        players += [_player(f"rb_{i}", "RB", 300.0 - i * 5) for i in range(40)]
+        return players
+
+    standard = {p.player_id: p for p in assign_tiers(pool(), league_size=12, qb_starters=1)}
+    superflex = {p.player_id: p for p in assign_tiers(pool(), league_size=12, qb_starters=2)}
+
+    # RB replacement (rank 30 = round(12 * 2.5)) is identical across formats.
+    assert standard["rb_0"].position_replacement == superflex["rb_0"].position_replacement
+    # QB replacement changed.
+    assert standard["qb_0"].position_replacement != superflex["qb_0"].position_replacement
+
+
+def test_qb_replacement_multiplier_helper():
+    """start-1 reads the base QB multiplier; start-2+ uses the superflex anchor."""
+    assert _qb_replacement_multiplier(1) == _REPLACEMENT_MULTIPLIERS["QB"]
+    assert _qb_replacement_multiplier(2) == _QB_SUPERFLEX_MULTIPLIER
+    # Defensive: any deeper start count still resolves to the superflex anchor.
+    assert _qb_replacement_multiplier(3) == _QB_SUPERFLEX_MULTIPLIER
 
 
 def test_vbd_ranking_top_rb_beats_top_qb():
     """Classic VBD: top RB with high VBD beats top QB with higher raw adjusted_score."""
     players: list[TieredPlayer] = []
-    # 13 QBs: 400 → 280. Replacement (QB12 in 12-team) = QB at rank 12 = 290. Top QB VBD = 110.
+    # 13 QBs: 400 → 280. Replacement (QB8 in 12-team, mult 0.67) = rank 8 = 330. Top QB VBD = 70.
     for i in range(13):
         players.append(TieredPlayer(
             player_id=f"qb_{i}", name=f"QB{i}", position="QB", team="X", age=27,
@@ -443,3 +526,79 @@ class TestComputeOverallBreaks:
         scores = [5.0] * 30
         breaks = _compute_overall_breaks(scores, overall_tier_count=10)
         assert breaks == []
+
+
+# ---------------------------------------------------------------------------
+# #310 regression: QB VBD recalibration (mult 1.0 -> 0.67, replacement QB8).
+# Seeds a realistic 24-QB pool from scripts.seed_dev plus the elite skill
+# players, runs the real assign_tiers, and locks the post-fix overall ordering.
+# This test FAILS if _REPLACEMENT_MULTIPLIERS["QB"] reverts to 1.0 (the old
+# behaviour put two QBs ahead of the consensus #1 WR).
+# ---------------------------------------------------------------------------
+
+
+def _seed_tiered_players():
+    """Build TieredPlayers from the dev seed (24 QBs + elite RB/WR), using the
+    PPR espn projection as adjusted_score (the seed's controlled, smooth ladder)."""
+    from scripts.seed_dev import PLAYERS
+
+    out: list[TieredPlayer] = []
+    for p in PLAYERS:
+        espn = p["projections"]["ppr"][0]
+        out.append(TieredPlayer(
+            player_id=p["id"], name=p["name"], position=p["position"], team=p["team"],
+            age=p["age"], adjusted_score=espn, projected_score_raw=espn,
+            prior_year_actual=None, adp_standard=None, adp_ppr=p["adp"]["ppr"],
+            adp_dynasty=None, flags=[], rules_applied=[],
+            overall_rank=0, overall_tier=0, positional_tier="",
+        ))
+    return out
+
+
+def test_seed_has_24_qbs_for_real_replacement_baseline():
+    """Guard the Phase-1 fixture: the recalibration test is only meaningful if the
+    seed carries a full QB pool. Fewer than 24 QBs degenerates the QB8 baseline."""
+    players = _seed_tiered_players()
+    qbs = [p for p in players if p.position == "QB"]
+    assert len(qbs) >= 24, (
+        f"Seed must carry >= 24 QBs so QB8 replacement is a real player; got {len(qbs)}"
+    )
+
+
+def test_310_qb_recalibration_locks_overall_ordering():
+    """With mult=0.67 the QB8 baseline deflates elite-QB VBD enough that the
+    consensus #1 WR (Ja'Marr Chase) ranks above every QB, and the top two QBs
+    (Lamar, Allen) sit immediately below him in that exact order.
+
+    Asserts the EXACT top-3 ids (not a bound): under the old mult=1.0 the order
+    was Lamar, Allen, Chase — so this assertion is false unless the recalibration
+    is in effect. Sincerity gate per bug-class #7.
+    """
+    ranked = assign_tiers(_seed_tiered_players(), league_size=12, tiebreak_adp_attr="adp_ppr")
+    by_rank = {p.overall_rank: p for p in ranked}
+
+    # Exact top-3 ordering after the fix.
+    assert by_rank[1].player_id == "wr_chase", f"#1 should be Chase, got {by_rank[1].name}"
+    assert by_rank[2].player_id == "qb_jackson", f"#2 should be Lamar, got {by_rank[2].name}"
+    assert by_rank[3].player_id == "qb_allen", f"#3 should be Allen, got {by_rank[3].name}"
+
+    chase = next(p for p in ranked if p.player_id == "wr_chase")
+    allen = next(p for p in ranked if p.player_id == "qb_allen")
+    lamar = next(p for p in ranked if p.player_id == "qb_jackson")
+
+    # The core invariant the recalibration buys: no QB out-ranks the elite WR.
+    assert allen.overall_rank > chase.overall_rank, (
+        "Allen must rank below Chase (elite WR) after QB recalibration"
+    )
+    assert lamar.overall_rank > chase.overall_rank, (
+        "Lamar must rank below Chase (elite WR) after QB recalibration"
+    )
+
+    # The QB8 replacement baseline must be a real player (285.0 = Dak Prescott,
+    # QB12 by projection but QB8 == rank-8 in the seed ladder is 308.0). Assert
+    # the elite QBs' VBD reflects the QB8 (rank-8) baseline, not the degenerate
+    # 2-QB fallback that would put replacement at the worst QB.
+    # Seed QB ladder rank 8 (index 7) = 308.0 -> Lamar VBD = 400 - 308 = 92.
+    assert lamar.vbd_score == 92.0, f"Lamar VBD should be 92.0 (QB8 baseline 308), got {lamar.vbd_score}"
+    assert allen.vbd_score == 77.0, f"Allen VBD should be 77.0 (QB8 baseline 308), got {allen.vbd_score}"
+

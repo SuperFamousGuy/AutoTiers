@@ -1,6 +1,6 @@
 from typing import Optional
 from pydantic import BaseModel, Field, field_validator
-from app.engine.scoring import ScoringFormat, LeagueType
+from app.engine.scoring import ScoringFormat, LeagueType, PriorYearRamp, FULL_SEASON_GAMES
 from app.engine.rules import EffectType
 from app.schemas.rules import RuleOverrideSchema
 
@@ -9,6 +9,7 @@ class GenerateRequest(BaseModel):
     scoring_format: ScoringFormat
     league_type: LeagueType
     league_size: int
+    qb_starters: int = 1  # 1 = standard, 2 = superflex / 2-QB
     qb_td_points: float = 4.0
     bonus_100yd_rushing: bool = False
     bonus_100yd_receiving: bool = False
@@ -16,6 +17,13 @@ class GenerateRequest(BaseModel):
     weight_prior_year: float = Field(0.30, ge=0.0)
     weight_espn: float = Field(0.0, ge=0.0)
     weight_consensus: float = Field(0.70, ge=0.0)
+    # Prior-year games-played discount knobs (#315). full_season_games is the
+    # games threshold below which last season's point total is treated as
+    # injury-discounted; defaults to the engine's FULL_SEASON_GAMES so the
+    # schema and scoring stay in lockstep. prior_year_ramp selects the discount
+    # curve (linear vs. the more aggressive steep).
+    full_season_games: int = Field(FULL_SEASON_GAMES, ge=1, le=17)
+    prior_year_ramp: PriorYearRamp = PriorYearRamp.LINEAR
     draft_rounds: int = 15
     rules: dict[str, list[RuleOverrideSchema]] = Field(default_factory=dict)
     keepers: Optional[list[str]] = None
@@ -26,6 +34,13 @@ class GenerateRequest(BaseModel):
     def valid_league_size(cls, v: int) -> int:
         if v not in {8, 10, 12, 14, 16}:
             raise ValueError("league_size must be one of: 8, 10, 12, 14, 16")
+        return v
+
+    @field_validator("qb_starters")
+    @classmethod
+    def valid_qb_starters(cls, v: int) -> int:
+        if v not in {1, 2}:
+            raise ValueError("qb_starters must be 1 (standard) or 2 (superflex / 2-QB)")
         return v
 
     overall_tier_count: Optional[int] = None  # None -> defaults to league_size in the API layer

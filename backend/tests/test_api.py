@@ -476,6 +476,95 @@ async def test_generate_validates_draft_rounds_range(async_client):
 
 
 @pytest.mark.asyncio
+async def test_generate_validates_prior_year_games_knobs(async_client):
+    """#315: full_season_games must be 1-17 and prior_year_ramp must be a known shape."""
+    base_payload = {
+        "scoring_format": "ppr", "league_type": "standard", "league_size": 12,
+        "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
+        "bonus_first_downs": False, "weight_prior_year": 0.40, "weight_espn": 0.30,
+        "weight_consensus": 0.30, "rules": {},
+    }
+    # full_season_games out of range -> 422
+    resp = await async_client.post("/api/generate", json={**base_payload, "full_season_games": 0})
+    assert resp.status_code == 422
+    resp = await async_client.post("/api/generate", json={**base_payload, "full_season_games": 18})
+    assert resp.status_code == 422
+    # Unknown ramp shape -> 422
+    resp = await async_client.post("/api/generate", json={**base_payload, "prior_year_ramp": "exponential"})
+    assert resp.status_code == 422
+    # Valid overrides accepted
+    resp = await async_client.post(
+        "/api/generate",
+        json={**base_payload, "full_season_games": 17, "prior_year_ramp": "steep"},
+    )
+    assert resp.status_code == 200
+    # Defaults (omit both) still work -> behaviour unchanged when unset
+    resp = await async_client.post("/api/generate", json=base_payload)
+    assert resp.status_code == 200
+
+
+async def test_generate_prior_year_knobs_change_blended_score(async_client, test_db):
+    """#315: full_season_games and prior_year_ramp must actually reach blend_scores.
+
+    This is the wiring test — deleting the two kwargs from the generate call site
+    must make it FAIL (the three requests would otherwise all return the default
+    blend). Seeds an injury-shortened RB (4 games) whose high consensus projection
+    dwarfs the low prior actual, so the discount has a visible effect.
+    """
+    rb = Player(id="test-injured-knob", name="Test Injured Knob",
+                position="RB", team="SF", age=26, years_exp=4)
+    test_db.add(rb)
+    # PPR prior actual ~83 pts over only 4 games (rec 40 + rush 25 + 3 TDs * 6).
+    test_db.add(PlayerStat(
+        player_id=rb.id, season=2025,
+        rush_att=50, receptions=20, rec_yards=200.0, rec_tds=1,
+        rush_yards=250.0, rush_tds=2, pass_att=0, pass_yards=0.0,
+        pass_tds=0, interceptions=0, targets=28, games_played=4,
+    ))
+    test_db.add(Projection(player_id=rb.id, source="fantasypros",
+                           scoring_format="ppr", projected_points=280.0, last_updated=date.today()))
+    await test_db.commit()
+
+    async def _raw_score(**overrides) -> float:
+        resp = await async_client.post("/api/generate", json={**_GENERATE_BODY, **overrides})
+        assert resp.status_code == 200
+        p = next(p for p in resp.json()["players"] if p["player_id"] == rb.id)
+        return p["projected_score_raw"]
+
+    default_linear = await _raw_score()                                   # F=14, linear
+    steep = await _raw_score(prior_year_ramp="steep")                     # F=14, steep
+    threshold_met = await _raw_score(full_season_games=4)                 # 4 games == full season -> no discount
+
+    # No discount keeps the full (low) prior -> lowest blend. Linear discounts it,
+    # steep discounts it harder -> each step moves toward projection-only (280).
+    assert threshold_met < default_linear < steep < 280.0
+    # Sanity-pin the steep value against the Mathematician's curve.
+    assert steep == pytest.approx(273.3, abs=0.5)
+
+
+@pytest.mark.asyncio
+async def test_generate_validates_qb_starters(async_client):
+    """qb_starters must be 1 (standard) or 2 (superflex/2-QB); else 422 (#319)."""
+    base_payload = {
+        "scoring_format": "ppr", "league_type": "standard", "league_size": 12,
+        "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
+        "bonus_first_downs": False, "weight_prior_year": 0.40, "weight_espn": 0.30,
+        "weight_consensus": 0.30, "rules": {},
+    }
+    # Out of range
+    resp = await async_client.post("/api/generate", json={**base_payload, "qb_starters": 0})
+    assert resp.status_code == 422
+    resp = await async_client.post("/api/generate", json={**base_payload, "qb_starters": 3})
+    assert resp.status_code == 422
+    # Superflex is accepted
+    resp = await async_client.post("/api/generate", json={**base_payload, "qb_starters": 2})
+    assert resp.status_code == 200
+    # Default (omit) should work
+    resp = await async_client.post("/api/generate", json=base_payload)
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_over_the_hill_position_aware_thresholds(async_client, test_db):
     """is_over_the_hill should be position-aware: 28 for RB, 31 for WR, 31 for TE, 36 for QB, 40 for K."""
     from app.models import Player, Projection

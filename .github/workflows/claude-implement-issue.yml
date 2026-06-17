@@ -55,7 +55,11 @@ jobs:
       - name: Implement issue
         uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Subscription auth (Pro/Max) instead of pay-per-token API. Token
+          # generated locally via `claude setup-token`, stored as the
+          # CLAUDE_CODE_OAUTH_TOKEN secret. Draws from the personal sub quota;
+          # regenerate + update the secret if it expires.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
             You are implementing GitHub issue #${{ github.event.issue.number }} in
             this repository, end-to-end, with no further human input until a PR is
