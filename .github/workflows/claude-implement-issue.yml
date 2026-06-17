@@ -6,7 +6,7 @@ name: claude-implement-issue
 
 on:
   issues:
-    types: [opened]
+    types: [opened, reopened]
 
 concurrency:
   group: claude-issue-${{ github.event.issue.number }}
