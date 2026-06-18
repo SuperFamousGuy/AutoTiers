@@ -19,6 +19,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 WEB_DIR = REPO_ROOT / "web"
+BACKEND_DIR = REPO_ROOT / "backend"
 
 
 class _LinkHrefCollector(HTMLParser):
@@ -106,3 +107,35 @@ class TestWebDockerfile:
                     f"npm#4828 silently skips optional native bindings (e.g. rolldown musl). "
                     f"Use 'COPY package.json ./' explicitly. Offending line: {line!r}"
                 )
+
+
+class TestBackendDockerfile:
+    DOCKERFILE = BACKEND_DIR / "Dockerfile"
+
+    def test_dockerfile_exists(self):
+        assert self.DOCKERFILE.exists()
+
+    def test_prod_cmd_has_no_uvicorn_reload(self):
+        """The backend image CMD must not pass uvicorn --reload.
+
+        This image runs in prod for both the API and the pinned single-task
+        scheduler service. uvicorn --reload runs WatchFiles over /app; the
+        scheduler's refresh_all writes cache files under /app (nfl_data_py,
+        __pycache__), tripping a reload that restarts the process before
+        APScheduler's hourly IntervalTrigger ever fires — silently freezing
+        all data updates (the 2026-06-09 stale-data incident).
+
+        Dev hot reload is opted back in via the `command:` override in
+        docker-compose.yml, which is the correct place for it.
+        """
+        cmd_lines = [
+            ln.strip()
+            for ln in self.DOCKERFILE.read_text().splitlines()
+            if ln.strip().upper().startswith("CMD")
+        ]
+        for line in cmd_lines:
+            assert "--reload" not in line, (
+                "backend/Dockerfile CMD must not include '--reload' — it breaks "
+                "the prod scheduler (WatchFiles reload loop starves the hourly "
+                f"refresh job). Put --reload in docker-compose.yml instead. Offending line: {line!r}"
+            )

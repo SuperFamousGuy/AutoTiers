@@ -1,4 +1,6 @@
 import pytest
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from unittest.mock import patch, AsyncMock
 from app.scheduler import _refresh_job, setup_scheduler, scheduler
 
@@ -28,5 +30,26 @@ async def test_setup_scheduler_adds_hourly_job():
     try:
         job_ids = {j.id for j in scheduler.get_jobs()}
         assert "hourly_refresh" in job_ids
+    finally:
+        scheduler.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_setup_scheduler_fires_immediately_on_boot():
+    """The hourly job must be scheduled to fire right away on boot, not +1h.
+
+    Guards the stale-data incident fix: after a deploy redeploys the scheduler
+    task, data should refresh immediately rather than waiting up to an hour.
+    """
+    if scheduler.running:
+        scheduler.shutdown()
+    for job in scheduler.get_jobs():
+        job.remove()
+    setup_scheduler()
+    try:
+        job = scheduler.get_job("hourly_refresh")
+        assert job.next_run_time is not None
+        # Scheduled within the last minute (≈ now), not an hour out.
+        assert job.next_run_time <= datetime.now(ZoneInfo("UTC")) + timedelta(seconds=5)
     finally:
         scheduler.shutdown()
