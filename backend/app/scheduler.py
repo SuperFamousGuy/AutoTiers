@@ -22,11 +22,18 @@ def setup_scheduler() -> None:
         # scheduler task is force-redeployed on each deploy, so this guarantees
         # a refresh right after deploy instead of waiting up to an hour with
         # stale data on the live site.
+        #
+        # misfire_grace_time=None disables APScheduler's default 1s misfire
+        # window: the boot fire runs even if start() lands more than a second
+        # after add_job() (e.g. cold-start GC, future I/O between the two
+        # calls). Without it, a slow boot would *silently* skip the refresh —
+        # the same silent-failure class this whole change exists to fix.
         scheduler.add_job(
             _refresh_job,
             IntervalTrigger(hours=1),
             id="hourly_refresh",
             next_run_time=datetime.now(ZoneInfo("UTC")),
+            misfire_grace_time=None,
         )
     if not scheduler.running:
         scheduler.start()
