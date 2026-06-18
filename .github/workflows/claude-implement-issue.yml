@@ -148,8 +148,9 @@ jobs:
           BRANCH: claude/issue-${{ github.event.issue.number }}
           REPO: ${{ github.repository }}
         run: |
-          git push \
-            -c http.https://github.com/.extraheader= \
+          # `-c` is a git-level option and MUST precede the `push` subcommand —
+          # `git push -c ...` errors with "unknown switch `c`".
+          git -c http.https://github.com/.extraheader= push \
             "https://x-access-token:${PAT}@github.com/${REPO}.git" \
             "HEAD:refs/heads/${BRANCH}"
 
