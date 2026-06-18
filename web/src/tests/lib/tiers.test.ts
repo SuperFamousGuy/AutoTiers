@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { TIER_LABELS, getTierLabel, getCustomTierLabel, POSITIONAL_TIER_LABELS, getPositionalTierLabel, buildResolvedTierNames } from "@/lib/tiers";
+import { TIER_LABELS, getTierLabel, getCustomTierLabel, POSITIONAL_TIER_LABELS, getPositionalTierLabel, buildResolvedTierNames, resolveTierLabelOverrides } from "@/lib/tiers";
 
 describe("TIER_LABELS", () => {
   it("exports a record with exactly 11 entries (tiers 1-11)", () => {
@@ -240,5 +240,67 @@ describe("buildResolvedTierNames", () => {
     const result = buildResolvedTierNames(3, { 1: "   " });
     // getCustomTierLabel treats whitespace-only as empty -> falls back to default
     expect(result[1]).toBe("Elite");
+  });
+});
+
+describe("resolveTierLabelOverrides (#164)", () => {
+  it("returns an empty object when nothing is configured", () => {
+    expect(resolveTierLabelOverrides(undefined, undefined, "ppr")).toEqual({});
+  });
+
+  it("returns the global map when no per-format overrides exist", () => {
+    const global = { 1: "Global Studs" };
+    expect(resolveTierLabelOverrides(global, undefined, "ppr")).toEqual(global);
+  });
+
+  it("returns the global map when the per-format map has no entry for the format", () => {
+    const global = { 1: "Global Studs" };
+    const byFormat = { standard: { 1: "Standard Studs" } };
+    expect(resolveTierLabelOverrides(global, byFormat, "ppr")).toEqual(global);
+  });
+
+  it("per-format overrides take precedence over the global map for the active format", () => {
+    const global = { 1: "Global Studs", 2: "Global Solid" };
+    const byFormat = { ppr: { 1: "PPR Studs" } };
+    // tier 1 comes from the PPR overrides; tier 2 falls through to global
+    expect(resolveTierLabelOverrides(global, byFormat, "ppr")).toEqual({
+      1: "PPR Studs",
+      2: "Global Solid",
+    });
+  });
+
+  it("selects the active format's overrides, ignoring other formats", () => {
+    const byFormat = {
+      standard: { 1: "Standard Studs" },
+      ppr: { 1: "PPR Studs" },
+    };
+    expect(resolveTierLabelOverrides(undefined, byFormat, "standard")).toEqual({ 1: "Standard Studs" });
+    expect(resolveTierLabelOverrides(undefined, byFormat, "ppr")).toEqual({ 1: "PPR Studs" });
+  });
+
+  it("treats an empty per-format map as absent and returns the global map", () => {
+    const global = { 1: "Global Studs" };
+    expect(resolveTierLabelOverrides(global, { ppr: {} }, "ppr")).toEqual(global);
+  });
+
+  it("half_ppr resolves its own overrides independently of ppr", () => {
+    const byFormat = { half_ppr: { 3: "Half Fills" }, ppr: { 3: "PPR Fills" } };
+    expect(resolveTierLabelOverrides(undefined, byFormat, "half_ppr")).toEqual({ 3: "Half Fills" });
+  });
+
+  it("does not mutate the inputs", () => {
+    const global = { 1: "Global Studs" };
+    const byFormat = { ppr: { 2: "PPR Solid" } };
+    resolveTierLabelOverrides(global, byFormat, "ppr");
+    expect(global).toEqual({ 1: "Global Studs" });
+    expect(byFormat).toEqual({ ppr: { 2: "PPR Solid" } });
+  });
+
+  it("feeds buildResolvedTierNames to produce format-specific dense names", () => {
+    const global = { 1: "Global Studs" };
+    const byFormat = { ppr: { 1: "PPR Studs" } };
+    const merged = resolveTierLabelOverrides(global, byFormat, "ppr");
+    const names = buildResolvedTierNames(3, merged);
+    expect(names).toEqual({ 1: "PPR Studs", 2: "Strong Starter", 3: "Starter" });
   });
 });

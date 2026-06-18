@@ -22,7 +22,7 @@ import { verifyEmail } from "@/api/auth";
 import { createProfile, updateProfile, deleteProfile, activateProfile } from "@/api/profiles";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { weightsAreValid } from "@/lib/weights";
-import { buildResolvedTierNames } from "@/lib/tiers";
+import { buildResolvedTierNames, resolveTierLabelOverrides } from "@/lib/tiers";
 import type { Rule, GenerateRequest, PositionRulesState } from "@/api/types";
 
 const DEFAULT_SETTINGS: SettingsState = {
@@ -330,6 +330,17 @@ export default function App() {
 
   const canGenerate = weightsAreValid(settings.weights) && canonicalRules.length > 0;
 
+  // Tier labels shown/exported for the active scoring format: per-format
+  // overrides win over the global tier_labels, which win over static defaults (#164).
+  const resolvedTierNames = buildResolvedTierNames(
+    settings.tier_count ?? settings.league_size,
+    resolveTierLabelOverrides(
+      settings.tier_labels,
+      settings.tier_labels_by_format,
+      settings.scoring_format,
+    ),
+  );
+
   return (
     <div className="flex flex-col h-screen">
       <Header
@@ -444,10 +455,7 @@ export default function App() {
                 void downloadDraftXlsx(
                   generate.data.players,
                   settings.scoring_format,
-                  buildResolvedTierNames(
-                    settings.tier_count ?? settings.league_size,
-                    settings.tier_labels,
-                  ),
+                  resolvedTierNames,
                 );
               }
             }}
@@ -456,10 +464,7 @@ export default function App() {
               if (generate.data) {
                 downloadDebugCsv(
                   generate.data.players,
-                  buildResolvedTierNames(
-                    settings.tier_count ?? settings.league_size,
-                    settings.tier_labels,
-                  ),
+                  resolvedTierNames,
                 );
               }
             }}
@@ -467,10 +472,7 @@ export default function App() {
               profiles.find((p) => p.id === activeProfileId)?.linked_league?.keepers_json ?? undefined
             }
             scoringFormat={settings.scoring_format}
-            tierLabelOverrides={buildResolvedTierNames(
-              settings.tier_count ?? settings.league_size,
-              settings.tier_labels,
-            )}
+            tierLabelOverrides={resolvedTierNames}
           />
         </div>
       </main>

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { generateDraftCsvString, generateDebugCsvString } from "@/lib/csv";
+import { resolveTierLabelOverrides } from "@/lib/tiers";
 import type { ScoringFormat, TieredPlayer } from "@/api/types";
 
 function makePlayer(overrides: Partial<TieredPlayer> = {}): TieredPlayer {
@@ -112,6 +113,36 @@ describe("generateDraftCsvString", () => {
     const csv = generateDraftCsvString([makePlayer({ overall_tier: 1 })], draftOpts("standard", { 1: "Studs" }));
     const columns = csv.split("\r\n")[1].split(",");
     expect(columns[6]).toBe("Studs");
+  });
+
+  it("CSV uses the active format's per-format tier label (#164)", () => {
+    // Same player, same global labels — but the resolved labels differ by format.
+    const global = { 1: "Global Studs" };
+    const byFormat = { ppr: { 1: "PPR Studs" }, standard: { 1: "Standard Studs" } };
+    const player = makePlayer({ overall_tier: 1 });
+
+    const pprCsv = generateDraftCsvString(
+      [player],
+      draftOpts("ppr", resolveTierLabelOverrides(global, byFormat, "ppr")),
+    );
+    const stdCsv = generateDraftCsvString(
+      [player],
+      draftOpts("standard", resolveTierLabelOverrides(global, byFormat, "standard")),
+    );
+
+    expect(pprCsv.split("\r\n")[1].split(",")[6]).toBe("PPR Studs");
+    expect(stdCsv.split("\r\n")[1].split(",")[6]).toBe("Standard Studs");
+  });
+
+  it("CSV falls back to the global tier label for a format with no per-format override (#164)", () => {
+    const global = { 1: "Global Studs" };
+    const byFormat = { ppr: { 1: "PPR Studs" } };
+    // half_ppr has no per-format entry → falls back to the global label
+    const csv = generateDraftCsvString(
+      [makePlayer({ overall_tier: 1 })],
+      draftOpts("half_ppr", resolveTierLabelOverrides(global, byFormat, "half_ppr")),
+    );
+    expect(csv.split("\r\n")[1].split(",")[6]).toBe("Global Studs");
   });
 
   it("fields containing commas are RFC 4180 quoted", () => {
