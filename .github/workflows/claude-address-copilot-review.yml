@@ -1,0 +1,323 @@
+name: claude-address-copilot-review
+
+# Cron-driven sweeper that auto-addresses GitHub Copilot's code review on
+# claude-implement-issue.yml-opened PRs, fully agentic (zero manual approvals).
+#
+# WHY CRON, NOT pull_request_review:
+# Any workflow run TRIGGERED BY THE COPILOT BOT ACTOR is parked in
+# `action_required` (awaiting manual human approval) on every run. GitHub
+# provides no repo setting to disable this for the Copilot *reviewer* (the
+# cloud-agent toggle only covers Copilot's coding agent, which this repo does
+# not use). Loosening fork-PR-contributor-approval to
+# `first_time_contributors_new_to_github` did NOT help (run 27735970457 still
+# went action_required). So an event-driven `pull_request_review` trigger can
+# never be fully agentic. A SCHEDULED (cron) workflow runs as the repo/owner
+# identity and is NOT approval-gated -> fully agentic. We poll instead of react.
+#
+# TRIGGER CONDITION (replaces the old pull_request_review event):
+# The work signal is "open claude[bot]-authored claude/issue-* PR with >=1
+# UNRESOLVED Copilot review thread". This is self-limiting: once Claude
+# addresses + resolves the threads, the next tick sees none and does nothing;
+# when Copilot re-reviews and opens new threads, the next tick acts again.
+#
+# COST: the sweeper makes gh API calls every tick even when idle. The scan step
+# is structured to exit cheap BEFORE provisioning the toolchain or invoking
+# Claude when there are no candidates / no unresolved Copilot threads.
+#
+# SCHEDULING CAVEATS:
+#  - Scheduled workflows run ONLY from the version of this file on the DEFAULT
+#    branch (main). This sweeper will NOT fire until PR #344 is merged. (This is
+#    also why the old trigger couldn't be exercised on unrelated PRs.)
+#  - GitHub cron can drift or skip ticks under load. Acceptable here: the work
+#    signal is idempotent, so a skipped tick is just picked up by the next one.
+#
+# TERMINATION (MAX_PASSES=3):
+# Per PR, an incrementing `claude-review-pass-K` label is stamped BEFORE Claude
+# pushes. The scan counts existing `claude-review-pass-*` labels; at >=MAX_PASSES
+# the PR is skipped forever (until a human removes the labels to re-arm). A
+# one-time `claude-review-capped` label guards the cap-notice comment so it is
+# not re-posted every 10 minutes.
+
+on:
+  schedule:
+    # Every 10 minutes. Cadence rationale: Copilot re-reviews land within a few
+    # minutes of a push; 10 min keeps the round-trip tight without hammering the
+    # API. The idle path is cheap (scan-only), so a frequent poll is affordable.
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {} # manual kick for testing
+
+concurrency:
+  # Serialize sweeper ticks so two overlapping cron runs never both read the
+  # same prior-pass counts and double-spend the budget. cancel-in-progress:false
+  # lets an in-flight sweep finish (it may be mid-push) rather than be killed.
+  group: claude-review-sweeper
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write # PR labels are issue labels in GitHub's model
+  id-token: write # claude-code-action mints its GitHub token via OIDC
+
+env:
+  # Max automatic Claude passes per PR. Tunable single source of truth.
+  # 3 chosen as the smallest cap that allows a real back-and-forth (fix ->
+  # Copilot re-review of the fix -> follow-up fix) while bounding token spend
+  # and guaranteeing termination even if Copilot keeps finding nits.
+  MAX_PASSES: 3
+
+jobs:
+  # STAGE 1 (cheap): scan for eligible PRs. Pure gh/GraphQL, no toolchain, no
+  # Claude. Emits a JSON array of eligible PR numbers as `matrix` and a boolean
+  # `any`. When `any` is false the address job is skipped entirely, so the idle
+  # path costs only the gh calls in this job.
+  scan:
+    name: scan for copilot-reviewed claude PRs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.scan.outputs.matrix }}
+      any: ${{ steps.scan.outputs.any }}
+    steps:
+      - name: Find eligible PRs
+        id: scan
+        env:
+          GH_TOKEN: ${{ secrets.PR_AUTHOR_PAT }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          OWNER="${REPO%/*}"
+          NAME="${REPO#*/}"
+
+          # Candidate PRs: open, authored by claude[bot], head branch claude/issue-*,
+          # and from a same-repo branch (not a fork). We fetch the fields and
+          # filter with jq (NOT `gh pr list --author`) so we match the resolved
+          # bot login "claude[bot]" exactly, avoiding the `app/claude` login-form
+          # ambiguity of the --author flag. The isCrossRepository guard keeps the
+          # sweeper strictly scoped to this repo's own branches: a fork PR with a
+          # similarly-named head would otherwise be checked out by ref against the
+          # wrong repo and fail (and should never be auto-addressed regardless).
+          candidates="$(gh pr list --repo "$REPO" --state open --limit 100 \
+            --json number,headRefName,author,isCrossRepository \
+            --jq '[.[] | select(.author.login == "claude[bot]")
+                       | select(.headRefName | startswith("claude/issue-"))
+                       | select(.isCrossRepository == false)
+                       | .number]')"
+          echo "candidate PRs (claude[bot] + claude/issue-*): $candidates"
+
+          eligible='[]'
+          for pr in $(echo "$candidates" | python3 -c 'import json,sys; print(" ".join(str(n) for n in json.load(sys.stdin)))'); do
+            # Count UNRESOLVED review threads authored by the Copilot reviewer.
+            # Copilot surfaces as login "Copilot" or "copilot-pull-request-reviewer[bot]"
+            # depending on the API surface; match both. We consider a thread a
+            # Copilot thread if its FIRST comment's author is Copilot.
+            unresolved="$(gh api graphql \
+              -f query='
+              query($owner: String!, $repo: String!, $pr: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  pullRequest(number: $pr) {
+                    reviewThreads(first: 50) {
+                      nodes {
+                        isResolved
+                        comments(first: 1) { nodes { author { login } } }
+                      }
+                    }
+                  }
+                }
+              }' -f owner="$OWNER" -f repo="$NAME" -F pr="$pr" \
+              --jq '[.data.repository.pullRequest.reviewThreads.nodes[]
+                       | select(.isResolved == false)
+                       | .comments.nodes[0].author.login
+                       | select(. == "Copilot" or . == "copilot-pull-request-reviewer[bot]")]
+                    | length')"
+
+            # Count prior Claude passes; if at/over cap, the PR is not eligible
+            # (the address job would skip it anyway, but excluding it here keeps
+            # the idle path from spinning up the toolchain for a capped PR).
+            passes="$(gh pr view "$pr" --repo "$REPO" --json labels \
+              --jq '[.labels[].name | select(startswith("claude-review-pass-"))] | length')"
+
+            echo "PR #$pr: unresolved Copilot threads=$unresolved, prior passes=$passes"
+            if [ "$unresolved" -gt 0 ] && [ "$passes" -lt "$MAX_PASSES" ]; then
+              eligible="$(echo "$eligible" | python3 -c "import json,sys; a=json.load(sys.stdin); a.append($pr); print(json.dumps(a))")"
+            elif [ "$unresolved" -gt 0 ] && [ "$passes" -ge "$MAX_PASSES" ]; then
+              # Cap reached AND still has unresolved threads: post a one-time
+              # notice, guarded by the claude-review-capped label so it is not
+              # re-posted every tick.
+              already="$(gh pr view "$pr" --repo "$REPO" --json labels \
+                --jq '[.labels[].name | select(. == "claude-review-capped")] | length')"
+              if [ "$already" -eq 0 ]; then
+                gh label create "claude-review-capped" --repo "$REPO" \
+                  --color b60205 --description "Auto-address cap (MAX_PASSES) reached; needs human" \
+                  2>/dev/null || true
+                gh pr edit "$pr" --repo "$REPO" --add-label "claude-review-capped"
+                gh pr comment "$pr" --repo "$REPO" --body \
+                  "Automated Copilot-review passes hit the cap (MAX_PASSES=${MAX_PASSES}). There are still unresolved Copilot threads. A human should review and resolve them, then remove the \`claude-review-pass-*\` labels to re-arm the sweeper."
+                echo "PR #$pr: capped; posted one-time notice."
+              else
+                echo "PR #$pr: capped; notice already posted, skipping."
+              fi
+            fi
+          done
+
+          echo "eligible PRs: $eligible"
+          echo "matrix=$eligible" >> "$GITHUB_OUTPUT"
+          if [ "$(echo "$eligible" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')" -gt 0 ]; then
+            echo "any=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "any=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # STAGE 2 (expensive): one job per eligible PR. Skipped wholesale when scan
+  # found nothing, so the toolchain + Claude only run when there is real work.
+  address:
+    name: address copilot review (PR #${{ matrix.pr }})
+    needs: scan
+    if: needs.scan.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      # Sequential (max-parallel 1) so passes are reserved one PR at a time and
+      # the shared subscription quota is not hit by N concurrent Claude runs.
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        pr: ${{ fromJson(needs.scan.outputs.matrix) }}
+    steps:
+      # FIRST step: decide whether there is budget, but DO NOT stamp yet. Counting
+      # is cheap and gates the expensive toolchain/Claude steps below. The actual
+      # pass-label stamp is deferred to just before the Claude step (see "Stamp
+      # pass label") so that an infra failure in checkout/setup/install does not
+      # consume a pass without any fix ever being attempted.
+      - name: Count prior passes (decide budget)
+        id: budget
+        env:
+          GH_TOKEN: ${{ secrets.PR_AUTHOR_PAT }}
+          PR: ${{ matrix.pr }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          prior="$(gh pr view "$PR" --repo "$REPO" --json labels \
+            --jq '[.labels[].name | select(startswith("claude-review-pass-"))] | length')"
+          echo "prior passes: $prior  cap: $MAX_PASSES"
+          if [ "$prior" -ge "$MAX_PASSES" ]; then
+            echo "Cap reached ($prior >= $MAX_PASSES); no budget left. Stopping."
+            echo "has_budget=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          next=$((prior + 1))
+          echo "Budget available: pass $next of $MAX_PASSES (label stamped later)."
+          echo "next_label=claude-review-pass-${next}" >> "$GITHUB_OUTPUT"
+          echo "has_budget=true" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve PR head branch
+        id: head
+        if: steps.budget.outputs.has_budget == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PR_AUTHOR_PAT }}
+          PR: ${{ matrix.pr }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          ref="$(gh pr view "$PR" --repo "$REPO" --json headRefName --jq '.headRefName')"
+          echo "head ref: $ref"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout PR head
+        if: steps.budget.outputs.has_budget == 'true'
+        uses: actions/checkout@v4
+        with:
+          # Push fix commits under the Copilot-seated account so they stay
+          # attributable and do not re-trigger as a different identity.
+          token: ${{ secrets.PR_AUTHOR_PAT }}
+          ref: ${{ steps.head.outputs.ref }}
+          fetch-depth: 0
+
+      # Pre-provision the toolchain so the CI test step is fast and reliable,
+      # mirroring versions in tests.yml / claude-implement-issue.yml.
+      - uses: actions/setup-python@v5
+        if: steps.budget.outputs.has_budget == 'true'
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install backend deps
+        if: steps.budget.outputs.has_budget == 'true'
+        working-directory: backend
+        run: pip install -e ".[dev]"
+
+      - uses: actions/setup-node@v4
+        if: steps.budget.outputs.has_budget == 'true'
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install web deps
+        if: steps.budget.outputs.has_budget == 'true'
+        working-directory: web
+        run: npm ci
+
+      # Stamp the pass label NOW — after the toolchain is provisioned and right
+      # before Claude runs/pushes. This preserves the termination invariant
+      # (label exists before the push that triggers Copilot's re-review, so the
+      # next cron tick observes the incremented count and stops at the cap) while
+      # ensuring a runner/setup/registry failure earlier in the job does not burn
+      # a pass. Adding an already-present label is a no-op, so a retried run
+      # cannot double-count.
+      - name: Stamp pass label (reserve budget)
+        if: steps.budget.outputs.has_budget == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PR_AUTHOR_PAT }}
+          PR: ${{ matrix.pr }}
+          REPO: ${{ github.repository }}
+          LABEL: ${{ steps.budget.outputs.next_label }}
+        run: |
+          set -euo pipefail
+          gh label create "$LABEL" --repo "$REPO" \
+            --color ededed --description "Automated Claude pass addressing Copilot review" \
+            2>/dev/null || true
+          gh pr edit "$PR" --repo "$REPO" --add-label "$LABEL"
+          echo "Reserved budget: stamped $LABEL."
+
+      - name: Address Copilot review
+        if: steps.budget.outputs.has_budget == 'true'
+        uses: anthropics/claude-code-action@v1
+        env:
+          # Attribute Claude's `gh` reply/resolve calls (run by resolve-pr-comments)
+          # to the Copilot-seated PAT account rather than the action's default
+          # GITHUB_TOKEN (github-actions[bot]). gh prefers GH_TOKEN over
+          # GITHUB_TOKEN, so this wins for any gh invocation inside the agent.
+          GH_TOKEN: ${{ secrets.PR_AUTHOR_PAT }}
+        with:
+          # Subscription auth (Pro/Max), same as claude-implement-issue.yml.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            GitHub Copilot's code reviewer has left unresolved review threads on
+            PR #${{ matrix.pr }} in this repository. Address them end-to-end on
+            the current branch (${{ steps.head.outputs.ref }}), with no further
+            human input.
+
+            Process:
+            1. Invoke the `resolve-pr-comments` skill and run it for PR
+               #${{ matrix.pr }}. Triage every UNRESOLVED Copilot review thread
+               (Act / Decline / Defer). For each Act decision, make the fix on
+               this branch. Ignore threads authored by anyone other than Copilot
+               (`Copilot` / `copilot-pull-request-reviewer[bot]`).
+            2. After applying fixes, run the suites. THIS IS CI: ignore any
+               local `/Users/...` paths or `venv/bin/` prefixes in skills —
+               dependencies are already installed on the runner. Run exactly:
+                 - backend: `cd backend && pytest -q --ignore=tests/test_sources`
+                 - web tests: `cd web && npx vitest run`
+                 - web types: `cd web && npx tsc --noEmit`
+            3. If ANY suite fails: do NOT commit, do NOT push. Post a comment on
+               the PR explaining what you changed and why it could not land
+               (with the failing output), then STOP.
+            4. If all suites pass: commit the fixes with a conventional-style
+               message (e.g. `fix: address Copilot review on PR
+               #${{ matrix.pr }}`), push to the EXISTING branch, then reply to
+               and resolve each addressed Copilot thread. Do NOT open a new pull
+               request. Do NOT re-request Copilot review.
+          claude_args: |
+            --model claude-opus-4-8
+            --max-turns 80
+            --allowedTools Edit,Write,Read,Glob,Grep,Bash,Task
