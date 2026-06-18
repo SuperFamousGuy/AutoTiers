@@ -87,14 +87,23 @@ jobs:
           set -euo pipefail
 
           # Most recent run of the sweeper, any status (queued/in_progress/
-          # completed). `created_at` is the schedule/dispatch time we care
-          # about. Empty string when the workflow has never run.
-          last_run="$(gh run list \
+          # completed). `createdAt` is the schedule/dispatch time we care
+          # about. An empty result means the workflow has genuinely never run
+          # (gh exits 0 with no matching runs). We deliberately do NOT silence
+          # gh's errors: a real failure to query the API (auth, rate limit,
+          # outage, mistyped workflow name) must not be swallowed into
+          # last_run="", which would masquerade as a benign `no_runs` verdict
+          # and silence the very alarm this workflow exists to raise. So a
+          # non-zero gh exit fails the step loudly (visible in Actions logs).
+          if ! last_run="$(gh run list \
             --repo "$REPO" \
             --workflow "$SWEEPER_WORKFLOW" \
             --limit 1 \
             --json createdAt \
-            --jq '.[0].createdAt // ""' 2>/dev/null || true)"
+            --jq '.[0].createdAt // ""')"; then
+            echo "::error::Failed to query run history for $SWEEPER_WORKFLOW; cannot evaluate sweeper health." >&2
+            exit 1
+          fi
           echo "Sweeper last run: '${last_run:-<none>}'"
 
           now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"

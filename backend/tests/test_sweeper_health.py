@@ -127,7 +127,7 @@ def test_negative_max_missed_ticks_raises():
         evaluate_staleness(last_run=_at(5), now=NOW, max_missed_ticks=-1)
 
 
-def test_main_emits_json_and_exits_zero(capsys=None):
+def test_main_emits_json_and_exits_zero():
     buf = io.StringIO()
     with redirect_stdout(buf):
         rc = main(["--last-run", _at(200), "--now", NOW])

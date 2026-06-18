@@ -110,8 +110,8 @@ def evaluate_staleness(
         A StalenessVerdict. ``stale`` is True only for status "stale".
 
     Raises:
-        ValueError: if interval_minutes or max_missed_ticks are non-positive,
-            or if last_run is in the future relative to now.
+        ValueError: if interval_minutes is non-positive, if max_missed_ticks
+            is negative, or if last_run is in the future relative to now.
     """
     if interval_minutes <= 0:
         raise ValueError("interval_minutes must be positive")
