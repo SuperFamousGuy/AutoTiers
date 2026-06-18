@@ -41,6 +41,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # Persist the Copilot-seated PAT (not the App OIDC token) as git's
+          # credential so the later push can write under .github/workflows/.
+          # The App token lacks the `workflows` permission and GitHub rejects
+          # App-token writes to workflow files (issue #348 blocker). Mirrors
+          # claude-address-copilot-review.yml's "Checkout PR head" step.
+          token: ${{ secrets.PR_AUTHOR_PAT }}
           fetch-depth: 0
 
       # Pre-provision the toolchain so the SDLC test step is fast and reliable,
