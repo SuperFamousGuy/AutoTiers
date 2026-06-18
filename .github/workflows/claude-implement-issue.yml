@@ -1,7 +1,11 @@
 name: claude-implement-issue
 
 # When a trusted author opens an issue, Claude implements it end-to-end on a
-# branch and opens a PR that closes the issue. Design:
+# branch; a follow-up step then opens a PR that closes the issue. The PR is
+# opened by a separate, Copilot-licensed account (PR_AUTHOR_PAT) rather than the
+# action's OIDC App token, because the repo ruleset's automatic Copilot code
+# review only fires when the PR author resolves to an identifiable Copilot seat
+# — App/bot-authored PRs are silently skipped. Design:
 # docs/superpowers/specs/2026-06-16-auto-implement-issues-design.md
 
 on:
@@ -82,14 +86,19 @@ jobs:
                  - backend:  `cd backend && pytest -q --ignore=tests/test_sources`
                  - web tests: `cd web && npx vitest run`
                  - web types: `cd web && npx tsc --noEmit`
-            4. If tests do not pass, do NOT open a PR. Instead post a comment on
-               issue #${{ github.event.issue.number }} explaining the blocker, and
-               stop.
+            4. If tests do not pass, do NOT push a branch or write any PR files.
+               Instead post a comment on issue
+               #${{ github.event.issue.number }} explaining the blocker, and stop.
             5. If tests pass, create a branch named
                `claude/issue-${{ github.event.issue.number }}`, commit the work,
-               push it, and open a pull request whose body starts with
-               `Closes #${{ github.event.issue.number }}` and summarizes the change,
-               your assumptions, and any known gaps.
+               and push it. Do NOT open the pull request yourself — a later
+               workflow step opens it under a Copilot-licensed account so that
+               Copilot's automatic code review runs. Instead, write two files at
+               the repo root (do NOT commit them):
+                 - `.pr-title.txt` — a concise one-line PR title.
+                 - `.pr-body.md` — the PR body. It MUST start with
+                   `Closes #${{ github.event.issue.number }}` and summarize the
+                   change, your assumptions, and any known gaps.
 
             The repo's `.claude/skills/` and `.claude/agents/` are present in the
             checkout — use them.
@@ -97,3 +106,32 @@ jobs:
             --model claude-opus-4-8
             --max-turns 80
             --allowedTools Edit,Write,Read,Glob,Grep,Bash,Task
+
+      # Open the PR under a human, Copilot-seated account (PR_AUTHOR_PAT) instead
+      # of the action's OIDC App token, so the repo ruleset's automatic Copilot
+      # code review fires. The implement step only pushed the branch and wrote
+      # the PR text. Skipped automatically when that step stopped without writing
+      # .pr-body.md (e.g. tests failed and it posted a blocker comment instead).
+      - name: Open pull request
+        if: hashFiles('.pr-body.md') != ''
+        env:
+          GH_TOKEN: ${{ secrets.PR_AUTHOR_PAT }}
+          BRANCH: claude/issue-${{ github.event.issue.number }}
+          BASE: ${{ github.event.repository.default_branch }}
+        run: |
+          # Only an *open* PR for this branch should block a new one. gh pr view
+          # also matches a previously-merged/closed PR on a reused branch name
+          # (issue reopen), which would wrongly skip opening the new PR.
+          if [ -n "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number')" ]; then
+            echo "Open PR already exists for $BRANCH; nothing to open."
+            exit 0
+          fi
+          # Non-fatal read (step runs under bash -e) and collapse to one line so
+          # --title never receives a missing file or embedded newline.
+          title="$(head -n1 .pr-title.txt 2>/dev/null | tr -d '\r' || true)"
+          [ -n "$title" ] || title="Implement issue #${{ github.event.issue.number }}"
+          gh pr create \
+            --base "$BASE" \
+            --head "$BRANCH" \
+            --title "$title" \
+            --body-file .pr-body.md
