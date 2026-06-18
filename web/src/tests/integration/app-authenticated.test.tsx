@@ -58,6 +58,20 @@ const PROFILE_TWO = {
   rules_json: {},
 };
 
+// Profile whose settings carry custom tier-label overrides. Drives the
+// save → reload round-trip coverage for issue #169: the inputs must show the
+// stored overrides on load, and an edited label must survive autosave + reload.
+// tier_labels is keyed by tier number; JSON serializes the keys as strings.
+const PROFILE_WITH_TIER_LABELS = {
+  id: "p1",
+  name: "PPR 12-team",
+  settings_json: {
+    ...PROFILE_ONE.settings_json,
+    tier_labels: { 1: "Studs", 3: "Fills" },
+  },
+  rules_json: PROFILE_ONE.rules_json,
+};
+
 function renderApp() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -730,5 +744,85 @@ describe("App (authenticated integration)", () => {
     expect(
       within(screen.getByRole("tabpanel", { name: "Tiers" })).queryByText("Ja'Marr Chase"),
     ).not.toBeInTheDocument();
+  });
+
+  it("shows stored tier_labels overrides in the Tier Labels inputs on profile load (#169)", async () => {
+    mockAuthenticated([PROFILE_WITH_TIER_LABELS]);
+    renderApp();
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument(),
+    );
+
+    // The Tier Labels section is open by default; the stored overrides populate
+    // their inputs while untouched tiers stay empty (showing the placeholder).
+    await waitFor(() =>
+      expect(screen.getByLabelText("Tier 1 label")).toHaveValue("Studs"),
+    );
+    expect(screen.getByLabelText("Tier 3 label")).toHaveValue("Fills");
+    expect(screen.getByLabelText("Tier 2 label")).toHaveValue("");
+  });
+
+  it("an edited tier label round-trips through autosave and survives reload (#169)", async () => {
+    // Server-side store that PATCH mutates and /me reads back, so a full remount
+    // ("reload") re-hydrates from what was actually persisted — not from a stale
+    // /me snapshot.
+    let stored = PROFILE_WITH_TIER_LABELS;
+    server.use(
+      http.get(`${API_URL}/api/auth/me`, () =>
+        HttpResponse.json({ user: USER, profiles: [stored] }),
+      ),
+      http.patch(`${API_URL}/api/profiles/:id`, async ({ request }) => {
+        const body = (await request.json()) as {
+          settings_json?: Record<string, unknown>;
+          rules_json?: Record<string, unknown>;
+        };
+        stored = {
+          ...stored,
+          settings_json: (body.settings_json ?? stored.settings_json) as typeof stored.settings_json,
+          rules_json: (body.rules_json ?? stored.rules_json) as typeof stored.rules_json,
+        };
+        return HttpResponse.json(stored);
+      }),
+    );
+
+    const { unmount } = renderApp();
+    const user = userEvent.setup();
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument(),
+    );
+    const tier1 = await screen.findByLabelText("Tier 1 label");
+    await waitFor(() => expect(tier1).toHaveValue("Studs"));
+
+    // Edit Tier 1's label, then blur to commit the trimmed value. (Avoid the
+    // default "Elite" — handleTierLabelBlur treats a value equal to the default
+    // as a reset, which would delete the override instead of persisting it.)
+    await user.clear(tier1);
+    await user.type(tier1, "Cornerstones");
+    await user.tab();
+
+    // Autosave (800ms debounce) persists the new label to the server store.
+    await waitFor(
+      () =>
+        expect(
+          (stored.settings_json.tier_labels as Record<string, string>)["1"],
+        ).toBe("Cornerstones"),
+      { timeout: 3000 },
+    );
+    // The untouched override rides along in the same payload, unchanged.
+    expect((stored.settings_json.tier_labels as Record<string, string>)["3"]).toBe("Fills");
+
+    // Reload: unmount and re-render. /me now serves the persisted profile.
+    unmount();
+    renderApp();
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument(),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("Tier 1 label")).toHaveValue("Cornerstones"),
+    );
+    expect(screen.getByLabelText("Tier 3 label")).toHaveValue("Fills");
   });
 });
