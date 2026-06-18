@@ -136,4 +136,71 @@ describe("buildDraftWorkbookSheets", () => {
     const adpColIndex = DRAFT_CSV_HEADERS.indexOf("ADP");
     expect(wr[1][adpColIndex]).toBe("3"); // ppr ADP, not standard 5
   });
+
+  it("freezes the header row (stickyRowsCount=1) on every sheet", () => {
+    const players = [
+      makePlayer({ position: "QB", name: "Q1" }),
+      makePlayer({ position: "WR", name: "W1" }),
+      makePlayer({ position: "DST", name: "D1" }),
+    ];
+    const sheets = buildDraftWorkbookSheets(players, opts());
+    // All + every populated position tab — uniform, no exceptions.
+    expect(sheets.map((s) => s.sheet)).toEqual(["All", "QB", "WR", "DST"]);
+    for (const s of sheets) {
+      expect(s.stickyRowsCount).toBe(1);
+    }
+  });
+
+  it("sets readable column widths aligned 1:1 with the headers on every sheet", () => {
+    const players = [makePlayer({ position: "QB" }), makePlayer({ position: "RB" })];
+    const sheets = buildDraftWorkbookSheets(players, opts());
+    expect(sheets.length).toBeGreaterThan(1);
+    for (const s of sheets) {
+      // One width entry per column, in header order.
+      expect(s.columns).toHaveLength(DRAFT_CSV_HEADERS.length);
+      // Every width is a positive number (no zero/negative/NaN widths).
+      for (const col of s.columns!) {
+        expect(typeof col.width).toBe("number");
+        expect(col.width!).toBeGreaterThan(0);
+      }
+      // The Player column is wider than the narrow numeric columns so long
+      // names (e.g. "Christian McCaffrey") aren't truncated.
+      const widthOf = (h: (typeof DRAFT_CSV_HEADERS)[number]) =>
+        s.columns![DRAFT_CSV_HEADERS.indexOf(h)].width!;
+      for (const narrow of ["Rank", "Pos", "Team", "Age", "Tier"] as const) {
+        expect(widthOf("Player")).toBeGreaterThan(widthOf(narrow));
+      }
+    }
+  });
+
+  it("applies identical width config across All and every position tab", () => {
+    const players = [
+      makePlayer({ position: "QB" }),
+      makePlayer({ position: "WR" }),
+      makePlayer({ position: "TE" }),
+    ];
+    const sheets = buildDraftWorkbookSheets(players, opts());
+    const widthsOf = (sheetName: string) =>
+      sheets.find((s) => s.sheet === sheetName)!.columns!.map((c) => c.width);
+    const allWidths = widthsOf("All");
+    for (const name of ["QB", "WR", "TE"]) {
+      expect(widthsOf(name)).toEqual(allWidths);
+    }
+  });
+
+  it("styling does not alter cell values — 'All' content stays byte-equal to the CSV", () => {
+    const players = [
+      makePlayer({ overall_rank: 1, name: "Christian McCaffrey", position: "RB" }),
+      makePlayer({ overall_rank: 2, name: "Comma, Name", position: "WR" }),
+    ];
+    const sheets = buildDraftWorkbookSheets(players, opts());
+    const all = sheets.find((s) => s.sheet === "All")!;
+    const allValues = cellValues(all as never);
+
+    const expectedRows = players.map((p) =>
+      draftRowValues(p, opts()).map((c) => (c === null || c === undefined ? "" : String(c))),
+    );
+    expect(allValues[0]).toEqual([...DRAFT_CSV_HEADERS]);
+    expect(allValues.slice(1)).toEqual(expectedRows);
+  });
 });
