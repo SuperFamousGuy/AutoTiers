@@ -66,7 +66,7 @@ const DRAFT_COLUMN_WIDTHS = [
   10, // Pos Tier
   8, // ADP
   8, // Value
-  30, // Flags — can carry several comma-separated tags
+  30, // Flags — can carry several semicolon-separated tags
 ] as const;
 
 // Compile-time guard: the width list must stay aligned 1:1 with the headers.
