@@ -41,14 +41,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Persist a PAT (not the default App OIDC token) as git's credential
-          # so the later push can write files under .github/workflows/. GitHub
-          # blocks App-installation tokens from creating or updating workflow
-          # files unless the App is granted workflow-write, which this one is
-          # not; the PAT instead carries the equivalent `workflow` scope. (Push
-          # blocker surfaced while auto-implementing issue #348, whose change
-          # added a workflow file.) Mirrors claude-address-copilot-review.yml's
-          # "Checkout PR head" step.
+          # Persist a PAT (not the default App OIDC token) as git's credential.
+          # NOTE: this alone does NOT make the workflow-file push work. The
+          # `claude-code-action` step below re-seats git's persisted credential
+          # with its own minted OIDC App installation token, so by the time the
+          # agent (or a later step) pushes, the checkout PAT has been overwritten
+          # — and App tokens are blocked from writing under .github/workflows/.
+          # That is exactly what failed live in issue #352 after PR #350 set
+          # this token. The authoritative workflow-file push therefore lives in
+          # the dedicated "Push implemented branch" step below, which re-asserts
+          # the PAT on git's transport explicitly. This token is kept for any
+          # pre-action git operations; the push step is what actually counts.
           token: ${{ secrets.PR_AUTHOR_PAT }}
           fetch-depth: 0
 
@@ -106,11 +109,15 @@ jobs:
                Instead post a comment on issue
                #${{ github.event.issue.number }} explaining the blocker, and stop.
             5. If tests pass, create a branch named
-               `claude/issue-${{ github.event.issue.number }}`, commit the work,
-               and push it. Do NOT open the pull request yourself — a later
-               workflow step opens it under a Copilot-licensed account so that
-               Copilot's automatic code review runs. Instead, write two files at
-               the repo root (do NOT commit them):
+               `claude/issue-${{ github.event.issue.number }}` and commit the
+               work onto it. Do NOT push, and do NOT open the pull request
+               yourself. A later workflow step pushes the branch authenticated
+               as a Copilot-licensed user (your own `git push` would use the
+               action's App token, which GitHub blocks from writing
+               `.github/workflows/` files — see issue #352), and another step
+               opens the PR so Copilot's automatic code review runs. Just leave
+               the commit on the branch as the current `HEAD` and write two
+               files at the repo root (do NOT commit them):
                  - `.pr-title.txt` — a concise one-line PR title.
                  - `.pr-body.md` — the PR body. It MUST start with
                    `Closes #${{ github.event.issue.number }}` and summarize the
@@ -122,6 +129,29 @@ jobs:
             --model claude-opus-4-8
             --max-turns 80
             --allowedTools Edit,Write,Read,Glob,Grep,Bash,Task
+
+      # Push the branch the agent committed, AUTHENTICATED as PR_AUTHOR_PAT, in a
+      # step the action cannot override. The agent only commits (HEAD == the
+      # branch tip); it does not push, because inside `claude-code-action` git's
+      # credential is the action's minted OIDC App token, which GitHub refuses to
+      # let write `.github/workflows/` files (the live #352 failure). `GH_TOKEN`
+      # alone would not help — it steers `gh`, not raw `git push`. So we re-seat
+      # git's transport explicitly: `-c http...extraheader=` clears the App-token
+      # Authorization header the action persisted, and the inline token in the
+      # remote URL authenticates the push as the PAT (which carries `workflow`
+      # scope). Gated on .pr-body.md so a blocker run (no PR files) pushes
+      # nothing, exactly as before.
+      - name: Push implemented branch
+        if: hashFiles('.pr-body.md') != ''
+        env:
+          PAT: ${{ secrets.PR_AUTHOR_PAT }}
+          BRANCH: claude/issue-${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          git push \
+            -c http.https://github.com/.extraheader= \
+            "https://x-access-token:${PAT}@github.com/${REPO}.git" \
+            "HEAD:refs/heads/${BRANCH}"
 
       # Create the PR with `gh` AUTHENTICATED as PR_AUTHOR_PAT (a Copilot-licensed
       # user token) instead of the action's OIDC App token. Creating it via a
