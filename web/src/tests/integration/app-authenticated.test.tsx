@@ -345,8 +345,13 @@ describe("App (authenticated integration)", () => {
 
     // Simulate clicking outside the dialog content. We use fireEvent (not userEvent) because
     // userEvent refuses pointer interactions when body.style.pointerEvents is "none".
+    // react-dialog >=1.1.17 sets deferPointerDownOutside on its DismissableLayer, so a
+    // primary-button (button 0) pointerdown only *arms* the outside dismiss and defers the
+    // actual close to the following click event — matching a real browser's
+    // pointerdown -> pointerup -> click sequence. We must dispatch the click too.
     fireEvent.pointerDown(document.body);
     fireEvent.pointerUp(document.body);
+    fireEvent.click(document.body);
 
     // The dialog should close — "Connect Your League" title leaves the DOM.
     await waitFor(() => expect(screen.queryByText(/^connect your league$/i)).not.toBeInTheDocument());
