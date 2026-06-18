@@ -1,0 +1,144 @@
+name: claude-sweeper-health
+
+# Staleness / health alarm for the copilot-review cron sweeper
+# (.github/workflows/claude-address-copilot-review.yml, added by PR #344).
+#
+# WHY THIS EXISTS (issue #348):
+# GitHub's scheduled (cron) workflows are not a reliable heartbeat. The sweeper
+# can silently stop firing in two ways, neither of which emits any error:
+#   1. CRON DRIFT / SKIPPED TICKS. GitHub may delay or drop scheduled ticks
+#      under load. One skipped tick is harmless (the sweeper's work signal is
+#      idempotent), but a RUN of consecutive misses means Copilot reviews pile
+#      up unaddressed.
+#   2. 60-DAY INACTIVITY AUTO-DISABLE. GitHub AUTOMATICALLY DISABLES scheduled
+#      workflows in a repository that has had NO commit/push activity for 60
+#      consecutive days. A disabled workflow stops running entirely and shows
+#      no failure — it just goes quiet. Re-enable it from the Actions tab (or
+#      `gh workflow enable claude-address-copilot-review.yml`); any push to the
+#      default branch also resets the 60-day clock. This same auto-disable
+#      applies to THIS health workflow, so a long-dormant repo will silence the
+#      alarm too — by which point the repo has no active PRs to sweep anyway.
+#
+# WHY A SEPARATE WORKFLOW (not a job inside the sweeper):
+# A health check embedded in the sweeper could never fire when the sweeper
+# itself is disabled or not being scheduled — exactly the failure we most need
+# to catch. So the alarm runs on its OWN independent schedule and observes the
+# sweeper from the outside via the GitHub API.
+#
+# WHAT IT DOES each tick:
+#   - Reads the timestamp of the sweeper's most recent run (any status) via the
+#     Actions API.
+#   - Feeds it to scripts/sweeper_health.py, which decides if the gap exceeds
+#     the allowed number of missed ticks (the boundary math is unit-tested in
+#     backend/tests/test_sweeper_health.py).
+#   - If STALE: opens a tracking issue a human will see, or updates the existing
+#     open one (deduplicated by the `sweeper-stale` label) so it does not spam a
+#     new issue every hour.
+#   - If HEALTHY again: closes the open staleness issue with a recovery comment.
+#   - If NO RUNS yet (sweeper not live on the default branch): does nothing.
+
+on:
+  schedule:
+    # Hourly. The sweeper runs every 10 min; an hourly observer is frequent
+    # enough to catch a multi-tick outage quickly while staying cheap (one
+    # API read + a tiny Python call per tick). The grace window in
+    # sweeper_health.py (default 6 missed ticks ~= 70 min) is wider than this
+    # cadence so a single drifted sweeper tick never trips the alarm.
+    - cron: "17 * * * *"
+  workflow_dispatch: {} # manual kick for testing
+
+concurrency:
+  # Never let two health checks race on opening/closing the same alarm issue.
+  group: claude-sweeper-health
+  cancel-in-progress: false
+
+permissions:
+  contents: read # actions/checkout
+  actions: read # read the sweeper's run history
+  issues: write # open / comment / close the staleness alarm issue
+
+env:
+  # The workflow file whose schedule we are monitoring.
+  SWEEPER_WORKFLOW: claude-address-copilot-review.yml
+  # The sweeper's cron cadence, in minutes (its schedule is `*/10`).
+  INTERVAL_MINUTES: "10"
+  # Allowed consecutive missed ticks before alarming. 6 => ~70-min grace.
+  MAX_MISSED_TICKS: "6"
+  # Label used to deduplicate the alarm issue.
+  STALE_LABEL: sweeper-stale
+
+jobs:
+  health-check:
+    name: check sweeper freshness
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Evaluate sweeper staleness and alarm if needed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Most recent run of the sweeper, any status (queued/in_progress/
+          # completed). `created_at` is the schedule/dispatch time we care
+          # about. Empty string when the workflow has never run.
+          last_run="$(gh run list \
+            --repo "$REPO" \
+            --workflow "$SWEEPER_WORKFLOW" \
+            --limit 1 \
+            --json createdAt \
+            --jq '.[0].createdAt // ""' 2>/dev/null || true)"
+          echo "Sweeper last run: '${last_run:-<none>}'"
+
+          now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          verdict="$(python3 backend/scripts/sweeper_health.py \
+            --last-run "$last_run" \
+            --now "$now" \
+            --interval-minutes "$INTERVAL_MINUTES" \
+            --max-missed-ticks "$MAX_MISSED_TICKS")"
+          echo "Verdict: $verdict"
+
+          status="$(echo "$verdict" | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])')"
+          detail="$(echo "$verdict" | python3 -c 'import json,sys; print(json.load(sys.stdin)["detail"])')"
+
+          # Find an existing open alarm issue (dedup by label).
+          existing="$(gh issue list --repo "$REPO" \
+            --label "$STALE_LABEL" --state open --limit 1 \
+            --json number --jq '.[0].number // ""')"
+
+          if [ "$status" = "stale" ]; then
+            body="$(printf '## Copilot-review sweeper appears stale\n\n%s\n\nRaw verdict:\n\n```json\n%s\n```\n\n**What to check**\n- Is `%s` disabled? (Actions tab, or after 60 days of repo inactivity — re-enable with `gh workflow enable %s`, or push any commit to reset the 60-day clock.)\n- Are scheduled workflows being throttled/skipped for this repo right now?\n\nThis issue auto-closes once the sweeper runs within its expected window again.\n\n_Filed by `claude-sweeper-health.yml` (issue #348)._' "$detail" "$verdict" "$SWEEPER_WORKFLOW" "$SWEEPER_WORKFLOW")"
+            if [ -n "$existing" ]; then
+              echo "Alarm already open (#$existing); adding a status comment."
+              gh issue comment "$existing" --repo "$REPO" --body "$body"
+            else
+              echo "Opening new staleness alarm issue."
+              gh label create "$STALE_LABEL" --repo "$REPO" \
+                --color b60205 --description "Copilot-review sweeper missed its schedule" \
+                2>/dev/null || true
+              gh issue create --repo "$REPO" \
+                --title "alarm: copilot-review sweeper is stale" \
+                --label "$STALE_LABEL" \
+                --body "$body"
+            fi
+          elif [ "$status" = "healthy" ]; then
+            if [ -n "$existing" ]; then
+              echo "Sweeper recovered; closing alarm #$existing."
+              gh issue comment "$existing" --repo "$REPO" --body \
+                "Sweeper is firing on schedule again. $detail Auto-closing."
+              gh issue close "$existing" --repo "$REPO" --reason completed
+            else
+              echo "Sweeper healthy; no alarm open. Nothing to do."
+            fi
+          else
+            # no_runs: sweeper not live on the default branch yet. Do nothing.
+            echo "No sweeper run history yet; not alarming. $detail"
+          fi
