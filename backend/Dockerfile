@@ -26,4 +26,10 @@ RUN chmod +x ./scripts/entrypoint.sh
 EXPOSE 8000
 
 ENTRYPOINT ["./scripts/entrypoint.sh"]
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# NOTE: no --reload. This image runs in prod (API + the pinned scheduler task).
+# uvicorn --reload runs WatchFiles over /app; the scheduler's refresh_all writes
+# cache files under /app (nfl_data_py, __pycache__), which trips a reload and
+# restarts the process before APScheduler's hourly IntervalTrigger ever fires —
+# silently freezing all data updates. Dev hot-reload is opted back in via the
+# `command:` override in docker-compose.yml.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

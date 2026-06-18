@@ -32,6 +32,10 @@ services:
       RUN_SCHEDULER: "false"
       ADMIN_API_KEY: ""
       SEED_DEV_DATA: "${SEED_DEV_DATA:-true}"
+    # Dev-only hot reload. The image CMD intentionally omits --reload (prod-safe);
+    # restore it here since dev mounts source below. Do NOT add --reload to the
+    # prod image — it breaks the scheduler (see backend/Dockerfile).
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
