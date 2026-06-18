@@ -89,14 +89,19 @@ jobs:
           OWNER="${REPO%/*}"
           NAME="${REPO#*/}"
 
-          # Candidate PRs: open, authored by claude[bot], head branch claude/issue-*.
-          # We fetch author/headRefName and filter with jq (NOT `gh pr list
-          # --author`) so we match the resolved bot login "claude[bot]" exactly,
-          # avoiding the `app/claude` login-form ambiguity of the --author flag.
+          # Candidate PRs: open, authored by claude[bot], head branch claude/issue-*,
+          # and from a same-repo branch (not a fork). We fetch the fields and
+          # filter with jq (NOT `gh pr list --author`) so we match the resolved
+          # bot login "claude[bot]" exactly, avoiding the `app/claude` login-form
+          # ambiguity of the --author flag. The isCrossRepository guard keeps the
+          # sweeper strictly scoped to this repo's own branches: a fork PR with a
+          # similarly-named head would otherwise be checked out by ref against the
+          # wrong repo and fail (and should never be auto-addressed regardless).
           candidates="$(gh pr list --repo "$REPO" --state open --limit 100 \
-            --json number,headRefName,author \
+            --json number,headRefName,author,isCrossRepository \
             --jq '[.[] | select(.author.login == "claude[bot]")
                        | select(.headRefName | startswith("claude/issue-"))
+                       | select(.isCrossRepository == false)
                        | .number]')"
           echo "candidate PRs (claude[bot] + claude/issue-*): $candidates"
 
@@ -179,11 +184,12 @@ jobs:
       matrix:
         pr: ${{ fromJson(needs.scan.outputs.matrix) }}
     steps:
-      # FIRST step: reserve budget by stamping the next pass label BEFORE Claude
-      # pushes, so the push-triggered Copilot re-review (observed by the next
-      # cron tick) sees the incremented count and stops at the cap. Re-checks the
-      # count here too (defense in depth: scan and address run minutes apart).
-      - name: Count prior passes and reserve budget
+      # FIRST step: decide whether there is budget, but DO NOT stamp yet. Counting
+      # is cheap and gates the expensive toolchain/Claude steps below. The actual
+      # pass-label stamp is deferred to just before the Claude step (see "Stamp
+      # pass label") so that an infra failure in checkout/setup/install does not
+      # consume a pass without any fix ever being attempted.
+      - name: Count prior passes (decide budget)
         id: budget
         env:
           GH_TOKEN: ${{ secrets.PR_AUTHOR_PAT }}
@@ -200,15 +206,8 @@ jobs:
             exit 0
           fi
           next=$((prior + 1))
-          label="claude-review-pass-${next}"
-          # Stamp BEFORE Claude pushes. Create the label if missing (idempotent),
-          # then add it. Adding an already-present label is a no-op, so a retried
-          # run cannot double-count.
-          gh label create "$label" --repo "$REPO" \
-            --color ededed --description "Automated Claude pass addressing Copilot review" \
-            2>/dev/null || true
-          gh pr edit "$PR" --repo "$REPO" --add-label "$label"
-          echo "Reserved budget: stamped $label (pass $next of $MAX_PASSES)."
+          echo "Budget available: pass $next of $MAX_PASSES (label stamped later)."
+          echo "next_label=claude-review-pass-${next}" >> "$GITHUB_OUTPUT"
           echo "has_budget=true" >> "$GITHUB_OUTPUT"
 
       - name: Resolve PR head branch
@@ -258,9 +257,37 @@ jobs:
         working-directory: web
         run: npm ci
 
+      # Stamp the pass label NOW — after the toolchain is provisioned and right
+      # before Claude runs/pushes. This preserves the termination invariant
+      # (label exists before the push that triggers Copilot's re-review, so the
+      # next cron tick observes the incremented count and stops at the cap) while
+      # ensuring a runner/setup/registry failure earlier in the job does not burn
+      # a pass. Adding an already-present label is a no-op, so a retried run
+      # cannot double-count.
+      - name: Stamp pass label (reserve budget)
+        if: steps.budget.outputs.has_budget == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PR_AUTHOR_PAT }}
+          PR: ${{ matrix.pr }}
+          REPO: ${{ github.repository }}
+          LABEL: ${{ steps.budget.outputs.next_label }}
+        run: |
+          set -euo pipefail
+          gh label create "$LABEL" --repo "$REPO" \
+            --color ededed --description "Automated Claude pass addressing Copilot review" \
+            2>/dev/null || true
+          gh pr edit "$PR" --repo "$REPO" --add-label "$LABEL"
+          echo "Reserved budget: stamped $LABEL."
+
       - name: Address Copilot review
         if: steps.budget.outputs.has_budget == 'true'
         uses: anthropics/claude-code-action@v1
+        env:
+          # Attribute Claude's `gh` reply/resolve calls (run by resolve-pr-comments)
+          # to the Copilot-seated PAT account rather than the action's default
+          # GITHUB_TOKEN (github-actions[bot]). gh prefers GH_TOKEN over
+          # GITHUB_TOKEN, so this wins for any gh invocation inside the agent.
+          GH_TOKEN: ${{ secrets.PR_AUTHOR_PAT }}
         with:
           # Subscription auth (Pro/Max), same as claude-implement-issue.yml.
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
