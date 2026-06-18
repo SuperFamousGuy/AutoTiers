@@ -49,7 +49,9 @@ async def test_setup_scheduler_fires_immediately_on_boot():
     try:
         job = scheduler.get_job("hourly_refresh")
         assert job.next_run_time is not None
-        # Scheduled within the last minute (≈ now), not an hour out.
-        assert job.next_run_time <= datetime.now(ZoneInfo("UTC")) + timedelta(seconds=5)
+        # Scheduled at ≈ now, not an hour out — and not stuck far in the past
+        # either, so bound it on both sides rather than just the upper end.
+        now = datetime.now(ZoneInfo("UTC"))
+        assert now - timedelta(minutes=1) <= job.next_run_time <= now + timedelta(seconds=5)
     finally:
         scheduler.shutdown()

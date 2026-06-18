@@ -128,11 +128,21 @@ class TestBackendDockerfile:
         Dev hot reload is opted back in via the `command:` override in
         docker-compose.yml, which is the correct place for it.
         """
-        cmd_lines = [
-            ln.strip()
-            for ln in self.DOCKERFILE.read_text().splitlines()
-            if ln.strip().upper().startswith("CMD")
-        ]
+        # Join backslash line-continuations into logical instructions first, so a
+        # CMD reformatted across multiple lines (with `--reload` on a continuation
+        # line) is still inspected as a single CMD instruction.
+        logical_lines: list[str] = []
+        buffer = ""
+        for raw in self.DOCKERFILE.read_text().splitlines():
+            buffer = f"{buffer} {raw.strip()}".strip() if buffer else raw.strip()
+            if buffer.endswith("\\"):
+                buffer = buffer[:-1].rstrip()
+            else:
+                logical_lines.append(buffer)
+                buffer = ""
+        if buffer:
+            logical_lines.append(buffer)
+        cmd_lines = [ln for ln in logical_lines if ln.upper().startswith("CMD")]
         for line in cmd_lines:
             assert "--reload" not in line, (
                 "backend/Dockerfile CMD must not include '--reload' — it breaks "
