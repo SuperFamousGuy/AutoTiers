@@ -2,11 +2,15 @@ name: claude-implement-issue
 
 # When a trusted author opens an issue, Claude implements it end-to-end on a
 # branch; a follow-up step then opens a PR that closes the issue. The PR is
-# opened by a separate, Copilot-licensed account (PR_AUTHOR_PAT) rather than the
-# action's OIDC App token, because the repo ruleset's automatic Copilot code
-# review only fires when the PR author resolves to an identifiable Copilot seat
-# — App/bot-authored PRs are silently skipped. Design:
-# docs/superpowers/specs/2026-06-16-auto-implement-issues-design.md
+# opened with a separate, Copilot-licensed account (PR_AUTHOR_PAT) rather than
+# the action's OIDC App token so that fix commits and the PR stay attributable
+# to a Copilot-seated user. NOTE: the PR author still resolves to claude[bot]
+# (a Bot identity) and Copilot's automatic code review DOES fire on these
+# PRs — see PRs #321/#324, both claude[bot]-authored, which received Copilot
+# reviews. (An earlier comment here wrongly claimed App/bot-authored PRs are
+# silently skipped by Copilot review; the live evidence contradicts that.)
+# Copilot's reviews are auto-addressed by .github/workflows/claude-address-copilot-review.yml.
+# Design: docs/superpowers/specs/2026-06-16-auto-implement-issues-design.md
 
 on:
   issues:
@@ -107,11 +111,14 @@ jobs:
             --max-turns 80
             --allowedTools Edit,Write,Read,Glob,Grep,Bash,Task
 
-      # Open the PR under a human, Copilot-seated account (PR_AUTHOR_PAT) instead
-      # of the action's OIDC App token, so the repo ruleset's automatic Copilot
-      # code review fires. The implement step only pushed the branch and wrote
-      # the PR text. Skipped automatically when that step stopped without writing
-      # .pr-body.md (e.g. tests failed and it posted a blocker comment instead).
+      # Open the PR with a human, Copilot-seated account (PR_AUTHOR_PAT) instead
+      # of the action's OIDC App token, so fix commits and the PR stay
+      # attributable to a Copilot-seated user. (Copilot's automatic review fires
+      # regardless — the PR author resolves to claude[bot] and Copilot still
+      # reviews it; see PRs #321/#324.) The implement step only pushed the branch
+      # and wrote the PR text. Skipped automatically when that step stopped
+      # without writing .pr-body.md (e.g. tests failed and it posted a blocker
+      # comment instead).
       - name: Open pull request
         if: hashFiles('.pr-body.md') != ''
         env:

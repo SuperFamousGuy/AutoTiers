@@ -1,0 +1,165 @@
+name: claude-address-copilot-review
+
+# When GitHub Copilot's code reviewer leaves a PR-level review on a PR that
+# claude-implement-issue.yml opened, Claude reads the review, applies the fixes
+# on the same branch, runs the CI suites, and (if green) commits + pushes +
+# replies/resolves the threads. This lets Copilot <-> Claude iterate
+# automatically, BOUNDED to MAX_PASSES rounds per PR.
+#
+# Scope: strictly Copilot's PR-level reviews on claude[bot]-authored PRs whose
+# head branch is claude/issue-*. Human reviews are ignored (see the if: gate).
+#
+# Re-arm policy: NOT a one-shot label. A bounded counter (claude-review-pass-K
+# labels) lets the loop re-arm up to MAX_PASSES times, then terminates. The
+# counter is stamped BEFORE Claude pushes, so the push-triggered Copilot
+# re-review sees the higher count and stops at the cap. See the count step.
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+concurrency:
+  # Serialize all review-driven runs for one PR so two overlapping reviews can't
+  # both read the same prior-pass count and double-spend the budget.
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write # PR labels are issue labels in GitHub's model
+  id-token: write # claude-code-action mints its GitHub token via OIDC
+
+env:
+  # Max automatic Claude passes per PR. Tunable single source of truth.
+  # 3 chosen as the smallest cap that allows a real back-and-forth (fix ->
+  # Copilot re-review of the fix -> follow-up fix) while bounding token spend
+  # and guaranteeing termination even if Copilot keeps finding nits.
+  MAX_PASSES: 3
+
+jobs:
+  address-review:
+    name: address copilot review
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # CHEAP IDENTITY GATE (payload-only; no API calls). Only Copilot's PR-level
+    # reviews on claude[bot]-authored claude/issue-* PRs. A webhook if: cannot
+    # run gh to count passes, so the cap is enforced by the count step below,
+    # not here. Payload fields:
+    #   review.state         -> lowercase "commented" in the pull_request_review
+    #                           EVENT payload (GitHub normalizes it; note the
+    #                           REST /pulls/{n}/reviews API returns "COMMENTED"
+    #                           uppercase — do NOT match that here).
+    #   review.user.login    -> "copilot-pull-request-reviewer[bot]" (confirmed
+    #                           via REST reviews on PRs #320/#321/#324).
+    #   pull_request.user.login -> "claude[bot]" (confirmed on PRs #321/#324).
+    #   pull_request.head.ref -> "claude/issue-318" etc. (confirmed).
+    # Smoke-verify the review.state casing on first live run (see workflow notes).
+    if: >-
+      github.event.review.state == 'commented' &&
+      github.event.review.user.login == 'copilot-pull-request-reviewer[bot]' &&
+      github.event.pull_request.user.login == 'claude[bot]' &&
+      startsWith(github.event.pull_request.head.ref, 'claude/issue-')
+    steps:
+      # FIRST step: count prior Claude passes and short-circuit if the cap is
+      # reached. MUST stamp the new pass label BEFORE the Claude step pushes, so
+      # the push-triggered re-review observes the incremented count and stops.
+      - name: Count prior passes and reserve budget
+        id: budget
+        env:
+          GH_TOKEN: ${{ secrets.PR_AUTHOR_PAT }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # How many claude-review-pass-* labels already exist on this PR.
+          prior="$(gh pr view "$PR" --repo "$REPO" --json labels \
+            --jq '[.labels[].name | select(startswith("claude-review-pass-"))] | length')"
+          echo "prior passes: $prior  cap: $MAX_PASSES"
+          if [ "$prior" -ge "$MAX_PASSES" ]; then
+            echo "Cap reached ($prior >= $MAX_PASSES); no budget left. Stopping."
+            echo "has_budget=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          next=$((prior + 1))
+          label="claude-review-pass-${next}"
+          # Stamp BEFORE Claude pushes. Create the label if missing (idempotent),
+          # then add it. Adding an already-present label is a no-op, so a retried
+          # run cannot double-count.
+          gh label create "$label" --repo "$REPO" \
+            --color ededed --description "Automated Claude pass addressing Copilot review" \
+            2>/dev/null || true
+          gh pr edit "$PR" --repo "$REPO" --add-label "$label"
+          echo "Reserved budget: stamped $label (pass $next of $MAX_PASSES)."
+          echo "has_budget=true" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout PR head
+        if: steps.budget.outputs.has_budget == 'true'
+        uses: actions/checkout@v4
+        with:
+          # Push fix commits under the Copilot-seated account so they stay
+          # attributable and do not re-trigger as a different identity.
+          token: ${{ secrets.PR_AUTHOR_PAT }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      # Pre-provision the toolchain so the CI test step is fast and reliable,
+      # mirroring versions in tests.yml / claude-implement-issue.yml.
+      - uses: actions/setup-python@v5
+        if: steps.budget.outputs.has_budget == 'true'
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install backend deps
+        if: steps.budget.outputs.has_budget == 'true'
+        working-directory: backend
+        run: pip install -e ".[dev]"
+
+      - uses: actions/setup-node@v4
+        if: steps.budget.outputs.has_budget == 'true'
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install web deps
+        if: steps.budget.outputs.has_budget == 'true'
+        working-directory: web
+        run: npm ci
+
+      - name: Address Copilot review
+        if: steps.budget.outputs.has_budget == 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          # Subscription auth (Pro/Max), same as claude-implement-issue.yml.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            GitHub Copilot's code reviewer just left a review on PR
+            #${{ github.event.pull_request.number }} in this repository. Address
+            it end-to-end on the current branch
+            (${{ github.event.pull_request.head.ref }}), with no further human
+            input.
+
+            Process:
+            1. Invoke the `resolve-pr-comments` skill and run it for PR
+               #${{ github.event.pull_request.number }}. Triage every open
+               Copilot review thread (Act / Decline / Defer). For each Act
+               decision, make the fix on this branch.
+            2. After applying fixes, run the suites. THIS IS CI: ignore any
+               local `/Users/...` paths or `venv/bin/` prefixes in skills —
+               dependencies are already installed on the runner. Run exactly:
+                 - backend: `cd backend && pytest -q --ignore=tests/test_sources`
+                 - web tests: `cd web && npx vitest run`
+                 - web types: `cd web && npx tsc --noEmit`
+            3. If ANY suite fails: do NOT commit, do NOT push. Post a comment on
+               the PR explaining what you changed and why it could not land
+               (with the failing output), then STOP.
+            4. If all suites pass: commit the fixes with a conventional-style
+               message (e.g. `fix: address Copilot review on PR
+               #${{ github.event.pull_request.number }}`), push to the EXISTING
+               branch, then reply to and resolve each addressed Copilot thread.
+               Do NOT open a new pull request. Do NOT re-request Copilot review.
+          claude_args: |
+            --model claude-opus-4-8
+            --max-turns 80
+            --allowedTools Edit,Write,Read,Glob,Grep,Bash,Task
