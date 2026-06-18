@@ -768,11 +768,15 @@ describe("App (authenticated integration)", () => {
     // ("reload") re-hydrates from what was actually persisted — not from a stale
     // /me snapshot.
     let stored = PROFILE_WITH_TIER_LABELS;
+    // Capture the profile id the autosave PATCHes so the round-trip assertion
+    // fails if it ever targets the wrong profile (the handler matches any :id).
+    let patchedId: string | undefined;
     server.use(
       http.get(`${API_URL}/api/auth/me`, () =>
         HttpResponse.json({ user: USER, profiles: [stored] }),
       ),
-      http.patch(`${API_URL}/api/profiles/:id`, async ({ request }) => {
+      http.patch(`${API_URL}/api/profiles/:id`, async ({ request, params }) => {
+        patchedId = params.id as string;
         const body = (await request.json()) as {
           settings_json?: Record<string, unknown>;
           rules_json?: Record<string, unknown>;
@@ -810,6 +814,8 @@ describe("App (authenticated integration)", () => {
         ).toBe("Cornerstones"),
       { timeout: 3000 },
     );
+    // Autosave must target this profile, not some other id.
+    expect(patchedId).toBe("p1");
     // The untouched override rides along in the same payload, unchanged.
     expect((stored.settings_json.tier_labels as Record<string, string>)["3"]).toBe("Fills");
 
