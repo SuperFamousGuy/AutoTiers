@@ -283,6 +283,16 @@ describe("resolveTierLabelOverrides (#164)", () => {
     expect(resolveTierLabelOverrides(global, { ppr: {} }, "ppr")).toEqual(global);
   });
 
+  it("returns a fresh copy, not the global map by reference", () => {
+    // Guards the helper's "plain merged map" / "pure" contract: a caller
+    // mutating the result must not leak back into settings.tier_labels.
+    const global = { 1: "Global Studs" };
+    const result = resolveTierLabelOverrides(global, undefined, "ppr");
+    expect(result).not.toBe(global);
+    result[1] = "Mutated";
+    expect(global).toEqual({ 1: "Global Studs" });
+  });
+
   it("half_ppr resolves its own overrides independently of ppr", () => {
     const byFormat = { half_ppr: { 3: "Half Fills" }, ppr: { 3: "PPR Fills" } };
     expect(resolveTierLabelOverrides(undefined, byFormat, "half_ppr")).toEqual({ 3: "Half Fills" });

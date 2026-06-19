@@ -83,7 +83,7 @@ export function resolveTierLabelOverrides(
 ): TierLabelOverrides {
   const formatOverrides = byFormat?.[format];
   if (!formatOverrides || Object.keys(formatOverrides).length === 0) {
-    return global ?? {};
+    return { ...(global ?? {}) };
   }
   return { ...(global ?? {}), ...formatOverrides };
 }
