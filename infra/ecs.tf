@@ -88,6 +88,14 @@ resource "aws_ecs_task_definition" "backend" {
           value = "false"
         },
         {
+          # Migrations are owned by the dedicated migrate task (migrations.tf),
+          # run once per deploy before this service rolls. Letting the autoscaled
+          # backend replicas migrate on boot would race them (and the scheduler)
+          # against the same DB — alembic holds no lock across the DDL.
+          name  = "RUN_MIGRATIONS"
+          value = "false"
+        },
+        {
           # JSON array required by the backend's cors_origins setting
           name  = "CORS_ORIGINS"
           value = local.cors_origins
@@ -210,6 +218,8 @@ resource "aws_ecs_service" "backend" {
   depends_on = [
     aws_lb_listener.http,
     aws_iam_role_policy_attachment.ecs_task_execution_managed,
+    # Schema must exist before the API serves traffic (issue #182).
+    null_resource.run_migrations,
   ]
 
   tags = {
@@ -279,6 +289,8 @@ resource "aws_ecs_task_definition" "scheduler" {
       environment = [
         { name = "DEBUG", value = "false" },
         { name = "RUN_SCHEDULER", value = "true" },
+        # See backend task above — migrations are owned by the migrate task.
+        { name = "RUN_MIGRATIONS", value = "false" },
         {
           name  = "CORS_ORIGINS"
           value = local.cors_origins
@@ -335,6 +347,8 @@ resource "aws_ecs_service" "scheduler" {
 
   depends_on = [
     aws_iam_role_policy_attachment.ecs_task_execution_managed,
+    # Schema must exist before the scheduler runs jobs (issue #182).
+    null_resource.run_migrations,
   ]
 
   tags = {

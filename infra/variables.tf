@@ -22,6 +22,19 @@ variable "backend_image_tag" {
   default     = "latest"
 }
 
+variable "run_migrations_on_apply" {
+  description = <<-EOT
+    When true (default), `terraform apply` runs the one-off Alembic migration
+    task (alembic upgrade head) via aws ecs run-task whenever the backend image
+    tag or the migration files change, and blocks until it succeeds (see
+    infra/migrations.tf). Requires the AWS CLI and live credentials on the
+    machine running apply. Set to false for plan-only / `terraform validate`
+    environments with no cluster or credentials.
+  EOT
+  type        = bool
+  default     = true
+}
+
 variable "db_username" {
   description = "Master username for the Aurora cluster."
   type        = string
