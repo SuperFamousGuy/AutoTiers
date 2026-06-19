@@ -68,15 +68,42 @@ jobs:
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
 
+      # Resolve the versioned image tag. On a published release this is the
+      # release tag (e.g. v1.2.3); on a manual workflow_dispatch there is no
+      # release, so fall back to a short-SHA tag so the build still produces a
+      # uniquely identifiable, rollback-able image alongside :latest. The tag
+      # is read from an env var (not interpolated into the script) to avoid
+      # shell-injection via the release name.
+      - name: Resolve image tags
+        id: tags
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if [ -z "$RELEASE_TAG" ]; then
+            RELEASE_TAG="manual-${GITHUB_SHA::7}"
+          fi
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+
+      # Tag every build with both :latest (the moving tag the ECS task
+      # definition references) and an immutable versioned tag, so a bad deploy
+      # can be rolled back to a known-good prior image (issue #188 — see
+      # docs/runbooks/deploy-rollback.md).
       - name: Build Docker image
+        env:
+          IMAGE_TAG: ${{ steps.tags.outputs.release_tag }}
         run: |
           docker build \
             --platform linux/amd64 \
-            -t ${{ vars.ECR_REPO }}:latest \
+            -t "${{ vars.ECR_REPO }}:latest" \
+            -t "${{ vars.ECR_REPO }}:${IMAGE_TAG}" \
             ./backend
 
       - name: Push image to ECR
-        run: docker push ${{ vars.ECR_REPO }}:latest
+        env:
+          IMAGE_TAG: ${{ steps.tags.outputs.release_tag }}
+        run: |
+          docker push "${{ vars.ECR_REPO }}:latest"
+          docker push "${{ vars.ECR_REPO }}:${IMAGE_TAG}"
 
       # Apply database migrations as a one-off ECS task BEFORE rolling the
       # services, so the new image never serves traffic against an out-of-date
