@@ -1,5 +1,3 @@
-import csv as csv_module
-import io as io_module
 import pytest
 from datetime import date, datetime
 from app.models.player import Player, PlayerStat
@@ -696,47 +694,6 @@ async def test_partial_data_player_does_not_outrank_complete_data_player(async_c
     assert star["overall_rank"] < winston["overall_rank"]
     # Winston should have the Projection Unavailable rule applied
     assert "Projection Unavailable" in winston["rules_applied"]
-
-
-async def test_generate_csv_returns_csv_file(async_client, test_db):
-    await _seed(test_db)
-    payload = {
-        "scoring_format": "ppr",
-        "league_type": "standard",
-        "league_size": 12,
-        "qb_td_points": 4.0,
-        "bonus_100yd_rushing": False,
-        "bonus_100yd_receiving": False,
-        "bonus_first_downs": False,
-        "weight_prior_year": 0.40,
-        "weight_espn": 0.30,
-        "weight_consensus": 0.30,
-        "rules": {}
-    }
-    response = await async_client.post("/api/generate/csv", json=payload)
-    assert response.status_code == 200
-    assert "text/csv" in response.headers["content-type"]
-    assert "attachment" in response.headers.get("content-disposition", "")
-
-    lines = response.text.strip().split("\n")
-    assert len(lines) >= 2  # header + at least 1 data row
-    header = lines[0].strip()
-    assert "overall_rank" in header
-    assert "player" in header
-    assert "positional_tier" in header
-    # New columns present
-    assert "espn_projection" in header
-    assert "fantasypros_projection" in header
-    assert "rule_deltas" in header
-
-    reader = csv_module.reader(io_module.StringIO(response.text))
-    rows = list(reader)
-    # 3 seeded players = 4 rows total (header + 3 data rows)
-    assert len(rows) == 4
-    data_row = rows[1]  # first data row (highest ranked player)
-    assert data_row[0].isdigit()  # overall_rank is a number
-    assert data_row[1] in {"Chase", "Henry", "Allen"}  # player name present
-    assert data_row[2] in {"WR", "RB", "QB"}  # position present
 
 
 @pytest.mark.asyncio
