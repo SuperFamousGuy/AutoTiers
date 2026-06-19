@@ -109,9 +109,23 @@ def test_pass_label_stamped_before_push():
     )
 
 
+def _address_step_block():
+    """The text of the address (claude-code-action) step, from its name to the
+    start of the next step (the push step). Scoping assertions to this slice
+    stops them from being satisfied by an identical string in some OTHER step."""
+    start = TEXT.index("name: Address Copilot review (commit only, do not push)")
+    end = TEXT.index("name: Push addressed branch", start)
+    return TEXT[start:end]
+
+
 def test_agent_gh_calls_authenticate_as_pat():
-    """The address agent's gh reply calls stay PAT-authed (Copilot-seated)."""
-    assert "GH_TOKEN: ${{ secrets.PR_AUTHOR_PAT }}" in TEXT
+    """The address agent's gh reply calls stay PAT-authed (Copilot-seated).
+
+    Scoped to the address step itself: the PAT `GH_TOKEN` string also appears in
+    several OTHER steps (scan, budget, resolve, ...), so a bare ``in TEXT`` check
+    would still pass if the address step alone lost its PAT auth. Assert it inside
+    the address step block so a regression there actually fails the test."""
+    assert "GH_TOKEN: ${{ secrets.PR_AUTHOR_PAT }}" in _address_step_block()
 
 
 # --- bash resolve step (issue #361) -----------------------------------------
@@ -152,8 +166,15 @@ def test_resolve_step_only_targets_replied_copilot_threads():
     already carry a reply (a non-Copilot comment) are resolved."""
     block = _resolve_block()
     assert "select(.isResolved == false)" in block
-    # First comment author is one of the three Copilot logins.
-    assert "copilot-pull-request-reviewer[bot]" in block
+    # First comment author is one of the three Copilot logins. Assert ALL three
+    # so the step cannot silently regress to matching only one — the workflow
+    # intentionally supports every login Copilot surfaces under.
+    for login in (
+        "Copilot",
+        "copilot-pull-request-reviewer",
+        "copilot-pull-request-reviewer[bot]",
+    ):
+        assert login in block
     # Carries a reply: at least one comment author is NOT Copilot.
     assert "length > 0" in block
 
