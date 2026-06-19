@@ -221,7 +221,7 @@ class TestRunnerScriptBehaviour:
 args="$*"
 case "$args" in
   *"wait tasks-stopped"*) exit 0 ;;
-  *"run-task"*) echo "${FAKE_TASK_ARN:-arn:aws:ecs:us-east-1:1:task/abc}"; exit 0 ;;
+  *"run-task"*) printf '{"tasks":[{"taskArn":"%s"}],"failures":[]}\n' "${FAKE_TASK_ARN:-arn:aws:ecs:us-east-1:1:task/abc}"; exit 0 ;;
   *"describe-services"*"securityGroups"*) printf '%s\n' "${FAKE_SGS:-sg-123}"; exit 0 ;;
   *"describe-services"*"subnets"*) printf 'subnet-a\tsubnet-b\n'; exit 0 ;;
   *"describe-tasks"*"exitCode"*) printf '%s\n' "${FAKE_EXIT_CODE:-0}"; exit 0 ;;

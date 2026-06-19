@@ -70,7 +70,11 @@ if [ -z "${SUBNETS}" ] || [ -z "${SECURITY_GROUPS}" ]; then
     --output text | tr '\t' ',')
 fi
 
-if [ -z "${SUBNETS}" ] || [ -z "${SECURITY_GROUPS}" ]; then
+# `describe-services --output text` prints the literal string "None" (not an
+# empty string) when the service is missing or has no awsvpc config, so guard
+# against both empty and "None" before building the network config.
+if [ -z "${SUBNETS}" ] || [ "${SUBNETS}" = "None" ] \
+  || [ -z "${SECURITY_GROUPS}" ] || [ "${SECURITY_GROUPS}" = "None" ]; then
   echo "[migrate] ERROR: could not resolve subnets/security groups" >&2
   exit 2
 fi
@@ -78,18 +82,24 @@ fi
 NETWORK_CONFIG="awsvpcConfiguration={subnets=[${SUBNETS}],securityGroups=[${SECURITY_GROUPS}],assignPublicIp=DISABLED}"
 
 echo "[migrate] running task ${TASK_DEFINITION} on cluster ${CLUSTER} (${REGION})..."
-TASK_ARN=$(aws ecs run-task \
+# Capture the full response rather than projecting out taskArn with --query: the
+# failures[] array (which explains why a task didn't start) lives alongside
+# tasks[] and would otherwise be discarded, leaving nothing to diagnose with.
+RUN_TASK_OUTPUT=$(aws ecs run-task \
   --cluster "${CLUSTER}" \
   --task-definition "${TASK_DEFINITION}" \
   --launch-type FARGATE \
   --region "${REGION}" \
   --network-configuration "${NETWORK_CONFIG}" \
   --started-by "migrate-bootstrap" \
-  --query 'tasks[0].taskArn' \
-  --output text)
+  --output json)
+
+TASK_ARN=$(printf '%s' "${RUN_TASK_OUTPUT}" \
+  | python3 -c 'import json,sys; tasks=json.load(sys.stdin).get("tasks") or []; print(tasks[0]["taskArn"] if tasks else "")')
 
 if [ -z "${TASK_ARN}" ] || [ "${TASK_ARN}" = "None" ]; then
-  echo "[migrate] ERROR: run-task did not start a task (check failures above)" >&2
+  echo "[migrate] ERROR: run-task did not start a task. Full run-task response (including failures) below:" >&2
+  printf '%s\n' "${RUN_TASK_OUTPUT}" >&2
   exit 1
 fi
 echo "[migrate] task started: ${TASK_ARN}"
