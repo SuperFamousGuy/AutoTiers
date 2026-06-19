@@ -109,6 +109,77 @@ def test_pass_label_stamped_before_push():
     )
 
 
+def _address_step_block():
+    """The text of the address (claude-code-action) step, from its name to the
+    start of the next step (the push step). Scoping assertions to this slice
+    stops them from being satisfied by an identical string in some OTHER step."""
+    start = TEXT.index("name: Address Copilot review (commit only, do not push)")
+    end = TEXT.index("name: Push addressed branch", start)
+    return TEXT[start:end]
+
+
 def test_agent_gh_calls_authenticate_as_pat():
-    """The agent's gh reply/resolve calls stay PAT-authed (Copilot-seated)."""
-    assert "GH_TOKEN: ${{ secrets.PR_AUTHOR_PAT }}" in TEXT
+    """The address agent's gh reply calls stay PAT-authed (Copilot-seated).
+
+    Scoped to the address step itself: the PAT `GH_TOKEN` string also appears in
+    several OTHER steps (scan, budget, resolve, ...), so a bare ``in TEXT`` check
+    would still pass if the address step alone lost its PAT auth. Assert it inside
+    the address step block so a regression there actually fails the test."""
+    assert "GH_TOKEN: ${{ secrets.PR_AUTHOR_PAT }}" in _address_step_block()
+
+
+# --- bash resolve step (issue #361) -----------------------------------------
+# The resolve step was a second claude-code-action whose only job was to call
+# `resolveReviewThread` on already-replied Copilot threads — deterministic,
+# scriptable work that does not need an agent or its subscription quota. These
+# guards pin the plain-bash form so it cannot silently regress to a 2nd agent run.
+
+
+def _resolve_block():
+    """The text of the resolve step, from its name to end of file (it is the
+    last step in the workflow)."""
+    return TEXT[TEXT.index("name: Resolve Copilot threads (after push)") :]
+
+
+def test_resolve_step_is_plain_bash_not_a_second_agent():
+    """The resolve step must be a plain `run:` bash step, NOT a second
+    claude-code-action invocation. Only the address step may use the action."""
+    block = _resolve_block()
+    assert "uses: anthropics/claude-code-action" not in block
+    assert "run: |" in block
+    # Exactly one agent invocation remains in the whole workflow (the address
+    # step). If the resolve step regressed to a 2nd agent run, this would be 2.
+    assert TEXT.count("uses: anthropics/claude-code-action@v1") == 1
+
+
+def test_resolve_step_uses_resolvereviewthread_mutation_by_thread_id():
+    """It resolves via the GraphQL `resolveReviewThread` mutation keyed on the
+    thread node `id` (threadId), not a comment databaseId."""
+    block = _resolve_block()
+    assert "gh api graphql" in block
+    assert "resolveReviewThread(input: { threadId: $threadId })" in block
+    assert "-f threadId=" in block
+
+
+def test_resolve_step_only_targets_replied_copilot_threads():
+    """Only UNRESOLVED threads whose FIRST comment author is Copilot AND that
+    already carry a reply (a non-Copilot comment) are resolved."""
+    block = _resolve_block()
+    assert "select(.isResolved == false)" in block
+    # First comment author is one of the three Copilot logins. Assert ALL three
+    # so the step cannot silently regress to matching only one — the workflow
+    # intentionally supports every login Copilot surfaces under.
+    for login in (
+        "Copilot",
+        "copilot-pull-request-reviewer",
+        "copilot-pull-request-reviewer[bot]",
+    ):
+        assert login in block
+    # Carries a reply: at least one comment author is NOT Copilot.
+    assert "length > 0" in block
+
+
+def test_resolve_step_authenticates_as_pat():
+    """The resolve step's gh calls run as PR_AUTHOR_PAT (Copilot-seated)."""
+    block = _resolve_block()
+    assert "GH_TOKEN: ${{ secrets.PR_AUTHOR_PAT }}" in block
