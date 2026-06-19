@@ -870,6 +870,61 @@ async def test_denver_kicker_does_not_get_dome_bonus(async_client, test_db):
 
 
 # ---------------------------------------------------------------------------
+# Double-gate invariant (#204): plays_in_dome / is_denver_kicker are only
+# populated for K in generate.py, so the context level is an authoritative
+# second gate even when a client re-points the kicker rule at a non-K
+# position via the /generate payload. (cold_weather_kicker has the same
+# guarantee asserted below in test_cold_weather_kicker_not_set_for_non_k...)
+# ---------------------------------------------------------------------------
+
+async def _seed_non_k_on_kicker_teams(db):
+    """Seed non-K players on a dome team (MIN) and on Denver (DEN).
+
+    These are the teams that would trip "Dome Kicker" / "Mile High Kicker"
+    if those rules ever fired for non-kickers.
+    """
+    players = [
+        Player(id="wr_min", name="MIN WR", position="WR", team="MIN", age=26, years_exp=4),
+        Player(id="rb_den", name="DEN RB", position="RB", team="DEN", age=25, years_exp=3),
+    ]
+    for p in players:
+        db.add(p)
+    projs = [
+        Projection(player_id="wr_min", source="fantasypros", scoring_format="ppr",
+                   projected_points=180.0, last_updated=date.today()),
+        Projection(player_id="rb_den", source="fantasypros", scoring_format="ppr",
+                   projected_points=190.0, last_updated=date.today()),
+    ]
+    for proj in projs:
+        db.add(proj)
+    await db.commit()
+
+
+async def test_dome_kicker_not_set_for_non_k_on_dome_team(async_client, test_db):
+    """A WR on MIN (a dome team) must NOT get the Dome Kicker bonus: generate.py
+    leaves plays_in_dome=None for non-kickers, so the rule never fires even when
+    explicitly re-pointed at "WR" in the payload (#204 double-gate invariant)."""
+    await _seed_non_k_on_kicker_teams(test_db)
+    body = {**_GENERATE_BODY, "rules": {"WR": [{"name": "Dome Kicker", "enabled": True, "weight": 1.0}]}}
+    resp = await async_client.post("/api/generate", json=body)
+    assert resp.status_code == 200
+    by_id = {p["player_id"]: p for p in resp.json()["players"]}
+    assert "Dome Kicker" not in by_id["wr_min"]["rules_applied"]
+
+
+async def test_mile_high_kicker_not_set_for_non_k_on_denver(async_client, test_db):
+    """An RB on DEN must NOT get the Mile High Kicker bonus: generate.py leaves
+    is_denver_kicker=None for non-kickers, so the rule never fires even when
+    explicitly re-pointed at "RB" in the payload (#204 double-gate invariant)."""
+    await _seed_non_k_on_kicker_teams(test_db)
+    body = {**_GENERATE_BODY, "rules": {"RB": [{"name": "Mile High Kicker", "enabled": True, "weight": 1.0}]}}
+    resp = await async_client.post("/api/generate", json=body)
+    assert resp.status_code == 200
+    by_id = {p["player_id"]: p for p in resp.json()["players"]}
+    assert "Mile High Kicker" not in by_id["rb_den"]["rules_applied"]
+
+
+# ---------------------------------------------------------------------------
 # Integration tests: cold-weather kicker rule wiring
 # Validates that generate.py correctly populates cold_weather_kicker from
 # player.team, and that dome-team Ks and DEN Ks are excluded.

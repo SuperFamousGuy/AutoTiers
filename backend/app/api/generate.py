@@ -358,6 +358,18 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
             is_favorite_player = None
             is_favorite_team = None
 
+        # Double-gate invariant (DOME_TEAMS / ELEVATION_TEAM / COLD_WEATHER_TEAMS):
+        # these context fields are *intentionally* only populated for position "K".
+        # Every non-K player reaches the rules engine with None here, and
+        # `_evaluate` short-circuits to False on a None field (engine/rules.py).
+        # That is the second, authoritative gate — independent of each rule's own
+        # `positions=["K"]` gate, which a client *can* override via the /generate
+        # rules payload. So even if "Dome Kicker"/"Mile High Kicker" were re-pointed
+        # at, say, "WR", the bonus still cannot leak to non-kickers. This is why the
+        # kicker rules need no entry in any position-lock list: the lock lives here.
+        # WARNING: if these fields are ever backfilled for non-K players, that lock
+        # disappears and the position gate becomes the *only* defense — keep the
+        # `if player.position == "K"` guards or add an explicit position lock first.
         plays_in_dome: Optional[bool] = None
         if player.position == "K":
             plays_in_dome = player.team in DOME_TEAMS
