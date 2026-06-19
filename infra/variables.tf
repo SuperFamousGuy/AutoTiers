@@ -166,8 +166,12 @@ variable "secret_key" {
   default     = "REPLACE_ME"
 
   validation {
-    condition     = var.secret_key != "REPLACE_ME" && length(var.secret_key) >= 32
-    error_message = "secret_key must be a real Fernet key (base64-urlsafe, min 32 chars). Generate with: python3 -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+    # A Fernet key is exactly 32 bytes base64url-encoded -> 44 characters
+    # (43 from the base64url alphabet + one '=' pad char). This rejects the
+    # REPLACE_ME placeholder (10 chars) and any malformed key that would crash
+    # the backend's Fernet() construction at startup rather than at deploy time.
+    condition     = can(regex("^[A-Za-z0-9_-]{43}=$", var.secret_key))
+    error_message = "secret_key must be a valid Fernet key: 44 chars, base64-urlsafe 32 bytes. Do not deploy with the default placeholder. Generate with: python3 -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
   }
 }
 
@@ -200,10 +204,19 @@ variable "google_client_secret" {
 }
 
 variable "admin_api_key" {
-  description = "Admin API key for protected admin endpoints."
+  description = "Admin API key for protected admin endpoints. Set empty to leave admin auth disabled (backend treats an empty key as 'no admin auth required'); otherwise supply a real key of at least 32 chars."
   type        = string
   sensitive   = true
   default     = "REPLACE_ME"
+
+  validation {
+    # Reject the REPLACE_ME placeholder so a guessable admin key never deploys.
+    # An empty string is allowed: the backend (app/auth/admin.py) treats an
+    # empty admin_api_key as "admin auth disabled", which is a deliberate
+    # operator choice. A non-empty key must be at least 32 chars.
+    condition     = var.admin_api_key != "REPLACE_ME" && (var.admin_api_key == "" || length(var.admin_api_key) >= 32)
+    error_message = "admin_api_key must not be the default placeholder. Set it to either an empty string (admin auth disabled) or a real key of at least 32 characters."
+  }
 }
 
 variable "acm_certificate_arn" {
