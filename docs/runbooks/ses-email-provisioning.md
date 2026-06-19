@@ -8,6 +8,34 @@ The Terraform (`infra/ses.tf`, `infra/iam.tf`, `infra/ecs.tf`) does everything
 that can be expressed as code. The steps below are the parts that require a
 human with AWS console / DNS / support access — Terraform cannot do them.
 
+## ⚠️ The load-bearing fix is exiting the SES sandbox ([#273](https://github.com/SuperFamousGuy/AutoTiers/issues/273))
+
+A fresh SES account starts in the **sandbox**: `SendEmail` is rejected
+(`MessageRejected`) for any recipient that has not been individually verified,
+even when the domain itself is fully verified with DKIM. The user-visible
+symptom is the worst kind — the UI reports "we re-sent it" (the HTTP request
+succeeds), the background SES send is rejected, and **no email arrives**.
+
+DNS/DKIM being green does **not** mean mail is flowing. Exiting the sandbox
+(Step 2 below) is the single load-bearing fix and is a manual AWS support
+request — Terraform cannot perform it.
+
+**Never set `enable_ses = true` while the account is still sandboxed.** Doing so
+makes prod attempt real sends that all silently fail. Run the preflight guard
+before flipping the switch — it refuses that exact state:
+
+```bash
+aws sesv2 get-account --region us-east-1 > /tmp/acct.json
+aws ses list-identities --identity-type EmailAddress > /tmp/ids.json
+python3 backend/scripts/ses_preflight.py --enable-ses \
+    --get-account-json /tmp/acct.json \
+    --verified-identities-json /tmp/ids.json
+# exit 0 = safe to enable; exit 1 = unsafe (still sandboxed) — do NOT flip.
+```
+
+Until production access is granted, leave `enable_ses = false` (the app stays on
+the in-process `fake` sender — no real mail, but no silent rejections either).
+
 ## DNS mode — IMPORTANT
 
 `auto-tiers.com` DNS is **not** in Route 53 in this account (verified: the account
@@ -98,7 +126,20 @@ production access. Terraform cannot do this.
 - Approval is typically < 24h.
 
 Until this is granted, you can still smoke-test by verifying your own test
-recipient address in the SES console.
+recipient address in the SES console (or
+`aws ses verify-email-identity --email-address <addr>`) — but leave
+`enable_ses = false` for everyone else; only that one verified recipient would
+receive mail. The preflight reflects this: pass `--recipient <addr>` and it
+reports `recipient_deliverable: true` while still flagging the overall config
+unsafe for real users.
+
+Confirm production access actually landed before flipping the switch:
+
+```bash
+aws sesv2 get-account --region us-east-1 > /tmp/acct.json
+python3 backend/scripts/ses_preflight.py --enable-ses --get-account-json /tmp/acct.json
+# Wait for status "production_ready" (exit 0) before Step 4.
+```
 
 ### 3. Subscribe to bounce/complaint alerts *(optional but recommended)*
 
@@ -107,6 +148,9 @@ confirmation link AWS emails to that address. (Or subscribe Slack/PagerDuty to
 the SNS topic manually.)
 
 ### 4. Flip the switch and redeploy
+
+Only after Step 2's preflight reports `production_ready` (exit 0). Flipping
+`enable_ses = true` while still sandboxed walks straight back into #273.
 
 ```bash
 # terraform.tfvars

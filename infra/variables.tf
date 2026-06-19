@@ -282,7 +282,7 @@ variable "ses_mail_from_subdomain" {
 }
 
 variable "enable_ses" {
-  description = "When true the backend container runs with EMAIL_SENDER_BACKEND=ses (real sends). Keep false until the domain is verified AND the account is out of the SES sandbox; the app defaults to the in-process fake sender."
+  description = "When true the backend container runs with EMAIL_SENDER_BACKEND=ses (real sends). Keep false until the domain is verified AND the account is out of the SES sandbox (see #273); the app defaults to the in-process fake sender. Run backend/scripts/ses_preflight.py before flipping this true — it refuses the sandbox+enabled state that silently drops mail to real users."
   type        = bool
   default     = false
 }
