@@ -473,6 +473,15 @@ export default function App() {
             }
             scoringFormat={settings.scoring_format}
             tierLabelOverrides={resolvedTierNames}
+            leagueKey={
+              (() => {
+                const active = profiles.find((p) => p.id === activeProfileId);
+                // Prefer the linked league's id (stable across profile renames); fall
+                // back to the profile id so unlinked profiles still get isolated Draft
+                // Mode storage, then "default" if there's no active profile at all.
+                return active?.linked_league?.league_id ?? active?.id ?? "default";
+              })()
+            }
           />
         </div>
       </main>
