@@ -5,7 +5,7 @@ When an open same-repo PR has failing CI checks, fix them automatically — no h
 in the loop — until the checks go green or a per-PR pass cap is hit.
 
 ## Approach
-A cron-driven **sweeper** (not an event trigger) polls every 10 minutes for open
+A cron-driven **sweeper** (not an event trigger) polls hourly for open
 same-repo PRs whose head SHA has ≥1 failed check run and budget remaining. For each,
 it checks out the PR head, runs the `fix-pr-checks` skill via `claude-code-action`
 (commit-only), pushes the fix with the Copilot-licensed PAT, and lets the existing
@@ -63,18 +63,21 @@ mechanism to the copilot sweeper.
 
 ## Cost
 Idle path is a cheap scan job (gh/GraphQL only) that exits before provisioning the
-toolchain or invoking Claude when no PR is eligible. Cron offset to `2,12,22,32,42,52`
-so it doesn't collide tick-for-tick with the copilot sweeper's `*/10` and double-spend
-quota in the same minute.
+toolchain or invoking Claude when no PR is eligible. Runs hourly at minute 30, offset
+from the copilot sweeper's hourly minute-0 schedule so the two don't collide
+tick-for-tick and double-spend quota in the same minute. A sub-hourly cadence is
+pointless here: GitHub throttles high-frequency cron on this low-activity repo (the
+copilot sweeper saw `*/10` delivered only every ~2-2.5h), so hourly is the cadence
+GitHub will realistically honor.
 
 ## Out of scope
-- Reacting in real time (cron has up to ~10 min latency — acceptable; the signal is
-  idempotent).
+- Reacting in real time (hourly cron, and GitHub may throttle it further — the latency
+  is acceptable since the signal is idempotent).
 - Fixing failures on cross-repo/fork PRs.
 - Fixing `deploy`/security check failures (denied by design).
 - A staleness/health alarm for THIS sweeper (the existing `claude-sweeper-health.yml`
   pattern could be extended later — file as a follow-up issue).
 
 ## Open questions
-None blocking. Defaults (MAX_PASSES=3, 10-min cron, deploy/security denylist, skip
+None blocking. Defaults (MAX_PASSES=3, hourly cron, deploy/security denylist, skip
 drafts) are chosen to match the copilot sweeper and are tunable via `env`.

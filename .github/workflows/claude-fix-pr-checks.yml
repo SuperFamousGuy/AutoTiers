@@ -47,11 +47,15 @@ name: claude-fix-pr-checks
 
 on:
   schedule:
-    # Every 10 minutes, OFFSET from the copilot sweeper's `*/10` so the two
-    # sweepers don't tick in the same minute and double-spend the shared
-    # subscription quota. The idle path is cheap (scan-only), so a frequent poll
-    # is affordable; checks settle within minutes of a push.
-    - cron: "2,12,22,32,42,52 * * * *"
+    # Hourly at minute 30, OFFSET from the copilot sweeper's hourly minute-0
+    # schedule (claude-address-copilot-review.yml) so the two sweepers don't tick
+    # in the same minute and double-spend the shared subscription quota. We do NOT
+    # poll sub-hourly: GitHub heavily THROTTLES high-frequency cron on a
+    # low-activity repo — the copilot sweeper observed a `*/10` schedule delivered
+    # only every ~2-2.5h in practice — so a faster cadence would never be honored.
+    # The work signal is idempotent, so a missed tick is simply picked up by the
+    # next one; the idle path is cheap (scan-only).
+    - cron: "30 * * * *"
   workflow_dispatch: {} # manual kick for testing
 
 concurrency:
@@ -116,12 +120,22 @@ jobs:
             # check that is NOT denylisted), or OK. The denylist pattern is
             # shell-interpolated into the filter (gh's --jq is gojq with no --arg).
             # `gh pr checks` exits non-zero when checks are failing/pending but
-            # still emits the JSON --jq runs over; `2>/dev/null || true` keeps
-            # set -e happy, and a no-checks PR (gh errors, empty output) -> OK.
+            # still emits the JSON --jq runs over; capturing stdout with `|| true`
+            # keeps set -e happy. An empty verdict means either a benign no-checks
+            # PR (gh prints "no checks reported") or a REAL gh failure
+            # (auth/rate-limit/API outage); we default empty -> OK either way but
+            # log a ::warning:: for the non-benign case so a silently broken scan
+            # is visible in the run log instead of looking like "nothing to do".
             P="$SKIP_CHECK_PATTERNS"
             jqf='def denied: (((.name // "") | test("'"$P"'";"i")) or ((.workflow // "") | test("'"$P"'";"i"))); if any(.[]; .bucket=="pending" or ((.state // "") | ascii_upcase | (. == "QUEUED" or . == "IN_PROGRESS" or . == "PENDING"))) then "PENDING" elif any(.[]; .bucket=="fail" and (denied | not)) then "FAIL" else "OK" end'
-            verdict="$(gh pr checks "$pr" --repo "$REPO" --json name,workflow,bucket,state --jq "$jqf" 2>/dev/null || true)"
-            [ -n "$verdict" ] || verdict="OK"
+            verdict="$(gh pr checks "$pr" --repo "$REPO" --json name,workflow,bucket,state --jq "$jqf" 2>/tmp/gh-checks-err || true)"
+            if [ -z "$verdict" ]; then
+              if [ -s /tmp/gh-checks-err ] && ! grep -qi "no checks reported" /tmp/gh-checks-err; then
+                echo "::warning::PR #$pr: 'gh pr checks' returned no verdict (possible gh/API failure); treating as OK. stderr: $(tr '\n' ' ' < /tmp/gh-checks-err)"
+              fi
+              verdict="OK"
+            fi
+            rm -f /tmp/gh-checks-err
 
             if [ "$verdict" = "PENDING" ]; then
               echo "PR #$pr: checks still settling; skip this tick."
