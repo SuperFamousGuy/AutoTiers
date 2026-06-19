@@ -66,9 +66,11 @@ env:
   # cadence, which is throttled/best-effort and can run an hourly job late.
   INTERVAL_MINUTES: "60"
   # Allowed consecutive missed ticks before alarming. 3 => grace window of
-  # INTERVAL_MINUTES * (3 + 1) = 240 min (~4h). Wide enough that GitHub's
-  # throttled delivery of an hourly cron (observed multi-hour gaps) never trips
-  # the alarm, but a genuine 4h+ outage or 60-day auto-disable still does.
+  # INTERVAL_MINUTES * (3 + 1) = 240 min (~4h). The alarm trips only when the
+  # gap is strictly greater than 240 min (an exact 240-min gap is still
+  # healthy). Wide enough that GitHub's throttled delivery of an hourly cron
+  # (observed multi-hour gaps) never trips the alarm, but a genuine outage
+  # longer than 4h or a 60-day auto-disable still does.
   MAX_MISSED_TICKS: "3"
   # Label used to deduplicate the alarm issue.
   STALE_LABEL: sweeper-stale
