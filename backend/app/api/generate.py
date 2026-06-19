@@ -362,14 +362,20 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
         # these context fields are *intentionally* only populated for position "K".
         # Every non-K player reaches the rules engine with None here, and
         # `_evaluate` short-circuits to False on a None field (engine/rules.py).
-        # That is the second, authoritative gate — independent of each rule's own
-        # `positions=["K"]` gate, which a client *can* override via the /generate
-        # rules payload. So even if "Dome Kicker"/"Mile High Kicker" were re-pointed
-        # at, say, "WR", the bonus still cannot leak to non-kickers. This is why the
-        # kicker rules need no entry in any position-lock list: the lock lives here.
-        # WARNING: if these fields are ever backfilled for non-K players, that lock
-        # disappears and the position gate becomes the *only* defense — keep the
-        # `if player.position == "K"` guards or add an explicit position lock first.
+        # That is the second gate, and it is *independent* of each kicker rule's
+        # own `positions=["K"]` gate. The two together are the "double gate":
+        # the rule-level gate (apply_rules) and this context-level gate.
+        # Note the /generate rules payload canNOT defeat the rule-level gate:
+        # `_build_rules_for_position` only overrides `enabled`/`weight` and
+        # preserves each rule's `positions`, so a client cannot re-point
+        # "Dome Kicker"/"Mile High Kicker" at, say, "WR". The value of this
+        # context gate is defense-in-depth: if the rule-level `positions=["K"]`
+        # gate were ever removed or relaxed *in code*, the bonus still could not
+        # leak to non-kickers, because their context field stays None here.
+        # WARNING: if these fields are ever backfilled for non-K players, that
+        # second gate disappears and the rule-level position gate becomes the
+        # *only* defense — keep the `if player.position == "K"` guards (or add an
+        # explicit position lock) before doing so.
         plays_in_dome: Optional[bool] = None
         if player.position == "K":
             plays_in_dome = player.team in DOME_TEAMS
