@@ -1,0 +1,373 @@
+name: claude-fix-pr-checks
+
+# Cron-driven sweeper. Auto-fixes FAILING CI CHECKS on every open same-repo PR,
+# fully agentic (zero manual approvals).
+#
+# WHY CRON, NOT an event trigger (check_suite / workflow_run: failure):
+# The literal "auto on check failure" shape is an event trigger, but this repo
+# already learned (see claude-address-copilot-review.yml) why that cannot be
+# fully agentic:
+#  1. BOT-ACTOR GATING: a workflow run triggered by a bot actor
+#     (github-actions[bot] / claude[bot]) is parked in `action_required` awaiting
+#     manual approval. The fix push's re-run of the checks is bot-attributed, so
+#     an event-driven reaction can never be hands-off.
+#  2. INFINITE LOOP: `workflow_run: failure` re-fires on the fix push's OWN re-run
+#     of the checks. If the fix doesn't fully green them, the workflow triggers
+#     itself forever with no natural bound.
+# A SCHEDULED (cron) workflow runs as the repo/owner identity and is NOT
+# approval-gated -> fully agentic. We poll an idempotent work-signal instead of
+# reacting: "open same-repo PR whose head has >=1 failed check run". Once Claude
+# greens them the next tick sees nothing; if a push re-fails, the next tick acts
+# again, bounded by MAX_PASSES.
+#
+# WORK-SIGNAL SCOPE:
+#  - Actionable: failed check runs from `tests` (pytest / vitest) and `coverage`
+#    (diff-coverage gate) — what the `fix-pr-checks` skill is built to resolve.
+#  - DENYLISTED (SKIP_CHECK_PATTERNS): any check whose name/workflow matches
+#    `deploy`, `codeql`, or `security`. Claude must not touch prod deploy or
+#    security scans. (deploy.yml is release/dispatch-only so it isn't a PR check
+#    today; the denylist makes that explicit and future-proof.)
+#  - SETTLE GUARD: skip a PR if ANY check is still pending/queued — act only on a
+#    settled suite, never mid-run.
+#  - Draft PRs and cross-repo (fork) PRs are skipped.
+#
+# AUTH (mirrors claude-implement-issue.yml / claude-address-copilot-review.yml):
+#  - CLAUDE_CODE_OAUTH_TOKEN: subscription auth for claude-code-action.
+#  - PR_AUTHOR_PAT: Copilot-licensed PAT with `workflows` + `contents:write`. The
+#    agent COMMITS ONLY; a dedicated push step re-seats git's transport with the
+#    PAT because the action's minted OIDC App token is refused write access to
+#    `.github/workflows/` and a check fix may edit a workflow file.
+#
+# TERMINATION (MAX_PASSES=3): per-PR incrementing `claude-fix-checks-pass-K` label,
+# stamped right before Claude runs. Scan counts existing labels; at >=MAX_PASSES the
+# PR is skipped forever (until a human removes the labels to re-arm). A one-time
+# `claude-fix-checks-capped` label guards the cap-notice comment.
+#
+# Design: docs/superpowers/specs/2026-06-19-auto-fix-pr-checks-design.md
+
+on:
+  schedule:
+    # Hourly at minute 30, OFFSET from the copilot sweeper's hourly minute-0
+    # schedule (claude-address-copilot-review.yml) so the two sweepers don't tick
+    # in the same minute and double-spend the shared subscription quota. We do NOT
+    # poll sub-hourly: GitHub heavily THROTTLES high-frequency cron on a
+    # low-activity repo — the copilot sweeper observed a `*/10` schedule delivered
+    # only every ~2-2.5h in practice — so a faster cadence would never be honored.
+    # The work signal is idempotent, so a missed tick is simply picked up by the
+    # next one; the idle path is cheap (scan-only).
+    - cron: "30 * * * *"
+  workflow_dispatch: {} # manual kick for testing
+
+concurrency:
+  # Serialize ticks so two overlapping cron runs never both read the same prior
+  # pass counts and double-spend the budget. cancel-in-progress:false lets an
+  # in-flight sweep finish (it may be mid-push) rather than be killed.
+  group: claude-fix-checks-sweeper
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write # PR labels are issue labels in GitHub's model
+  id-token: write # claude-code-action mints its GitHub token via OIDC
+
+env:
+  # Max automatic Claude passes per PR. Smallest cap allowing a real round-trip
+  # (fix -> checks re-run -> follow-up fix) while bounding token spend and
+  # guaranteeing termination even if a check stays red.
+  MAX_PASSES: 3
+  # Pipe-separated, case-insensitive regex of check names/workflows Claude must
+  # NEVER try to fix. Prod deploy and security scans are off-limits.
+  SKIP_CHECK_PATTERNS: "deploy|codeql|security"
+
+jobs:
+  # STAGE 1 (cheap): scan for eligible PRs. Pure gh/GraphQL, no toolchain, no
+  # Claude. Emits a JSON array of eligible PR numbers as `matrix` and a boolean
+  # `any`. When `any` is false the fix job is skipped entirely, so the idle path
+  # costs only the gh calls in this job.
+  scan:
+    name: scan for PRs with failing checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.scan.outputs.matrix }}
+      any: ${{ steps.scan.outputs.any }}
+    steps:
+      - name: Find eligible PRs
+        id: scan
+        env:
+          GH_TOKEN: ${{ secrets.PR_AUTHOR_PAT }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Candidate PRs: open, same-repo, non-draft. Fork PRs can't be pushed
+          # with our PAT; draft PRs are WIP and fixing their checks is wasteful.
+          candidates="$(gh pr list --repo "$REPO" --state open --limit 100 \
+            --json number,isCrossRepository,isDraft \
+            --jq '[.[] | select(.isCrossRepository == false and .isDraft == false) | .number]')"
+          echo "candidate PRs (open same-repo non-draft): $candidates"
+
+          eligible='[]'
+          for pr in $(echo "$candidates" | python3 -c 'import json,sys; print(" ".join(str(n) for n in json.load(sys.stdin)))'); do
+            # `gh pr checks` exits non-zero when checks are failing/pending, but
+            # still prints the JSON. Capture it, then `|| true` so set -e doesn't
+            # abort. A PR with no checks reported yields empty -> treated as no
+            # failures.
+            # Decide eligibility with jq (one line — a multi-line inline python -c
+            # would break the YAML block scalar). The filter classifies the check
+            # set as PENDING (a check is still settling -> wait), FAIL (>=1 failed
+            # check that is NOT denylisted), or OK. The denylist pattern is
+            # shell-interpolated into the filter (gh's --jq is gojq with no --arg).
+            # `gh pr checks` exits non-zero when checks are failing/pending but
+            # still emits the JSON --jq runs over; capturing stdout with `|| true`
+            # keeps set -e happy. An empty verdict means either a benign no-checks
+            # PR (gh prints "no checks reported") or a REAL gh failure
+            # (auth/rate-limit/API outage); we default empty -> OK either way but
+            # log a ::warning:: for the non-benign case so a silently broken scan
+            # is visible in the run log instead of looking like "nothing to do".
+            P="$SKIP_CHECK_PATTERNS"
+            jqf='def denied: (((.name // "") | test("'"$P"'";"i")) or ((.workflow // "") | test("'"$P"'";"i"))); if any(.[]; .bucket=="pending" or ((.state // "") | ascii_upcase | (. == "QUEUED" or . == "IN_PROGRESS" or . == "PENDING"))) then "PENDING" elif any(.[]; .bucket=="fail" and (denied | not)) then "FAIL" else "OK" end'
+            verdict="$(gh pr checks "$pr" --repo "$REPO" --json name,workflow,bucket,state --jq "$jqf" 2>/tmp/gh-checks-err || true)"
+            if [ -z "$verdict" ]; then
+              if [ -s /tmp/gh-checks-err ] && ! grep -qi "no checks reported" /tmp/gh-checks-err; then
+                echo "::warning::PR #$pr: 'gh pr checks' returned no verdict (possible gh/API failure); treating as OK. stderr: $(tr '\n' ' ' < /tmp/gh-checks-err)"
+              fi
+              verdict="OK"
+            fi
+            rm -f /tmp/gh-checks-err
+
+            if [ "$verdict" = "PENDING" ]; then
+              echo "PR #$pr: checks still settling; skip this tick."
+              continue
+            fi
+            if [ "$verdict" != "FAIL" ]; then
+              echo "PR #$pr: no actionable failing checks."
+              continue
+            fi
+
+            # Count prior Claude passes; at/over cap the PR is not eligible.
+            passes="$(gh pr view "$pr" --repo "$REPO" --json labels \
+              --jq '[.labels[].name | select(startswith("claude-fix-checks-pass-"))] | length')"
+            echo "PR #$pr: actionable failing checks present, prior passes=$passes"
+
+            if [ "$passes" -lt "$MAX_PASSES" ]; then
+              eligible="$(echo "$eligible" | python3 -c "import json,sys; a=json.load(sys.stdin); a.append($pr); print(json.dumps(a))")"
+            else
+              # Cap reached AND still failing: post a one-time notice, guarded by
+              # the claude-fix-checks-capped label so it isn't re-posted every tick.
+              already="$(gh pr view "$pr" --repo "$REPO" --json labels \
+                --jq '[.labels[].name | select(. == "claude-fix-checks-capped")] | length')"
+              if [ "$already" -eq 0 ]; then
+                gh label create "claude-fix-checks-capped" --repo "$REPO" \
+                  --color b60205 --description "Auto-fix-checks cap (MAX_PASSES) reached; needs human" \
+                  2>/dev/null || true
+                gh pr edit "$pr" --repo "$REPO" --add-label "claude-fix-checks-capped"
+                gh pr comment "$pr" --repo "$REPO" --body \
+                  "Automated check-fix passes hit the cap (MAX_PASSES=${MAX_PASSES}) and checks are still failing. A human should investigate, then remove the \`claude-fix-checks-pass-*\` labels to re-arm the sweeper."
+                echo "PR #$pr: capped; posted one-time notice."
+              else
+                echo "PR #$pr: capped; notice already posted, skipping."
+              fi
+            fi
+          done
+
+          echo "eligible PRs: $eligible"
+          echo "matrix=$eligible" >> "$GITHUB_OUTPUT"
+          if [ "$(echo "$eligible" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')" -gt 0 ]; then
+            echo "any=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "any=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # STAGE 2 (expensive): one job per eligible PR. Skipped wholesale when scan
+  # found nothing, so the toolchain + Claude only run when there is real work.
+  fix:
+    name: fix failing checks (PR #${{ matrix.pr }})
+    needs: scan
+    if: needs.scan.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      # Sequential so passes are reserved one PR at a time and the shared
+      # subscription quota is not hit by N concurrent Claude runs.
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        pr: ${{ fromJson(needs.scan.outputs.matrix) }}
+    steps:
+      # FIRST: decide whether there is budget, but DO NOT stamp yet. Counting is
+      # cheap and gates the expensive steps. The pass-label stamp is deferred to
+      # just before the Claude step so an infra failure in checkout/setup does not
+      # consume a pass without any fix attempted.
+      - name: Count prior passes (decide budget)
+        id: budget
+        env:
+          GH_TOKEN: ${{ secrets.PR_AUTHOR_PAT }}
+          PR: ${{ matrix.pr }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          prior="$(gh pr view "$PR" --repo "$REPO" --json labels \
+            --jq '[.labels[].name | select(startswith("claude-fix-checks-pass-"))] | length')"
+          echo "prior passes: $prior  cap: $MAX_PASSES"
+          if [ "$prior" -ge "$MAX_PASSES" ]; then
+            echo "Cap reached ($prior >= $MAX_PASSES); no budget left. Stopping."
+            echo "has_budget=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          next=$((prior + 1))
+          echo "Budget available: pass $next of $MAX_PASSES (label stamped later)."
+          echo "next_label=claude-fix-checks-pass-${next}" >> "$GITHUB_OUTPUT"
+          echo "has_budget=true" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve PR head branch
+        id: head
+        if: steps.budget.outputs.has_budget == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PR_AUTHOR_PAT }}
+          PR: ${{ matrix.pr }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          ref="$(gh pr view "$PR" --repo "$REPO" --json headRefName --jq '.headRefName')"
+          echo "head ref: $ref"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout PR head
+        if: steps.budget.outputs.has_budget == 'true'
+        uses: actions/checkout@v4
+        with:
+          # Push fix commits under the Copilot-seated account so they stay
+          # attributable. NOTE: this persisted credential is overwritten by
+          # claude-code-action's minted OIDC App token, so the authoritative push
+          # is the dedicated PAT step below.
+          token: ${{ secrets.PR_AUTHOR_PAT }}
+          ref: ${{ steps.head.outputs.ref }}
+          fetch-depth: 0
+
+      # Pre-provision the toolchain so the CI test step is fast and reliable,
+      # mirroring versions in tests.yml / claude-implement-issue.yml.
+      - uses: actions/setup-python@v5
+        if: steps.budget.outputs.has_budget == 'true'
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install backend deps
+        if: steps.budget.outputs.has_budget == 'true'
+        working-directory: backend
+        run: pip install -e ".[dev]"
+
+      - uses: actions/setup-node@v4
+        if: steps.budget.outputs.has_budget == 'true'
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install web deps
+        if: steps.budget.outputs.has_budget == 'true'
+        working-directory: web
+        run: npm ci
+
+      # Stamp the pass label NOW — after the toolchain is provisioned and right
+      # before Claude runs/pushes. Preserves the termination invariant (label
+      # exists before the push that re-runs the checks, so the next tick observes
+      # the incremented count and stops at the cap) while ensuring an earlier
+      # infra failure does not burn a pass. Adding an already-present label is a
+      # no-op, so a retried run cannot double-count.
+      - name: Stamp pass label (reserve budget)
+        if: steps.budget.outputs.has_budget == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PR_AUTHOR_PAT }}
+          PR: ${{ matrix.pr }}
+          REPO: ${{ github.repository }}
+          LABEL: ${{ steps.budget.outputs.next_label }}
+        run: |
+          set -euo pipefail
+          gh label create "$LABEL" --repo "$REPO" \
+            --color ededed --description "Automated Claude pass fixing failing PR checks" \
+            2>/dev/null || true
+          gh pr edit "$PR" --repo "$REPO" --add-label "$LABEL"
+          echo "Reserved budget: stamped $LABEL."
+
+      - name: Fix failing checks (commit only, do not push)
+        if: steps.budget.outputs.has_budget == 'true'
+        uses: anthropics/claude-code-action@v1
+        env:
+          # Attribute any `gh` calls the agent makes to the Copilot-seated PAT
+          # account rather than the action's default GITHUB_TOKEN. gh prefers
+          # GH_TOKEN over GITHUB_TOKEN, so this wins inside the agent.
+          GH_TOKEN: ${{ secrets.PR_AUTHOR_PAT }}
+        with:
+          # Subscription auth (Pro/Max), same as the other Claude workflows.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            PR #${{ matrix.pr }} in this repository has one or more FAILING CI
+            checks. Fix them end-to-end on the current branch
+            (${{ steps.head.outputs.ref }}), with no further human input.
+
+            CRITICAL — read this before you start. Do NOT `git push`. A check fix
+            can edit a file under `.github/workflows/`, and a `git push` from
+            inside this action goes out as the action's GitHub App OIDC token
+            (the action re-seats git's credential after checkout), which GitHub
+            REFUSES to let write workflow files. Pushing here would fail exactly
+            that way. A later workflow step pushes the branch authenticated as the
+            Copilot-licensed PAT (which carries `workflows` scope). So: commit
+            ONLY; never push.
+
+            Process:
+            1. Invoke the `fix-pr-checks` skill and run it for PR
+               #${{ matrix.pr }}. Diagnose each FAILING check (test failure, type
+               error, lint, coverage gate) and fix the root cause on this branch.
+               IGNORE any check whose name or workflow matches deploy / CodeQL /
+               security — those are off-limits; do not attempt to fix them.
+            2. Verify locally. THIS IS CI: ignore any local `/Users/...` paths or
+               `venv/bin/` prefixes in skills — dependencies are already installed
+               on the runner. Run exactly:
+                 - backend: `cd backend && pytest -q --ignore=tests/test_sources`
+                 - web tests: `cd web && npx vitest run`
+                 - web types: `cd web && npx tsc --noEmit`
+            3. If you CANNOT green the checks (the failure is in a denylisted check,
+               is environmental/flaky, or needs a human decision): do NOT commit,
+               do NOT push. Post a comment on the PR explaining what you found and
+               why it could not be auto-fixed (with the relevant output), then
+               STOP. Do NOT write the `.fixed.flag` file.
+            4. If the checks now pass locally: commit the fix with a
+               conventional-style message (e.g. `fix: resolve failing CI checks on
+               PR #${{ matrix.pr }}`). Leave the commit as the current branch HEAD.
+               Do NOT push it — a later step pushes it as the PAT, and the repo's
+               `tests`/`coverage` workflows re-run automatically on that push.
+               Finally, write a sentinel file at the repo root named `.fixed.flag`
+               (any content) so the push step knows a fix was committed. Do NOT
+               commit `.fixed.flag`. Do NOT open a new pull request.
+
+            The repo's `.claude/skills/` and `.claude/agents/` are present in the
+            checkout — use them.
+          claude_args: |
+            --model claude-opus-4-8
+            --max-turns 80
+            --allowedTools Edit,Write,Read,Glob,Grep,Bash,Task
+
+      # Push the agent's commit, AUTHENTICATED as PR_AUTHOR_PAT, in a step the
+      # action cannot override. The agent only COMMITS, because inside
+      # claude-code-action git's credential is the action's minted OIDC App token,
+      # which GitHub refuses to let write `.github/workflows/` files. `GH_TOKEN`
+      # alone would not help — it steers `gh`, not raw `git push`. So we re-seat
+      # git's transport explicitly: `-c http...extraheader=` clears the App-token
+      # Authorization header the action persisted, and the inline token in the
+      # remote URL authenticates the push as the PAT (`workflows` + `contents`
+      # scope). Gated on `.fixed.flag` so a no-fix run pushes nothing.
+      - name: Push fixed branch
+        if: steps.budget.outputs.has_budget == 'true' && hashFiles('.fixed.flag') != ''
+        env:
+          PAT: ${{ secrets.PR_AUTHOR_PAT }}
+          REF: ${{ steps.head.outputs.ref }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # `-c` is a git-level option and MUST precede the `push` subcommand —
+          # `git push -c ...` errors with "unknown switch `c`".
+          git -c http.https://github.com/.extraheader= push \
+            "https://x-access-token:${PAT}@github.com/${REPO}.git" \
+            "HEAD:refs/heads/${REF}"
