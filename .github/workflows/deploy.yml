@@ -78,6 +78,20 @@ jobs:
       - name: Push image to ECR
         run: docker push ${{ vars.ECR_REPO }}:latest
 
+      # Apply database migrations as a one-off ECS task BEFORE rolling the
+      # services, so the new image never serves traffic against an out-of-date
+      # schema (issue #182). The task family is `<cluster>-migrate` by
+      # convention (see infra/migrations.tf); the network config is reused from
+      # the backend service so no extra repo variables are required. A non-zero
+      # migration exit code fails this step and the services are NOT redeployed.
+      - name: Run database migrations
+        run: |
+          ./infra/scripts/run_migrations.sh \
+            --cluster ${{ vars.ECS_CLUSTER }} \
+            --task-definition ${{ vars.ECS_CLUSTER }}-migrate \
+            --region ${{ vars.AWS_REGION }} \
+            --from-service ${{ vars.BACKEND_SERVICE }}
+
       # Force new deployments so both services pull the freshly-pushed :latest
       # image even if the task definition revision has not changed.
       - name: Force redeploy backend service

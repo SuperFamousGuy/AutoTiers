@@ -19,6 +19,22 @@ output "aurora_endpoint" {
   sensitive   = true
 }
 
+output "migrate_task_family" {
+  description = "Family of the one-off Alembic migration task definition (alembic upgrade head). Run it manually with the migrate_run_command output."
+  value       = aws_ecs_task_definition.migrate.family
+}
+
+output "migrate_run_command" {
+  description = "Ready-to-run command that applies pending migrations as a one-off ECS task (used by Terraform on apply and the deploy workflow on release)."
+  value = join(" ", [
+    "${path.module}/scripts/run_migrations.sh",
+    "--cluster ${aws_ecs_cluster.main.name}",
+    "--task-definition ${aws_ecs_task_definition.migrate.family}",
+    "--region ${var.aws_region}",
+    "--from-service ${aws_ecs_service.backend.name}",
+  ])
+}
+
 output "ses_domain_identity_arn" {
   description = "ARN of the SES domain identity used for transactional auth email."
   value       = aws_ses_domain_identity.main.arn
