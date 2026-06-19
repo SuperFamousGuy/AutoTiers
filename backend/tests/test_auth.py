@@ -51,6 +51,9 @@ async def test_signup_with_anonymous_state_creates_first_profile(async_client, t
     assert len(profiles) == 1
     assert profiles[0].name == "My setup"
     assert profiles[0].settings_json["scoring_format"] == "ppr"
+    assert profiles[0].rules_json == {
+        "RB": [{"name": "RB Committee Penalty", "enabled": True, "weight": 1.0}]
+    }
 
     user = (await test_db.scalars(select(User))).one()
     assert user.last_active_profile_id == profiles[0].id
