@@ -384,30 +384,81 @@ jobs:
       # failure: a thread is never marked resolved unless the fix is actually on
       # the remote. `if: success()` ensures a failed push short-circuits this
       # step, leaving the threads open for the next cron tick to retry. Gated on
-      # the same `.addressed.flag` sentinel so a no-fix run does not spin up Claude
-      # to resolve nothing.
+      # the same `.addressed.flag` sentinel so a no-fix run does not resolve
+      # nothing.
+      #
+      # This is plain bash (gh GraphQL), NOT a second claude-code-action run. The
+      # address step already did the only judgement-bearing work (triage + fix +
+      # reply); resolving a thread by node `id` is deterministic and scriptable,
+      # so spinning up a whole agent (and drawing subscription quota) just to call
+      # one mutation per thread was pure waste (see issue #361). We fetch the
+      # UNRESOLVED threads whose FIRST comment author is Copilot AND that already
+      # carry a reply (a comment from someone other than Copilot — the address
+      # step posts that reply before the push) and resolve each via the
+      # `resolveReviewThread` mutation, keyed by the thread node `id` (opaque
+      # PRRT_…, NOT a comment databaseId — see the resolve-pr-comments skill).
       - name: Resolve Copilot threads (after push)
         if: success() && steps.budget.outputs.has_budget == 'true' && hashFiles('.addressed.flag') != ''
-        uses: anthropics/claude-code-action@v1
         env:
           GH_TOKEN: ${{ secrets.PR_AUTHOR_PAT }}
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          prompt: |
-            The fix for PR #${{ matrix.pr }} has already been committed, replied
-            to, and PUSHED to the remote branch (${{ steps.head.outputs.ref }}).
-            Your ONLY job now is to RESOLVE the Copilot review threads that were
-            addressed. Do NOT make code changes, do NOT commit, do NOT push.
+          PR: ${{ matrix.pr }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          OWNER="${REPO%/*}"
+          NAME="${REPO#*/}"
 
-            For PR #${{ matrix.pr }}, fetch the UNRESOLVED review threads whose
-            first comment author is Copilot (`Copilot` /
-            `copilot-pull-request-reviewer` / `copilot-pull-request-reviewer[bot]`)
-            and that already carry a reply from the addressing pass, and resolve
-            each via the `resolveReviewThread` GraphQL mutation (the thread node
-            `id`, not the comment databaseId). The `resolve-pr-comments` skill
-            documents the exact mutation. Do NOT re-request Copilot review and do
-            NOT open a new pull request.
-          claude_args: |
-            --model claude-opus-4-8
-            --max-turns 40
-            --allowedTools Read,Glob,Grep,Bash,Task
+          # Collect the thread node IDs to resolve. A thread qualifies when ALL of:
+          #   - it is unresolved (isResolved == false),
+          #   - its FIRST comment's author is the Copilot reviewer (any of the
+          #     three logins it surfaces under), and
+          #   - it already carries a reply, i.e. at least one comment whose author
+          #     is NOT Copilot (the reply the address step posted before the push).
+          # The non-Copilot-reply check — rather than a bare "more than one
+          # comment" — guards the edge where Copilot posts multiple comments in one
+          # thread with no human/agent reply: such a thread is left open.
+          ids="$(gh api graphql \
+            -f query='
+            query($owner: String!, $repo: String!, $pr: Int!) {
+              repository(owner: $owner, name: $repo) {
+                pullRequest(number: $pr) {
+                  reviewThreads(first: 50) {
+                    nodes {
+                      id
+                      isResolved
+                      comments(first: 100) { nodes { author { login } } }
+                    }
+                  }
+                }
+              }
+            }' -f owner="$OWNER" -f repo="$NAME" -F pr="$PR" \
+            --jq '.data.repository.pullRequest.reviewThreads.nodes[]
+                    | select(.isResolved == false)
+                    # First comment must be Copilot. Null-safe: a ghost/deleted
+                    # first-comment author yields no login and is skipped rather
+                    # than tripping the filter.
+                    | select((.comments.nodes[0].author.login // empty)
+                             | . == "Copilot" or . == "copilot-pull-request-reviewer" or . == "copilot-pull-request-reviewer[bot]")
+                    # Must carry a reply: some comment author is not Copilot.
+                    | select([.comments.nodes[].author.login // empty
+                              | select(. != "Copilot" and . != "copilot-pull-request-reviewer" and . != "copilot-pull-request-reviewer[bot]")]
+                             | length > 0)
+                    | .id')"
+
+          if [ -z "$ids" ]; then
+            echo "No replied-to unresolved Copilot threads to resolve."
+            exit 0
+          fi
+
+          while IFS= read -r tid; do
+            [ -n "$tid" ] || continue
+            echo "Resolving Copilot thread $tid"
+            gh api graphql \
+              -f query='
+              mutation($threadId: ID!) {
+                resolveReviewThread(input: { threadId: $threadId }) {
+                  thread { id isResolved }
+                }
+              }' -f threadId="$tid" >/dev/null
+          done <<< "$ids"
+          echo "Resolved all replied-to Copilot threads on PR #${PR}."
