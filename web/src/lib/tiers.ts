@@ -1,3 +1,15 @@
+import type { ScoringFormat } from "@/api/types";
+
+/** A sparse map of tier number → custom label. Omitted tiers fall back to defaults. */
+export type TierLabelOverrides = Partial<Record<number, string>>;
+
+/**
+ * Per-scoring-format tier label overrides (#164). Each scoring format may carry
+ * its own sparse override map; formats absent here fall back to the global
+ * `tier_labels` and then to the static defaults.
+ */
+export type TierLabelsByFormat = Partial<Record<ScoringFormat, TierLabelOverrides>>;
+
 export const TIER_LABELS: Readonly<Partial<Record<number, string>>> = {
   1: "Elite",
   2: "Strong Starter",
@@ -55,6 +67,25 @@ export function buildResolvedTierNames(
     result[t] = getCustomTierLabel(t, overrides);
   }
   return result;
+}
+
+/**
+ * Resolves the effective tier-label overrides for a given scoring format (#164).
+ * The active format's per-format overrides take precedence over the global
+ * `tier_labels`; tiers absent from the per-format map fall through to the global
+ * value (and, downstream, to the static default). Returns a plain merged map —
+ * an empty object when nothing is configured. Pure; safe to call on every render.
+ */
+export function resolveTierLabelOverrides(
+  global: TierLabelOverrides | undefined,
+  byFormat: TierLabelsByFormat | undefined,
+  format: ScoringFormat,
+): TierLabelOverrides {
+  const formatOverrides = byFormat?.[format];
+  if (!formatOverrides || Object.keys(formatOverrides).length === 0) {
+    return { ...(global ?? {}) };
+  }
+  return { ...(global ?? {}), ...formatOverrides };
 }
 
 /**

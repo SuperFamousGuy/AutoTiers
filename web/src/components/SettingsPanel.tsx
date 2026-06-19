@@ -9,7 +9,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { RotateCcw, ChevronDown, ChevronUp } from "lucide-react";
 import { ScoreWeights } from "./ScoreWeights";
 import { LinkedLeagueChip } from "@/components/LinkedLeagueChip";
-import { TIER_LABELS, getTierLabel } from "@/lib/tiers";
+import { getTierLabel, getCustomTierLabel } from "@/lib/tiers";
+import type { TierLabelOverrides, TierLabelsByFormat } from "@/lib/tiers";
 import type { ScoringFormat, LeagueSize, QbTdPoints } from "@/api/types";
 import type { Weights } from "@/lib/weights";
 
@@ -22,7 +23,11 @@ export interface SettingsState {
   bonus_100yd_receiving: boolean;
   bonus_first_downs: boolean;
   weights: Weights;
-  tier_labels?: Partial<Record<number, string>>;
+  tier_labels?: TierLabelOverrides;
+  // Per-scoring-format tier label overrides (#164). When the active scoring
+  // format has an entry here, it takes precedence over the global tier_labels;
+  // formats absent here fall back to tier_labels and then the static defaults.
+  tier_labels_by_format?: TierLabelsByFormat;
   tier_count?: number;
   // Prior-year injury discount (#315). full_season_games is the games threshold
   // below which last season's total is treated as injury-shortened; prior_year_ramp
@@ -38,6 +43,17 @@ interface SettingsPanelProps {
   profileId?: string | null;
   onRefreshLink?: () => Promise<void> | void;
 }
+
+// Scope of the Tier Labels editor (#164): the global set, or one scoring format.
+type TierLabelScope = "global" | ScoringFormat;
+
+// Scoring formats offered in the per-format Tier Labels editor, with their
+// display names. Order and labels mirror the Scoring Format radio group above.
+export const SCORING_FORMAT_OPTIONS: readonly [ScoringFormat, string][] = [
+  ["standard", "Standard"],
+  ["half_ppr", "Half PPR"],
+  ["ppr", "Full PPR"],
+];
 
 export const LEAGUE_SIZES: LeagueSize[] = [8, 10, 12, 14, 16];
 export const DRAFT_ROUNDS_OPTIONS = [10, 12, 14, 15, 16, 18, 20, 25] as const;
@@ -56,35 +72,69 @@ export function SettingsPanel({ value, onChange, linkedLeague, profileId, onRefr
 
   const [tierLabelsOpen, setTierLabelsOpen] = useState(true);
 
-  const hasAnyOverride = Object.keys(value.tier_labels ?? {}).length > 0;
+  // Which label set the user is editing: the global set (all formats) or a
+  // single scoring format's per-format overrides (#164).
+  const [editScope, setEditScope] = useState<TierLabelScope>("global");
+
+  // The override map currently being edited, given the selected scope.
+  const currentMap: TierLabelOverrides =
+    editScope === "global"
+      ? value.tier_labels ?? {}
+      : value.tier_labels_by_format?.[editScope] ?? {};
+
+  const hasAnyOverride = Object.keys(currentMap).length > 0;
+
+  // The fallback shown as each input's placeholder and used to detect a "reset
+  // to default" on blur. Global edits fall back to the static default; per-format
+  // edits fall back to the global override (if any), then the static default.
+  const fallbackLabel = (tier: number): string =>
+    editScope === "global"
+      ? getTierLabel(tier)
+      : getCustomTierLabel(tier, value.tier_labels);
 
   // Effective tier count: explicit setting or fall back to league_size
   const effectiveTierCount = value.tier_count ?? value.league_size;
 
+  // Writes the edited map back to the right slice of settings for the current
+  // scope, collapsing empty maps to `undefined` so the persisted blob stays lean.
+  const setCurrentMap = (next: TierLabelOverrides | undefined) => {
+    const cleaned = next && Object.keys(next).length > 0 ? next : undefined;
+    if (editScope === "global") {
+      set("tier_labels", cleaned);
+      return;
+    }
+    const byFormat: TierLabelsByFormat = { ...(value.tier_labels_by_format ?? {}) };
+    if (cleaned) {
+      byFormat[editScope] = cleaned;
+    } else {
+      delete byFormat[editScope];
+    }
+    set("tier_labels_by_format", Object.keys(byFormat).length > 0 ? byFormat : undefined);
+  };
+
   const handleTierLabelChange = (tier: number, inputValue: string) => {
-    set("tier_labels", { ...(value.tier_labels ?? {}), [tier]: inputValue });
+    setCurrentMap({ ...currentMap, [tier]: inputValue });
   };
 
   const handleTierLabelBlur = (tier: number, inputValue: string) => {
     const trimmed = inputValue.trim();
-    const defaultLabel = TIER_LABELS[tier] ?? getTierLabel(tier);
-    if (trimmed === "" || trimmed === defaultLabel) {
-      const next = { ...(value.tier_labels ?? {}) };
+    if (trimmed === "" || trimmed === fallbackLabel(tier)) {
+      const next = { ...currentMap };
       delete next[tier];
-      set("tier_labels", Object.keys(next).length > 0 ? next : undefined);
+      setCurrentMap(next);
     } else if (trimmed !== inputValue) {
-      set("tier_labels", { ...(value.tier_labels ?? {}), [tier]: trimmed });
+      setCurrentMap({ ...currentMap, [tier]: trimmed });
     }
   };
 
   const handleResetTier = (tier: number) => {
-    const next = { ...(value.tier_labels ?? {}) };
+    const next = { ...currentMap };
     delete next[tier];
-    set("tier_labels", Object.keys(next).length > 0 ? next : undefined);
+    setCurrentMap(next);
   };
 
   const handleResetAll = () => {
-    set("tier_labels", undefined);
+    setCurrentMap(undefined);
   };
 
   return (
@@ -105,11 +155,7 @@ export function SettingsPanel({ value, onChange, linkedLeague, profileId, onRefr
           value={value.scoring_format}
           onValueChange={(v) => set("scoring_format", v as ScoringFormat)}
         >
-          {([
-            ["standard", "Standard"],
-            ["half_ppr", "Half PPR"],
-            ["ppr", "Full PPR"],
-          ] as const).map(([val, label]) => (
+          {SCORING_FORMAT_OPTIONS.map(([val, label]) => (
             <div key={val} className="flex items-center gap-2">
               <RadioGroupItem value={val} id={`sf-${val}`} />
               <Label htmlFor={`sf-${val}`} className="cursor-pointer">{label}</Label>
@@ -251,7 +297,12 @@ export function SettingsPanel({ value, onChange, linkedLeague, profileId, onRefr
           <Label>Tier Labels</Label>
           <div className="flex items-center gap-1">
             {hasAnyOverride && (
-              <Button variant="ghost" size="sm" onClick={handleResetAll}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleResetAll}
+                aria-label={editScope === "global" ? "Reset all tier labels" : "Reset all tier labels for this format"}
+              >
                 Reset all
               </Button>
             )}
@@ -287,15 +338,37 @@ export function SettingsPanel({ value, onChange, linkedLeague, profileId, onRefr
               </SelectContent>
             </Select>
           </div>
+          <div className="space-y-2">
+            <Label htmlFor="tier-label-scope-select">Editing labels for</Label>
+            <Select
+              value={editScope}
+              onValueChange={(v) => setEditScope(v as TierLabelScope)}
+            >
+              <SelectTrigger id="tier-label-scope-select" aria-label="Editing labels for">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="global">All formats (global)</SelectItem>
+                {SCORING_FORMAT_OPTIONS.map(([val, label]) => (
+                  <SelectItem key={val} value={val}>{label} only</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {editScope === "global"
+                ? "Applies to every scoring format unless overridden below."
+                : "Overrides the global labels for this format only. Empty fields fall back to your global labels."}
+            </p>
+          </div>
           {Array.from({ length: effectiveTierCount }, (_, i) => i + 1).map((tier) => {
-            const hasOverride = value.tier_labels?.[tier] !== undefined;
-            const defaultLabel = getTierLabel(tier);
+            const hasOverride = currentMap[tier] !== undefined;
+            const defaultLabel = fallbackLabel(tier);
             return (
               <div key={tier} className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground w-12 shrink-0">Tier {tier}</span>
                 <Input
                   type="text"
-                  value={value.tier_labels?.[tier] ?? ""}
+                  value={currentMap[tier] ?? ""}
                   placeholder={defaultLabel}
                   onChange={(e) => handleTierLabelChange(tier, e.target.value)}
                   onBlur={(e) => handleTierLabelBlur(tier, e.target.value)}

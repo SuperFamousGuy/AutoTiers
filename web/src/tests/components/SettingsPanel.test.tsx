@@ -136,6 +136,142 @@ describe("SettingsPanel — Tier Labels section", () => {
   });
 });
 
+function StatefulFullPanel({
+  initial,
+  onChangeSpy = vi.fn(),
+}: {
+  initial?: Partial<SettingsState>;
+  onChangeSpy?: ReturnType<typeof vi.fn>;
+}) {
+  const [value, setValue] = useState<SettingsState>({ ...baseSettings, ...initial });
+  const handleChange = (next: SettingsState) => {
+    setValue(next);
+    onChangeSpy(next);
+  };
+  return <SettingsPanel value={value} onChange={handleChange} />;
+}
+
+async function selectScope(user: ReturnType<typeof userEvent.setup>, optionName: string) {
+  await user.click(screen.getByRole("combobox", { name: "Editing labels for" }));
+  await user.click(await screen.findByRole("option", { name: optionName }));
+}
+
+describe("SettingsPanel — per-format tier labels (#164)", () => {
+  it("renders the scope selector defaulting to the global set", () => {
+    render(<StatefulFullPanel />);
+    expect(screen.getByRole("combobox", { name: "Editing labels for" })).toBeInTheDocument();
+    expect(screen.getByText("All formats (global)")).toBeInTheDocument();
+  });
+
+  it("global-scope inputs still edit tier_labels (back-compat)", async () => {
+    const spy = vi.fn();
+    render(<StatefulFullPanel onChangeSpy={spy} />);
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("textbox", { name: "Tier 1 label" }), "X");
+    const last = spy.mock.calls[spy.mock.calls.length - 1][0] as SettingsState;
+    expect(last.tier_labels?.[1]).toBe("X");
+    expect(last.tier_labels_by_format).toBeUndefined();
+  });
+
+  it("switching to a format shows that format's stored override", async () => {
+    render(
+      <StatefulFullPanel
+        initial={{ tier_labels_by_format: { ppr: { 1: "PPR Studs" } } }}
+      />,
+    );
+    const user = userEvent.setup();
+    // Global scope: tier 1 input is empty (no global override)
+    expect((screen.getByRole("textbox", { name: "Tier 1 label" }) as HTMLInputElement).value).toBe("");
+    await selectScope(user, "Full PPR only");
+    expect((screen.getByRole("textbox", { name: "Tier 1 label" }) as HTMLInputElement).value).toBe("PPR Studs");
+  });
+
+  it("in format scope, the placeholder falls back to the global override", async () => {
+    render(<StatefulFullPanel initial={{ tier_labels: { 1: "Global Studs" } }} />);
+    const user = userEvent.setup();
+    await selectScope(user, "Full PPR only");
+    const input = screen.getByRole("textbox", { name: "Tier 1 label" }) as HTMLInputElement;
+    // No PPR-specific override yet, so the field is empty and shows the global as placeholder
+    expect(input.value).toBe("");
+    expect(input).toHaveAttribute("placeholder", "Global Studs");
+  });
+
+  it("typing in a format scope writes tier_labels_by_format and leaves the global map intact", async () => {
+    const spy = vi.fn();
+    render(<StatefulFullPanel initial={{ tier_labels: { 1: "Global Studs" } }} onChangeSpy={spy} />);
+    const user = userEvent.setup();
+    await selectScope(user, "Full PPR only");
+    await user.type(screen.getByRole("textbox", { name: "Tier 1 label" }), "PPR Studs");
+    const last = spy.mock.calls[spy.mock.calls.length - 1][0] as SettingsState;
+    expect(last.tier_labels_by_format?.ppr?.[1]).toBe("PPR Studs");
+    expect(last.tier_labels?.[1]).toBe("Global Studs");
+  });
+
+  it("blurring a format override equal to the global fallback removes the per-format key", async () => {
+    const spy = vi.fn();
+    render(
+      <StatefulFullPanel
+        initial={{ tier_labels: { 1: "Global Studs" }, tier_labels_by_format: { ppr: { 1: "PPR Studs" } } }}
+        onChangeSpy={spy}
+      />,
+    );
+    const user = userEvent.setup();
+    await selectScope(user, "Full PPR only");
+    const input = screen.getByRole("textbox", { name: "Tier 1 label" });
+    await user.clear(input);
+    await user.type(input, "Global Studs");
+    await user.tab();
+    const last = spy.mock.calls[spy.mock.calls.length - 1][0] as SettingsState;
+    // Per-format key collapses; whole tier_labels_by_format drops to undefined
+    expect(last.tier_labels_by_format).toBeUndefined();
+    // Global map untouched
+    expect(last.tier_labels?.[1]).toBe("Global Studs");
+  });
+
+  it("clearing the only per-format override collapses tier_labels_by_format to undefined", async () => {
+    const spy = vi.fn();
+    render(
+      <StatefulFullPanel
+        initial={{ tier_labels_by_format: { ppr: { 1: "PPR Studs" } } }}
+        onChangeSpy={spy}
+      />,
+    );
+    const user = userEvent.setup();
+    await selectScope(user, "Full PPR only");
+    await user.clear(screen.getByRole("textbox", { name: "Tier 1 label" }));
+    await user.tab();
+    const last = spy.mock.calls[spy.mock.calls.length - 1][0] as SettingsState;
+    expect(last.tier_labels_by_format).toBeUndefined();
+  });
+
+  it("Reset all in a format scope clears only that format and keeps others", async () => {
+    const spy = vi.fn();
+    render(
+      <StatefulFullPanel
+        initial={{
+          tier_labels_by_format: { ppr: { 1: "PPR Studs" }, standard: { 1: "Std Studs" } },
+        }}
+        onChangeSpy={spy}
+      />,
+    );
+    const user = userEvent.setup();
+    await selectScope(user, "Full PPR only");
+    await user.click(screen.getByRole("button", { name: /reset all/i }));
+    const last = spy.mock.calls[spy.mock.calls.length - 1][0] as SettingsState;
+    expect(last.tier_labels_by_format?.ppr).toBeUndefined();
+    expect(last.tier_labels_by_format?.standard).toEqual({ 1: "Std Studs" });
+  });
+
+  it("Reset all reflects the scoped map, not the global one", async () => {
+    // Global has an override but the selected PPR scope does not — Reset all hides.
+    render(<StatefulFullPanel initial={{ tier_labels: { 1: "Global Studs" } }} />);
+    const user = userEvent.setup();
+    expect(screen.getByRole("button", { name: /reset all/i })).toBeInTheDocument();
+    await selectScope(user, "Full PPR only");
+    expect(screen.queryByRole("button", { name: /reset all/i })).not.toBeInTheDocument();
+  });
+});
+
 describe("SettingsPanel — tier count control", () => {
   it("number of tiers select renders with default value equal to league_size when tier_count absent", () => {
     render(<StatefulPanel />);
