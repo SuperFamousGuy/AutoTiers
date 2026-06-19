@@ -358,6 +358,14 @@ describe("TiersPanel", () => {
 
       expect(screen.queryByRole("button", { name: /mark ja'marr chase as (drafted|available)/i })).not.toBeInTheDocument();
       expect(screen.queryByText(/drafted/i, { selector: "p" })).not.toBeInTheDocument();
+
+      // Turning Draft Mode back on must reveal the previously-drafted player as
+      // still drafted — i.e. the drafted set was kept, not cleared, while off.
+      await user.click(toggle); // turn draft mode back on
+      expect(screen.getByText(/1 drafted/i)).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /mark ja'marr chase as available/i }),
+      ).toBeInTheDocument();
     });
   });
 });

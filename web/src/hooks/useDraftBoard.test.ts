@@ -92,6 +92,37 @@ describe("useDraftBoard", () => {
     expect(result.current.isDrafted("123")).toBe(false);
   });
 
+  it("never writes the previous key's drafted set under the new key when storageKey changes", () => {
+    localStorage.setItem("autotiers_draft:league-1:standard", JSON.stringify(["123"]));
+    localStorage.setItem("autotiers_draft:league-1:ppr", JSON.stringify(["456"]));
+
+    const setItemSpy = vi.spyOn(Storage.prototype, "setItem");
+
+    const { rerender } = renderHook(
+      ({ key }: { key: string }) => useDraftBoard(key),
+      { initialProps: { key: "league-1:standard" } },
+    );
+
+    setItemSpy.mockClear(); // ignore the initial-mount persist for "standard"
+    rerender({ key: "league-1:ppr" });
+
+    // Every write that targeted the new ("ppr") key must contain that key's own
+    // data (["456"]) — the old key's data (["123"]) must never be written under
+    // the new key, even transiently.
+    const newKeyWrites = setItemSpy.mock.calls.filter(
+      ([k]) => k === "autotiers_draft:league-1:ppr",
+    );
+    expect(newKeyWrites.length).toBeGreaterThan(0);
+    for (const [, value] of newKeyWrites) {
+      expect(JSON.parse(value as string)).toEqual(["456"]);
+    }
+
+    // And the stored value for the new key ends up correct.
+    expect(JSON.parse(localStorage.getItem("autotiers_draft:league-1:ppr") as string)).toEqual(["456"]);
+
+    setItemSpy.mockRestore();
+  });
+
   it("does not leak drafted state between different storage keys", () => {
     const { result: a } = renderHook(() => useDraftBoard("league-a:standard"));
     act(() => a.current.toggleDrafted("123"));

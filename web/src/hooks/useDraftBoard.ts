@@ -45,12 +45,18 @@ export function useDraftBoard(storageKey: string) {
     setDrafted(readDrafted(storageKey));
   }, [storageKey]);
 
-  // Persist on every change. Skipped on the initial mount's first render is
-  // unnecessary — re-writing the same value we just read is harmless and
-  // keeps this effect simple.
+  // Persist whenever the drafted set changes. We intentionally depend only on
+  // `drafted` — NOT `storageKey`. If `storageKey` were a dependency, a context
+  // switch would run this effect with the *new* key but the *old* drafted set
+  // (the re-seed effect above schedules a state update that hasn't committed
+  // yet), briefly writing the previous context's picks under the new key. By
+  // keying off `drafted` alone, persistence only fires after the re-seed has
+  // updated `drafted`, so the first write under a new key is always that key's
+  // own data. Re-writing the same value we just read on mount is harmless.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     persistDrafted(storageKey, drafted);
-  }, [storageKey, drafted]);
+  }, [drafted]);
 
   const isDrafted = useCallback((id: string) => drafted.has(id), [drafted]);
 
