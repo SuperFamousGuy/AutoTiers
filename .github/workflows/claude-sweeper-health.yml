@@ -39,11 +39,12 @@ name: claude-sweeper-health
 
 on:
   schedule:
-    # Hourly. The sweeper runs every 10 min; an hourly observer is frequent
-    # enough to catch a multi-tick outage quickly while staying cheap (one
-    # API read + a tiny Python call per tick). The grace window in
-    # sweeper_health.py (default 6 missed ticks ~= 70 min) is wider than this
-    # cadence so a single drifted sweeper tick never trips the alarm.
+    # Hourly. The sweeper's CONFIGURED cron is also hourly; an hourly observer
+    # is frequent enough to catch a multi-hour outage quickly while staying
+    # cheap (one API read + a tiny Python call per tick). The grace window
+    # (INTERVAL_MINUTES * (MAX_MISSED_TICKS + 1) = 240 min, see env below) is
+    # wide enough that GitHub's throttled/best-effort delivery of an hourly
+    # cron never trips the alarm, while a genuine multi-hour outage still does.
     - cron: "17 * * * *"
   workflow_dispatch: {} # manual kick for testing
 
@@ -60,10 +61,17 @@ permissions:
 env:
   # The workflow file whose schedule we are monitoring.
   SWEEPER_WORKFLOW: claude-address-copilot-review.yml
-  # The sweeper's cron cadence, in minutes (its schedule is `*/10`).
-  INTERVAL_MINUTES: "10"
-  # Allowed consecutive missed ticks before alarming. 6 => ~70-min grace.
-  MAX_MISSED_TICKS: "6"
+  # The sweeper's CONFIGURED cron cadence in minutes (its schedule is `0 * * * *`
+  # => hourly). NOTE: this is the configured cadence, NOT GitHub's delivered
+  # cadence, which is throttled/best-effort and can run an hourly job late.
+  INTERVAL_MINUTES: "60"
+  # Allowed consecutive missed ticks before alarming. 3 => grace window of
+  # INTERVAL_MINUTES * (3 + 1) = 240 min (~4h). The alarm trips only when the
+  # gap is strictly greater than 240 min (an exact 240-min gap is still
+  # healthy). Wide enough that GitHub's throttled delivery of an hourly cron
+  # (observed multi-hour gaps) never trips the alarm, but a genuine outage
+  # longer than 4h or a 60-day auto-disable still does.
+  MAX_MISSED_TICKS: "3"
   # Label used to deduplicate the alarm issue.
   STALE_LABEL: sweeper-stale
 
