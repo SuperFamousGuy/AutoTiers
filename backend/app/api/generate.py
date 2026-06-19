@@ -1,11 +1,8 @@
-import csv
 import dataclasses
-import io
 import statistics
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends
-from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -512,50 +509,4 @@ async def generate_tiers(
         ],
         total=len(ranked),
         data_as_of=data_as_of,
-    )
-
-
-@router.post("/generate/csv", response_class=Response)
-async def generate_csv(
-    req: GenerateRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user: Optional[User] = Depends(_get_current_user_impl),
-) -> Response:
-    tiered_players = await _run_generate(req, db, current_user)
-
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow([
-        "overall_rank", "player", "position", "team", "age",
-        "overall_tier", "positional_tier",
-        "adjusted_score", "vbd_score", "position_replacement",
-        "projected_score_raw",
-        "prior_year_actual", "espn_projection", "fantasypros_projection", "avg_projection",
-        "adp_standard", "adp_ppr", "adp_dynasty",
-        "flags", "rules_applied", "rule_deltas",
-    ])
-    for p in tiered_players:
-        # Format per-rule deltas as "name: ±X.X; name: ±X.X"
-        rule_deltas_str = "; ".join(
-            f"{app.name}: {'flagged' if app.effect_type.value == 'flag' else f'{app.delta:+.1f}'}"
-            for app in p.rule_applications
-        )
-        writer.writerow([
-            p.overall_rank, p.name, p.position, p.team, p.age,
-            p.overall_tier, p.positional_tier,
-            round(p.adjusted_score, 2), round(p.vbd_score, 2), round(p.position_replacement, 2),
-            round(p.projected_score_raw, 2),
-            round(p.prior_year_actual, 2) if p.prior_year_actual is not None else "",
-            round(p.espn_projection, 2) if p.espn_projection is not None else "",
-            round(p.fantasypros_projection, 2) if p.fantasypros_projection is not None else "",
-            round(p.avg_projection, 2) if p.avg_projection is not None else "",
-            p.adp_standard or "", p.adp_ppr or "", p.adp_dynasty or "",
-            ";".join(p.flags), ";".join(p.rules_applied), rule_deltas_str,
-        ])
-
-    output.seek(0)
-    return Response(
-        content=output.getvalue(),
-        media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": 'attachment; filename="tiers.csv"'},
     )

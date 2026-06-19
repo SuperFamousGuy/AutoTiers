@@ -148,7 +148,6 @@ pytest -v
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/api/generate` | Generate tier list; returns ranked JSON |
-| `POST` | `/api/generate/csv` | Same as above, returns downloadable CSV |
 | `GET` | `/api/rules` | All built-in rules with defaults |
 | `GET` | `/api/players` | All cached players |
 | `GET` | `/api/data/status` | Data freshness per source |
