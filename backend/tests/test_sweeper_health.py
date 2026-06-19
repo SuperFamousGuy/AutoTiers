@@ -15,7 +15,9 @@ from contextlib import redirect_stdout
 import pytest
 
 from scripts.sweeper_health import (
+    ScanSweeperVerdict,
     StalenessVerdict,
+    evaluate_scan_sweeper_health,
     evaluate_staleness,
     main,
 )
@@ -165,3 +167,168 @@ def test_main_respects_custom_flags():
     assert rc == 0
     payload = json.loads(buf.getvalue())
     assert payload["stale"] is True
+
+
+# --------------------------------------------------------------------------- #
+# Fix-checks sweeper (issue #373): scan-based health.                         #
+# The fix-checks sweeper's grace window mirrors the copilot one: a 10-min     #
+# configured cadence with max_missed_ticks=23 => allowed gap 10*(23+1)=240    #
+# min. These tests use the same defaults (interval=10, max=6 => gap=70) the   #
+# pure function ships with, except where they assert the production window.   #
+# --------------------------------------------------------------------------- #
+
+
+def test_scan_recent_run_and_success_is_healthy():
+    v = evaluate_scan_sweeper_health(last_run=_at(5), last_success=_at(5), now=NOW)
+    assert isinstance(v, ScanSweeperVerdict)
+    assert v.status == "healthy"
+    assert v.stale is False
+    assert v.broken is False
+    assert v.minutes_since_last_run == pytest.approx(5.0)
+    assert v.minutes_since_last_success == pytest.approx(5.0)
+
+
+def test_scan_idle_healthy_success_slightly_older_than_run():
+    # An idle tick still produces a successful scan. Even if the most recent
+    # tick is mid-flight (last_run a touch fresher than last_success), a
+    # success well within the window is healthy.
+    v = evaluate_scan_sweeper_health(last_run=_at(2), last_success=_at(12), now=NOW)
+    assert v.status == "healthy"
+    assert v.broken is False
+
+
+def test_scan_no_run_history_is_not_an_alarm():
+    for empty in (None, "", "   "):
+        v = evaluate_scan_sweeper_health(last_run=empty, last_success=empty, now=NOW)
+        assert v.status == "no_runs"
+        assert v.stale is False
+        assert v.broken is False
+        assert v.minutes_since_last_run is None
+        assert v.minutes_since_last_success is None
+
+
+def test_scan_ticking_but_never_succeeded_is_broken():
+    # Sweeper is firing (fresh run) but no scan has ever succeeded => broken,
+    # NOT stale: the scan logic itself is failing.
+    v = evaluate_scan_sweeper_health(last_run=_at(3), last_success=None, now=NOW)
+    assert v.status == "broken"
+    assert v.broken is True
+    assert v.stale is False
+    assert v.minutes_since_last_success is None
+    assert "never succeeded" in v.detail
+
+
+def test_scan_ticking_but_success_is_stale_is_broken():
+    # Fresh runs, but the last successful scan is well past the window: the
+    # scan has been failing for a while. Broken, not idle-healthy.
+    v = evaluate_scan_sweeper_health(last_run=_at(3), last_success=_at(200), now=NOW)
+    assert v.status == "broken"
+    assert v.broken is True
+    assert v.stale is False
+    assert "scan job is failing" in v.detail
+
+
+def test_scan_not_ticking_is_stale_even_if_scan_once_succeeded():
+    # The whole sweeper stopped firing: last run is far older than the window.
+    # That is "stale" (cron drift / auto-disable), which takes precedence over
+    # the broken/healthy scan distinction.
+    v = evaluate_scan_sweeper_health(last_run=_at(180), last_success=_at(180), now=NOW)
+    assert v.status == "stale"
+    assert v.stale is True
+    assert v.broken is False
+    assert "auto-disabled" in v.detail
+
+
+def test_scan_boundary_just_inside_window_is_healthy():
+    # Default interval=10, max=6 => allowed gap 70 min.
+    v = evaluate_scan_sweeper_health(last_run=_at(70), last_success=_at(70), now=NOW)
+    assert v.status == "healthy"
+
+
+def test_scan_boundary_success_just_past_window_is_broken():
+    # Run is fresh, but the last success is just past the 70-min gap.
+    v = evaluate_scan_sweeper_health(last_run=_at(5), last_success=_at(70.5), now=NOW)
+    assert v.status == "broken"
+    assert v.broken is True
+
+
+def test_scan_production_window_240_min():
+    # The values wired into the workflow: 10-min cadence, 23 missed ticks.
+    common = dict(now=NOW, interval_minutes=10, max_missed_ticks=23)
+    healthy = evaluate_scan_sweeper_health(
+        last_run=_at(239), last_success=_at(239), **common
+    )
+    assert healthy.status == "healthy"
+    assert healthy.allowed_gap_minutes == 240
+    broken = evaluate_scan_sweeper_health(
+        last_run=_at(5), last_success=_at(241), **common
+    )
+    assert broken.status == "broken"
+    stale = evaluate_scan_sweeper_health(
+        last_run=_at(241), last_success=_at(241), **common
+    )
+    assert stale.status == "stale"
+
+
+def test_scan_future_last_run_raises():
+    with pytest.raises(ValueError):
+        evaluate_scan_sweeper_health(last_run=_at(-5), last_success=None, now=NOW)
+
+
+def test_scan_future_last_success_raises():
+    with pytest.raises(ValueError):
+        evaluate_scan_sweeper_health(last_run=_at(5), last_success=_at(-5), now=NOW)
+
+
+def test_scan_non_positive_interval_raises():
+    with pytest.raises(ValueError):
+        evaluate_scan_sweeper_health(
+            last_run=_at(5), last_success=_at(5), now=NOW, interval_minutes=0
+        )
+
+
+def test_scan_negative_max_missed_ticks_raises():
+    with pytest.raises(ValueError):
+        evaluate_scan_sweeper_health(
+            last_run=_at(5), last_success=_at(5), now=NOW, max_missed_ticks=-1
+        )
+
+
+def test_main_scan_mode_healthy():
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = main(
+            [
+                "--mode",
+                "scan",
+                "--last-run",
+                _at(5),
+                "--last-success",
+                _at(5),
+                "--now",
+                NOW,
+            ]
+        )
+    assert rc == 0
+    payload = json.loads(buf.getvalue())
+    assert payload["status"] == "healthy"
+    assert payload["broken"] is False
+
+
+def test_main_scan_mode_broken_when_no_success():
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = main(["--mode", "scan", "--last-run", _at(5), "--now", NOW])
+    assert rc == 0
+    payload = json.loads(buf.getvalue())
+    assert payload["status"] == "broken"
+    assert payload["broken"] is True
+
+
+def test_main_scan_mode_no_runs():
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = main(["--mode", "scan", "--now", NOW])
+    assert rc == 0
+    payload = json.loads(buf.getvalue())
+    assert payload["status"] == "no_runs"

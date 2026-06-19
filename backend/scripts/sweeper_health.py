@@ -1,4 +1,4 @@
-"""Staleness/health evaluation for the copilot-review cron sweeper.
+"""Staleness/health evaluation for the Claude cron sweepers.
 
 Issue #348: GitHub's scheduled (cron) workflows are not a guaranteed
 heartbeat. Two failure modes can silently stop the
@@ -15,24 +15,48 @@ signal:
      the classic "no staleness alarm" gap (compare the scheduler stale-data
      incident).
 
-This module holds the *pure, testable* decision: given the timestamp of the
-sweeper's most recent run and the current time, decide whether it has gone
-stale (missed more than an allowed number of ticks). The workflow
-(`claude-sweeper-health.yml`) is a thin shell wrapper that fetches the last
-run time via `gh` and feeds it here; keeping the arithmetic in Python lets us
-unit-test the boundary conditions that shell math gets wrong.
+Issue #373 extends the same alarm to the `claude-fix-pr-checks.yml` sweeper
+(added by PR #372). That sweeper has a richer health signal: every tick runs
+a cheap `scan` job, and its *healthy idle* state is a SUCCESSFUL scan that
+found no eligible PRs (`any=false`). So for the fix-checks sweeper a fresh
+run is not enough — the alarm must distinguish:
 
-The alarm deliberately lives in a SEPARATE workflow from the sweeper: a check
-embedded in the sweeper could not fire when the sweeper itself is disabled,
-which is precisely the case we most need to catch.
+  * **idle but healthy** — the scan job is still completing successfully
+    (whether or not it found work), versus
+  * **broken** — the sweeper is still ticking, but its scan job has stopped
+    succeeding within the allowed window (the scan logic itself is failing).
+
+`evaluate_staleness` holds the copilot sweeper's decision (last run vs. now).
+`evaluate_scan_sweeper_health` holds the fix-checks decision, layering the
+"is the scan still succeeding?" check on top of the same staleness math. Both
+are *pure and testable*: the workflow (`claude-sweeper-health.yml`) is a thin
+shell wrapper that fetches the timestamps via `gh` and feeds them here;
+keeping the arithmetic in Python lets us unit-test the boundary conditions
+that shell math gets wrong.
+
+The alarm deliberately lives in a SEPARATE workflow from the sweepers: a
+check embedded in a sweeper could not fire when the sweeper itself is
+disabled, which is precisely the case we most need to catch.
 
 Run standalone (used by the workflow):
 
+    # copilot sweeper (staleness only). Its configured cron is hourly
+    # (`0 * * * *`), so the health workflow wires INTERVAL_MINUTES=60 and
+    # MAX_MISSED_TICKS=3 (a ~4h grace window); this example mirrors that.
     python3 backend/scripts/sweeper_health.py \
-        --last-run "2026-06-18T11:50:00Z" \
+        --last-run "2026-06-18T09:50:00Z" \
+        --now "2026-06-18T13:05:00Z" \
+        --interval-minutes 60 \
+        --max-missed-ticks 3
+
+    # fix-checks sweeper (staleness + scan-success)
+    python3 backend/scripts/sweeper_health.py \
+        --mode scan \
+        --last-run "2026-06-18T12:58:00Z" \
+        --last-success "2026-06-18T12:58:00Z" \
         --now "2026-06-18T13:05:00Z" \
         --interval-minutes 10 \
-        --max-missed-ticks 6
+        --max-missed-ticks 23
 
 Exit code is 0 always (the workflow inspects the JSON on stdout and decides
 what to do); parse errors exit non-zero so a malformed input is loud rather
@@ -179,13 +203,218 @@ def evaluate_staleness(
     )
 
 
+@dataclass(frozen=True)
+class ScanSweeperVerdict:
+    """Structured result of a scan-sweeper (fix-checks) health evaluation.
+
+    Unlike the copilot sweeper, the fix-checks sweeper exposes two timestamps:
+    ``last_run`` (its most recent tick, any conclusion) tells us whether it is
+    still firing at all; ``last_success`` (the most recent run whose scan job
+    succeeded) tells us whether the scan logic is still working. The ``status``
+    folds them into one of four outcomes — see ``evaluate_scan_sweeper_health``.
+    """
+
+    status: str  # "healthy" | "stale" | "broken" | "no_runs"
+    stale: bool  # not ticking at all (cron drift / auto-disable)
+    broken: bool  # ticking, but the scan job is not succeeding
+    minutes_since_last_run: Optional[float]
+    minutes_since_last_success: Optional[float]
+    missed_ticks: Optional[int]
+    interval_minutes: int
+    max_missed_ticks: int
+    allowed_gap_minutes: int
+    last_run: Optional[str]
+    last_success: Optional[str]
+    now: str
+    detail: str
+
+
+def evaluate_scan_sweeper_health(
+    last_run: Optional[str],
+    last_success: Optional[str],
+    now: str,
+    interval_minutes: int = 10,
+    max_missed_ticks: int = 6,
+) -> ScanSweeperVerdict:
+    """Decide the health of a scan-based sweeper (`claude-fix-pr-checks.yml`).
+
+    The fix-checks sweeper (issue #373 / PR #372) runs a cheap ``scan`` job
+    every tick. Its *healthy idle* path is a SUCCESSFUL scan that found no
+    eligible PRs (``any=false``) — so a fresh run alone does not prove health;
+    the scan must also be *succeeding*. This layers that distinction on top of
+    the staleness math in ``evaluate_staleness``:
+
+      * ``no_runs`` — the sweeper has never run (not live on the default branch
+        yet). Not an alarm, mirroring ``evaluate_staleness``.
+      * ``stale`` — the most recent run (any conclusion) is older than the
+        allowed gap. The sweeper has stopped ticking entirely: cron drift,
+        repeated skipped ticks, or the 60-day auto-disable. Same failure mode
+        the copilot sweeper alarms on.
+      * ``broken`` — the sweeper is still ticking (a recent run exists) but its
+        scan job has not *succeeded* within the allowed gap (or has never
+        succeeded). The scan logic itself is failing; idle-but-healthy is ruled
+        out because an idle tick still produces a successful scan.
+      * ``healthy`` — a recent run exists AND the scan job succeeded within the
+        allowed gap. Covers both "did work" and "idle, nothing to do".
+
+    Args:
+        last_run: ISO-8601 timestamp of the sweeper's most recent run of any
+            conclusion, or None/empty when it has never run.
+        last_success: ISO-8601 timestamp of the most recent run whose scan job
+            succeeded, or None/empty when no scan has ever succeeded.
+        now: ISO-8601 timestamp for the current time.
+        interval_minutes: The sweeper's cron cadence in minutes.
+        max_missed_ticks: Allowed consecutive missed ticks before alarming.
+            The allowed gap is ``interval_minutes * (max_missed_ticks + 1)``,
+            identical to ``evaluate_staleness`` so the two sweepers share one
+            grace-window definition.
+
+    Returns:
+        A ScanSweeperVerdict.
+
+    Raises:
+        ValueError: if interval_minutes is non-positive, if max_missed_ticks is
+            negative, or if either timestamp is in the future relative to now.
+    """
+    if interval_minutes <= 0:
+        raise ValueError("interval_minutes must be positive")
+    if max_missed_ticks < 0:
+        raise ValueError("max_missed_ticks must be >= 0")
+
+    now_dt = _parse_iso(now)
+    allowed_gap = interval_minutes * (max_missed_ticks + 1)
+
+    if last_run is None or str(last_run).strip() == "":
+        return ScanSweeperVerdict(
+            status="no_runs",
+            stale=False,
+            broken=False,
+            minutes_since_last_run=None,
+            minutes_since_last_success=None,
+            missed_ticks=None,
+            interval_minutes=interval_minutes,
+            max_missed_ticks=max_missed_ticks,
+            allowed_gap_minutes=allowed_gap,
+            last_run=None,
+            last_success=None,
+            now=now_dt.isoformat(),
+            detail=(
+                "Fix-checks sweeper has no run history yet; nothing to alarm "
+                "on. This is expected before the sweeper workflow is live on "
+                "the default branch."
+            ),
+        )
+
+    last_run_dt = _parse_iso(last_run)
+    minutes_since_run = (now_dt - last_run_dt).total_seconds() / 60.0
+    if minutes_since_run < 0:
+        raise ValueError(
+            f"last_run ({last_run_dt.isoformat()}) is after now "
+            f"({now_dt.isoformat()})"
+        )
+    missed_ticks = max(
+        0, int((minutes_since_run - interval_minutes) // interval_minutes)
+    )
+
+    has_success = last_success is not None and str(last_success).strip() != ""
+    if has_success:
+        last_success_dt = _parse_iso(last_success)
+        minutes_since_success: Optional[float] = (
+            now_dt - last_success_dt
+        ).total_seconds() / 60.0
+        if minutes_since_success < 0:
+            raise ValueError(
+                f"last_success ({last_success_dt.isoformat()}) is after now "
+                f"({now_dt.isoformat()})"
+            )
+        last_success_iso: Optional[str] = last_success_dt.isoformat()
+    else:
+        minutes_since_success = None
+        last_success_iso = None
+
+    not_ticking = minutes_since_run > allowed_gap
+    # Scan is failing if it has never succeeded, or its last success is older
+    # than the allowed gap while the sweeper itself is still ticking.
+    scan_failing = (minutes_since_success is None) or (
+        minutes_since_success > allowed_gap
+    )
+
+    if not_ticking:
+        status = "stale"
+        detail = (
+            f"Fix-checks sweeper last ran {minutes_since_run:.0f} min ago "
+            f"(~{missed_ticks} missed ticks at a {interval_minutes}-min "
+            f"cadence). That exceeds the allowed gap of {allowed_gap} min "
+            f"({max_missed_ticks} missed ticks). The sweeper may have drifted, "
+            f"been skipped repeatedly, or been auto-disabled after 60 days of "
+            f"repo inactivity."
+        )
+    elif scan_failing:
+        status = "broken"
+        if minutes_since_success is None:
+            since = "the scan job has never succeeded"
+        else:
+            since = (
+                f"its last successful scan was {minutes_since_success:.0f} min "
+                f"ago"
+            )
+        detail = (
+            f"Fix-checks sweeper is still ticking (last run "
+            f"{minutes_since_run:.0f} min ago) but {since}, exceeding the "
+            f"allowed gap of {allowed_gap} min. The scan job is failing rather "
+            f"than completing — a healthy idle tick still produces a "
+            f"successful scan with no eligible PRs."
+        )
+    else:
+        status = "healthy"
+        detail = (
+            f"Fix-checks sweeper scan succeeded {minutes_since_success:.0f} min "
+            f"ago (last run {minutes_since_run:.0f} min ago), within the "
+            f"allowed gap of {allowed_gap} min. Healthy."
+        )
+
+    return ScanSweeperVerdict(
+        status=status,
+        stale=not_ticking,
+        broken=(status == "broken"),
+        minutes_since_last_run=round(minutes_since_run, 2),
+        minutes_since_last_success=(
+            round(minutes_since_success, 2)
+            if minutes_since_success is not None
+            else None
+        ),
+        missed_ticks=missed_ticks,
+        interval_minutes=interval_minutes,
+        max_missed_ticks=max_missed_ticks,
+        allowed_gap_minutes=allowed_gap,
+        last_run=last_run_dt.isoformat(),
+        last_success=last_success_iso,
+        now=now_dt.isoformat(),
+        detail=detail,
+    )
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--mode",
+        choices=("staleness", "scan"),
+        default="staleness",
+        help="Which sweeper to evaluate: 'staleness' (copilot-review, last "
+        "run vs now) or 'scan' (fix-pr-checks, also requires a successful "
+        "scan within the window). Default: staleness.",
+    )
     parser.add_argument(
         "--last-run",
         default="",
         help="ISO-8601 timestamp of the sweeper's most recent run "
         "(empty if it has never run).",
+    )
+    parser.add_argument(
+        "--last-success",
+        default="",
+        help="ISO-8601 timestamp of the sweeper's most recent SUCCESSFUL scan "
+        "run (empty if none). Only used in --mode scan.",
     )
     parser.add_argument(
         "--now",
@@ -206,12 +435,21 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    verdict = evaluate_staleness(
-        last_run=args.last_run,
-        now=args.now,
-        interval_minutes=args.interval_minutes,
-        max_missed_ticks=args.max_missed_ticks,
-    )
+    if args.mode == "scan":
+        verdict = evaluate_scan_sweeper_health(
+            last_run=args.last_run,
+            last_success=args.last_success,
+            now=args.now,
+            interval_minutes=args.interval_minutes,
+            max_missed_ticks=args.max_missed_ticks,
+        )
+    else:
+        verdict = evaluate_staleness(
+            last_run=args.last_run,
+            now=args.now,
+            interval_minutes=args.interval_minutes,
+            max_missed_ticks=args.max_missed_ticks,
+        )
     json.dump(asdict(verdict), sys.stdout)
     sys.stdout.write("\n")
     return 0

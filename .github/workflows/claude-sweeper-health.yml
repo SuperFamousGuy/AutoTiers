@@ -1,7 +1,10 @@
 name: claude-sweeper-health
 
-# Staleness / health alarm for the copilot-review cron sweeper
-# (.github/workflows/claude-address-copilot-review.yml, added by PR #344).
+# Staleness / health alarm for the Claude cron sweepers:
+#   - claude-address-copilot-review.yml  (copilot-review sweeper, PR #344)
+#   - claude-fix-pr-checks.yml            (fix-PR-checks sweeper, PR #372)
+# Each sweeper is watched by its own job (copilot-health / fix-checks-health)
+# with its own dedup label, so an alarm on one never touches the other.
 #
 # WHY THIS EXISTS (issue #348):
 # GitHub's scheduled (cron) workflows are not a reliable heartbeat. The sweeper
@@ -72,11 +75,28 @@ env:
   # (observed multi-hour gaps) never trips the alarm, but a genuine outage
   # longer than 4h or a 60-day auto-disable still does.
   MAX_MISSED_TICKS: "3"
-  # Label used to deduplicate the alarm issue.
+  # Label used to deduplicate the copilot-review alarm issue.
   STALE_LABEL: sweeper-stale
 
+  # --- fix-PR-checks sweeper (claude-fix-pr-checks.yml, PR #372 / issue #373) ---
+  # The fix-checks sweeper's CONFIGURED cadence is every 10 minutes
+  # (`2,12,22,...`). We watch it with the SAME ~4h grace window as the copilot
+  # sweeper above so GitHub's throttled/best-effort delivery of a sub-hourly
+  # cron never trips a false alarm: 10 * (23 + 1) = 240 min. A genuine outage
+  # (>4h) or the 60-day auto-disable still trips it.
+  FIX_CHECKS_WORKFLOW: claude-fix-pr-checks.yml
+  FIX_CHECKS_INTERVAL_MINUTES: "10"
+  FIX_CHECKS_MAX_MISSED_TICKS: "23"
+  # Name prefix of the cheap stage-1 scan job inside the fix-checks sweeper. A
+  # SUCCESSFUL scan (even when it finds no eligible PRs, `any=false`) is the
+  # healthy-idle signal; a failing scan is the "broken" signal we must alarm on.
+  FIX_CHECKS_SCAN_JOB_PREFIX: "scan"
+  # Label used to deduplicate the fix-checks alarm issue (distinct from the
+  # copilot sweeper's label so the two alarms never collide).
+  FIX_CHECKS_STALE_LABEL: fix-checks-sweeper-stale
+
 jobs:
-  health-check:
+  copilot-health:
     name: check sweeper freshness
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -158,4 +178,138 @@ jobs:
           else
             # no_runs: sweeper not live on the default branch yet. Do nothing.
             echo "No sweeper run history yet; not alarming. $detail"
+          fi
+
+  fix-checks-health:
+    name: check fix-checks sweeper freshness
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Evaluate fix-checks sweeper health and alarm if needed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # The fix-checks sweeper runs a cheap `scan` job every tick. Two
+          # timestamps drive the verdict:
+          #   * last_run     — most recent run of ANY conclusion: is it still
+          #                    ticking at all? (catches cron drift / disable)
+          #   * last_success — most recent run whose SCAN JOB succeeded: is the
+          #                    scan logic still working? (catches "broken")
+          # An idle-but-healthy tick is a SUCCESSFUL scan with no eligible PRs,
+          # so the scan succeeding — not merely a fresh run — is the health
+          # signal. We must look at the scan JOB, not the run conclusion: a run
+          # can conclude `failure` because a per-PR fix job failed while the
+          # scan itself succeeded, and that is not a sweeper-health problem.
+          #
+          # We pull the recent run list once (id + createdAt + conclusion +
+          # status), then walk newest->oldest to find the first run whose scan
+          # job succeeded. A run that concluded `success` implies scan success
+          # (scan gates everything), so no per-job lookup is needed there; only
+          # non-success runs need a `gh run view` to inspect the scan job. As
+          # with the copilot job, a non-zero gh exit fails loudly rather than
+          # masquerading as a benign empty result.
+          # --limit 30 comfortably covers the 240-min window: at the sweeper's
+          # 10-min cadence that window holds ~24 runs, so any scan success
+          # within the window is inside this lookback. If the lookback misses an
+          # older success, we only UNDER-count last_success -> bias toward the
+          # "broken" alarm, never toward a false "healthy".
+          if ! runs_json="$(gh run list \
+            --repo "$REPO" \
+            --workflow "$FIX_CHECKS_WORKFLOW" \
+            --limit 30 \
+            --json databaseId,createdAt,conclusion,status)"; then
+            echo "::error::Failed to query run history for $FIX_CHECKS_WORKFLOW; cannot evaluate fix-checks sweeper health." >&2
+            exit 1
+          fi
+
+          last_run="$(echo "$runs_json" | jq -r '.[0].createdAt // ""')"
+          echo "Fix-checks sweeper last run: '${last_run:-<none>}'"
+
+          # IDs of completed runs, newest-first, that we may need to inspect for
+          # their scan-job conclusion (anything not already a run-level success).
+          last_success=""
+          if [ -n "$last_run" ]; then
+            while IFS=$'\t' read -r run_id created_at conclusion; do
+              [ -n "$run_id" ] || continue
+              if [ "$conclusion" = "success" ]; then
+                # Run-level success => scan job succeeded (scan gates the rest).
+                last_success="$created_at"
+                break
+              fi
+              # Non-success run: inspect the scan job specifically. The fix job
+              # failing (run conclusion `failure`) must NOT count against scan
+              # health, so we only accept this run if its scan job succeeded.
+              if ! scan_concl="$(gh run view "$run_id" --repo "$REPO" --json jobs \
+                --jq "[.jobs[] | select(.name | startswith(\"$FIX_CHECKS_SCAN_JOB_PREFIX\")) | .conclusion] | .[0] // \"\"")"; then
+                echo "::error::Failed to read jobs for run $run_id of $FIX_CHECKS_WORKFLOW." >&2
+                exit 1
+              fi
+              if [ "$scan_concl" = "success" ]; then
+                last_success="$created_at"
+                break
+              fi
+            # Only completed runs carry a meaningful conclusion; in-progress/
+            # queued ticks are skipped (their scan hasn't concluded yet).
+            done < <(echo "$runs_json" | jq -r '.[] | select(.status == "completed") | [(.databaseId|tostring), .createdAt, (.conclusion // "")] | @tsv')
+          fi
+          echo "Fix-checks sweeper last successful scan: '${last_success:-<none>}'"
+
+          now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          verdict="$(python3 backend/scripts/sweeper_health.py \
+            --mode scan \
+            --last-run "$last_run" \
+            --last-success "$last_success" \
+            --now "$now" \
+            --interval-minutes "$FIX_CHECKS_INTERVAL_MINUTES" \
+            --max-missed-ticks "$FIX_CHECKS_MAX_MISSED_TICKS")"
+          echo "Verdict: $verdict"
+
+          status="$(echo "$verdict" | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])')"
+          detail="$(echo "$verdict" | python3 -c 'import json,sys; print(json.load(sys.stdin)["detail"])')"
+
+          # Find an existing open alarm issue (dedup by the fix-checks label).
+          existing="$(gh issue list --repo "$REPO" \
+            --label "$FIX_CHECKS_STALE_LABEL" --state open --limit 1 \
+            --json number --jq '.[0].number // ""')"
+
+          # "stale" (not ticking) and "broken" (scan failing) both warrant an
+          # alarm; the verdict detail explains which it is. "healthy" (including
+          # idle, any=false) and "no_runs" (not live yet) do not.
+          if [ "$status" = "stale" ] || [ "$status" = "broken" ]; then
+            body="$(printf '## Fix-checks sweeper appears %s\n\n%s\n\nRaw verdict:\n\n```json\n%s\n```\n\n**What to check**\n- If STALE (not ticking): is `%s` disabled? (Actions tab, or after 60 days of repo inactivity — re-enable with `gh workflow enable %s`, or push any commit to reset the 60-day clock.) Are scheduled workflows being throttled/skipped for this repo right now?\n- If BROKEN (scan job failing): open the latest `%s` run and read the `scan` job log. A healthy idle tick is a SUCCESSFUL scan with no eligible PRs (`any=false`); a failing scan means the eligibility query itself is erroring.\n\nThis issue auto-closes once the sweeper runs its scan successfully within the expected window again.\n\n_Filed by `claude-sweeper-health.yml` (issue #373)._' "$status" "$detail" "$verdict" "$FIX_CHECKS_WORKFLOW" "$FIX_CHECKS_WORKFLOW" "$FIX_CHECKS_WORKFLOW")"
+            if [ -n "$existing" ]; then
+              echo "Alarm already open (#$existing); adding a status comment."
+              gh issue comment "$existing" --repo "$REPO" --body "$body"
+            else
+              echo "Opening new fix-checks alarm issue (status=$status)."
+              gh label create "$FIX_CHECKS_STALE_LABEL" --repo "$REPO" \
+                --color b60205 --description "fix-PR-checks sweeper is stale or its scan job is failing" \
+                2>/dev/null || true
+              gh issue create --repo "$REPO" \
+                --title "alarm: fix-checks sweeper is $status" \
+                --label "$FIX_CHECKS_STALE_LABEL" \
+                --body "$body"
+            fi
+          elif [ "$status" = "healthy" ]; then
+            if [ -n "$existing" ]; then
+              echo "Fix-checks sweeper recovered; closing alarm #$existing."
+              gh issue comment "$existing" --repo "$REPO" --body \
+                "Fix-checks sweeper scan is succeeding on schedule again. $detail Auto-closing."
+              gh issue close "$existing" --repo "$REPO" --reason completed
+            else
+              echo "Fix-checks sweeper healthy; no alarm open. Nothing to do."
+            fi
+          else
+            # no_runs: sweeper not live on the default branch yet. Do nothing.
+            echo "No fix-checks sweeper run history yet; not alarming. $detail"
           fi
