@@ -870,6 +870,90 @@ async def test_denver_kicker_does_not_get_dome_bonus(async_client, test_db):
 
 
 # ---------------------------------------------------------------------------
+# Double-gate invariant (#204): the kicker-context fields (plays_in_dome /
+# is_denver_kicker / cold_weather_kicker) are only populated for position "K"
+# in generate.py, so every non-K player reaches the engine with them as None
+# and `_evaluate` short-circuits to False. That context-level gate is
+# INDEPENDENT of each kicker rule's own positions=["K"] gate — the two
+# together are the "double gate".
+#
+# These tests isolate the CONTEXT gate. Note the /generate payload cannot
+# re-point a rule at a non-K position: `_build_rules_for_position` only
+# overrides enabled/weight and preserves each rule's `positions`, so merely
+# listing "Dome Kicker" under "WR" is still blocked by the rule-level
+# positions=["K"] gate and would not exercise the context gate at all. To
+# leave the context field as the ONLY remaining defense, each test monkeypatches
+# the built-in rule to positions=None (disabling the rule-level gate) and then
+# asserts the bonus still does not leak to a non-K player on a trigger team.
+# (cold_weather_kicker has the same guarantee asserted below in
+# test_cold_weather_kicker_not_set_for_non_k...)
+# ---------------------------------------------------------------------------
+
+def _patch_rule_positions_none(monkeypatch, rule_name):
+    """Replace generate.py's BUILTIN_RULES with a copy where ``rule_name`` has
+    positions=None, disabling that rule's position gate so the context-level
+    gate (the field staying None for non-K players) is the only defense left."""
+    import dataclasses
+    import app.api.generate as generate_mod
+    patched = [
+        dataclasses.replace(r, positions=None) if r.name == rule_name else r
+        for r in generate_mod.BUILTIN_RULES
+    ]
+    monkeypatch.setattr(generate_mod, "BUILTIN_RULES", patched)
+
+
+async def _seed_non_k_on_kicker_teams(db):
+    """Seed non-K players on a dome team (MIN) and on Denver (DEN).
+
+    These are the teams that would trip "Dome Kicker" / "Mile High Kicker"
+    if those rules ever fired for non-kickers.
+    """
+    players = [
+        Player(id="wr_min", name="MIN WR", position="WR", team="MIN", age=26, years_exp=4),
+        Player(id="rb_den", name="DEN RB", position="RB", team="DEN", age=25, years_exp=3),
+    ]
+    for p in players:
+        db.add(p)
+    projs = [
+        Projection(player_id="wr_min", source="fantasypros", scoring_format="ppr",
+                   projected_points=180.0, last_updated=date.today()),
+        Projection(player_id="rb_den", source="fantasypros", scoring_format="ppr",
+                   projected_points=190.0, last_updated=date.today()),
+    ]
+    for proj in projs:
+        db.add(proj)
+    await db.commit()
+
+
+async def test_dome_kicker_not_set_for_non_k_on_dome_team(async_client, test_db, monkeypatch):
+    """With "Dome Kicker"'s rule-level position gate disabled (positions=None),
+    a WR on MIN (a dome team) still must NOT get the bonus: generate.py leaves
+    plays_in_dome=None for non-kickers, so the context-level gate alone blocks
+    it (#204 double-gate invariant)."""
+    _patch_rule_positions_none(monkeypatch, "Dome Kicker")
+    await _seed_non_k_on_kicker_teams(test_db)
+    body = {**_GENERATE_BODY, "rules": {"WR": [{"name": "Dome Kicker", "enabled": True, "weight": 1.0}]}}
+    resp = await async_client.post("/api/generate", json=body)
+    assert resp.status_code == 200
+    by_id = {p["player_id"]: p for p in resp.json()["players"]}
+    assert "Dome Kicker" not in by_id["wr_min"]["rules_applied"]
+
+
+async def test_mile_high_kicker_not_set_for_non_k_on_denver(async_client, test_db, monkeypatch):
+    """With "Mile High Kicker"'s rule-level position gate disabled
+    (positions=None), an RB on DEN still must NOT get the bonus: generate.py
+    leaves is_denver_kicker=None for non-kickers, so the context-level gate alone
+    blocks it (#204 double-gate invariant)."""
+    _patch_rule_positions_none(monkeypatch, "Mile High Kicker")
+    await _seed_non_k_on_kicker_teams(test_db)
+    body = {**_GENERATE_BODY, "rules": {"RB": [{"name": "Mile High Kicker", "enabled": True, "weight": 1.0}]}}
+    resp = await async_client.post("/api/generate", json=body)
+    assert resp.status_code == 200
+    by_id = {p["player_id"]: p for p in resp.json()["players"]}
+    assert "Mile High Kicker" not in by_id["rb_den"]["rules_applied"]
+
+
+# ---------------------------------------------------------------------------
 # Integration tests: cold-weather kicker rule wiring
 # Validates that generate.py correctly populates cold_weather_kicker from
 # player.team, and that dome-team Ks and DEN Ks are excluded.
