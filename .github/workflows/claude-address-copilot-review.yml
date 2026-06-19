@@ -1,7 +1,7 @@
 name: claude-address-copilot-review
 
-# Cron-driven sweeper that auto-addresses GitHub Copilot's code review on
-# ALL open same-repo PRs, fully agentic (zero manual approvals).
+# Cron-driven sweeper. Auto-addresses GitHub Copilot's code review on every
+# open same-repo PR, fully agentic (zero manual approvals).
 #
 # WHY CRON, NOT pull_request_review:
 # Any workflow run TRIGGERED BY THE COPILOT BOT ACTOR is parked in
@@ -89,9 +89,12 @@ jobs:
           OWNER="${REPO%/*}"
           NAME="${REPO#*/}"
 
-          # Candidate PRs: every open same-repo PR. We no longer filter by author
-          # or head-branch prefix — the sweeper addresses Copilot review feedback
-          # on ALL PRs. (Author filtering became unreliable anyway: PRs opened by
+          # Candidate PRs: the open same-repo PRs returned by `gh pr list`, up to
+          # its 100-result page (no pagination — this repo never approaches 100
+          # open PRs; if that ever changes, add --paginate or a cursor loop). We
+          # no longer filter by author or head-branch prefix — the sweeper
+          # addresses Copilot review feedback on all of them. (Author filtering
+          # became unreliable anyway: PRs opened by
           # claude-implement-issue.yml are attributed to the subscription-auth
           # account, not the `claude[bot]` GitHub App, so a `claude[bot]` filter
           # silently excluded them.) The real work signal is "open same-repo PR
@@ -104,7 +107,7 @@ jobs:
           candidates="$(gh pr list --repo "$REPO" --state open --limit 100 \
             --json number,isCrossRepository \
             --jq '[.[] | select(.isCrossRepository == false) | .number]')"
-          echo "candidate PRs (all open same-repo): $candidates"
+          echo "candidate PRs (open same-repo, up to 100): $candidates"
 
           eligible='[]'
           for pr in $(echo "$candidates" | python3 -c 'import json,sys; print(" ".join(str(n) for n in json.load(sys.stdin)))'); do
@@ -129,7 +132,10 @@ jobs:
               }' -f owner="$OWNER" -f repo="$NAME" -F pr="$pr" \
               --jq '[.data.repository.pullRequest.reviewThreads.nodes[]
                        | select(.isResolved == false)
-                       | .comments.nodes[0].author.login
+                       # Null-safe: a ghost/deleted first-comment author yields no
+                       # login rather than tripping the filter, so one odd thread
+                       # cannot fail the whole scan job.
+                       | (.comments.nodes[0].author.login // empty)
                        | select(. == "Copilot" or . == "copilot-pull-request-reviewer" or . == "copilot-pull-request-reviewer[bot]")]
                     | length')"
 
