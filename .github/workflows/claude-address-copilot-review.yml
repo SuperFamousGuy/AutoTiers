@@ -1,7 +1,7 @@
 name: claude-address-copilot-review
 
-# Cron-driven sweeper that auto-addresses GitHub Copilot's code review on
-# claude-implement-issue.yml-opened PRs, fully agentic (zero manual approvals).
+# Cron-driven sweeper. Auto-addresses GitHub Copilot's code review on every
+# open same-repo PR, fully agentic (zero manual approvals).
 #
 # WHY CRON, NOT pull_request_review:
 # Any workflow run TRIGGERED BY THE COPILOT BOT ACTOR is parked in
@@ -15,8 +15,8 @@ name: claude-address-copilot-review
 # identity and is NOT approval-gated -> fully agentic. We poll instead of react.
 #
 # TRIGGER CONDITION (replaces the old pull_request_review event):
-# The work signal is "open claude[bot]-authored claude/issue-* PR with >=1
-# UNRESOLVED Copilot review thread". This is self-limiting: once Claude
+# The work signal is "open same-repo PR with >=1 UNRESOLVED Copilot review
+# thread" — any author, any branch. This is self-limiting: once Claude
 # addresses + resolves the threads, the next tick sees none and does nothing;
 # when Copilot re-reviews and opens new threads, the next tick acts again.
 #
@@ -89,28 +89,33 @@ jobs:
           OWNER="${REPO%/*}"
           NAME="${REPO#*/}"
 
-          # Candidate PRs: open, authored by claude[bot], head branch claude/issue-*,
-          # and from a same-repo branch (not a fork). We fetch the fields and
-          # filter with jq (NOT `gh pr list --author`) so we match the resolved
-          # bot login "claude[bot]" exactly, avoiding the `app/claude` login-form
-          # ambiguity of the --author flag. The isCrossRepository guard keeps the
-          # sweeper strictly scoped to this repo's own branches: a fork PR with a
-          # similarly-named head would otherwise be checked out by ref against the
-          # wrong repo and fail (and should never be auto-addressed regardless).
+          # Candidate PRs: the open same-repo PRs returned by `gh pr list`, up to
+          # its 100-result page (no pagination — this repo never approaches 100
+          # open PRs; if that ever changes, add --paginate or a cursor loop). We
+          # no longer filter by author or head-branch prefix — the sweeper
+          # addresses Copilot review feedback on all of them. (Author filtering
+          # became unreliable anyway: PRs opened by
+          # claude-implement-issue.yml are attributed to the subscription-auth
+          # account, not the `claude[bot]` GitHub App, so a `claude[bot]` filter
+          # silently excluded them.) The real work signal is "open same-repo PR
+          # with >=1 unresolved Copilot thread", checked per-candidate below.
+          #
+          # The isCrossRepository guard stays: it keeps the sweeper strictly
+          # scoped to this repo's own branches. A fork PR cannot be pushed to with
+          # our PAT and would be checked out by ref against the wrong repo and
+          # fail (and should never be auto-addressed regardless).
           candidates="$(gh pr list --repo "$REPO" --state open --limit 100 \
-            --json number,headRefName,author,isCrossRepository \
-            --jq '[.[] | select(.author.login == "claude[bot]")
-                       | select(.headRefName | startswith("claude/issue-"))
-                       | select(.isCrossRepository == false)
-                       | .number]')"
-          echo "candidate PRs (claude[bot] + claude/issue-*): $candidates"
+            --json number,isCrossRepository \
+            --jq '[.[] | select(.isCrossRepository == false) | .number]')"
+          echo "candidate PRs (open same-repo, up to 100): $candidates"
 
           eligible='[]'
           for pr in $(echo "$candidates" | python3 -c 'import json,sys; print(" ".join(str(n) for n in json.load(sys.stdin)))'); do
             # Count UNRESOLVED review threads authored by the Copilot reviewer.
-            # Copilot surfaces as login "Copilot" or "copilot-pull-request-reviewer[bot]"
-            # depending on the API surface; match both. We consider a thread a
-            # Copilot thread if its FIRST comment's author is Copilot.
+            # Copilot surfaces under several logins depending on the API surface:
+            # "Copilot", "copilot-pull-request-reviewer" (current, no suffix), or
+            # "copilot-pull-request-reviewer[bot]". Match all three. We consider a
+            # thread a Copilot thread if its FIRST comment's author is Copilot.
             unresolved="$(gh api graphql \
               -f query='
               query($owner: String!, $repo: String!, $pr: Int!) {
@@ -127,8 +132,11 @@ jobs:
               }' -f owner="$OWNER" -f repo="$NAME" -F pr="$pr" \
               --jq '[.data.repository.pullRequest.reviewThreads.nodes[]
                        | select(.isResolved == false)
-                       | .comments.nodes[0].author.login
-                       | select(. == "Copilot" or . == "copilot-pull-request-reviewer[bot]")]
+                       # Null-safe: a ghost/deleted first-comment author yields no
+                       # login rather than tripping the filter, so one odd thread
+                       # cannot fail the whole scan job.
+                       | (.comments.nodes[0].author.login // empty)
+                       | select(. == "Copilot" or . == "copilot-pull-request-reviewer" or . == "copilot-pull-request-reviewer[bot]")]
                     | length')"
 
             # Count prior Claude passes; if at/over cap, the PR is not eligible
@@ -302,7 +310,8 @@ jobs:
                #${{ matrix.pr }}. Triage every UNRESOLVED Copilot review thread
                (Act / Decline / Defer). For each Act decision, make the fix on
                this branch. Ignore threads authored by anyone other than Copilot
-               (`Copilot` / `copilot-pull-request-reviewer[bot]`).
+               (`Copilot` / `copilot-pull-request-reviewer` /
+               `copilot-pull-request-reviewer[bot]`).
             2. After applying fixes, run the suites. THIS IS CI: ignore any
                local `/Users/...` paths or `venv/bin/` prefixes in skills —
                dependencies are already installed on the runner. Run exactly:
