@@ -36,14 +36,18 @@ name: claude-address-copilot-review
 # pushes. The scan counts existing `claude-review-pass-*` labels; at >=MAX_PASSES
 # the PR is skipped forever (until a human removes the labels to re-arm). A
 # one-time `claude-review-capped` label guards the cap-notice comment so it is
-# not re-posted every 10 minutes.
+# not re-posted every tick.
 
 on:
   schedule:
-    # Every 10 minutes. Cadence rationale: Copilot re-reviews land within a few
-    # minutes of a push; 10 min keeps the round-trip tight without hammering the
-    # API. The idle path is cheap (scan-only), so a frequent poll is affordable.
-    - cron: "*/10 * * * *"
+    # Hourly. We previously ran `*/10`, but GitHub heavily THROTTLES
+    # high-frequency cron on a low-activity repo: the */10 schedule was only
+    # delivered ~every 2-2.5h in practice (observed gaps 120-176 min). A 10-min
+    # cadence was never actually honored, so the config now states the cadence
+    # GitHub will realistically deliver. This is fine: the work signal is
+    # idempotent, so a Copilot re-review that misses one tick is simply picked
+    # up by the next one. The idle path is cheap (scan-only).
+    - cron: "0 * * * *"
   workflow_dispatch: {} # manual kick for testing
 
 concurrency:
