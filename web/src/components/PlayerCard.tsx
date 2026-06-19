@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Check, Circle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TEAM_FULL_NAME, TEAM_TINT_COLORS, hexToRgb } from "@/lib/teams";
 import { teamLogoUrl } from "@/lib/espn-cdn";
@@ -21,9 +21,15 @@ function positionColor(position: string): string {
 
 interface PlayerCardProps {
   player: TieredPlayer;
+  /** When true, render the Draft Mode toggle affordance and apply drafted styling. */
+  draftMode?: boolean;
+  /** Whether this player is currently marked drafted. Ignored unless draftMode is true. */
+  drafted?: boolean;
+  /** Called with the player's id when the draft toggle is clicked. */
+  onToggleDraft?: (id: string) => void;
 }
 
-export function PlayerCard({ player }: PlayerCardProps) {
+export function PlayerCard({ player, draftMode, drafted, onToggleDraft }: PlayerCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [imgError, setImgError] = useState(false);
 
@@ -45,99 +51,121 @@ export function PlayerCard({ player }: PlayerCardProps) {
 
   const posRgb = hexToRgb(posColor);
 
+  const isDrafted = draftMode === true && drafted === true;
+
   return (
     <div
-      className="rounded-lg border border-l-4 transition-colors"
+      className={cn(
+        "rounded-lg border border-l-4 transition-colors",
+        isDrafted && "opacity-50",
+      )}
       style={{ ...cardStyle, borderLeftColor: posColor }}
     >
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-3 px-3 py-2.5 text-sm text-left"
-        aria-expanded={expanded}
-        aria-label={`Toggle details for ${player.name}`}
-      >
-        {/* Rank */}
-        <span
-          className="w-6 text-right font-bold shrink-0"
-          style={{ color: posColor }}
-        >
-          {player.overall_rank}
-        </span>
-
-        {/* Headshot */}
-        {!imgError ? (
-          <img
-            src={`https://sleepercdn.com/content/nfl/players/thumb/${player.player_id}.jpg`}
-            onError={() => setImgError(true)}
-            alt={player.name}
-            className="w-11 h-11 rounded-full object-cover object-top shrink-0"
-            style={{ border: `2px solid ${posColor}` }}
-          />
-        ) : (
-          <div
-            className="w-11 h-11 rounded-full shrink-0 flex items-center justify-center text-[11px] font-bold"
-            style={{
-              border: `2px solid ${posColor}`,
-              color: posColor,
-              backgroundColor: `rgba(${posRgb}, 0.12)`,
-            }}
+      <div className="flex items-stretch">
+        {draftMode && (
+          <button
+            type="button"
+            onClick={() => onToggleDraft?.(player.player_id)}
+            className="flex items-center justify-center px-2.5 shrink-0 text-muted-foreground hover:text-foreground"
+            aria-pressed={drafted === true}
+            aria-label={drafted ? `Mark ${player.name} as available` : `Mark ${player.name} as drafted`}
           >
-            {player.position}
-          </div>
+            {drafted ? (
+              <Check className="h-4 w-4" style={{ color: posColor }} />
+            ) : (
+              <Circle className="h-4 w-4" />
+            )}
+          </button>
         )}
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="flex flex-1 min-w-0 items-center gap-3 px-3 py-2.5 text-sm text-left"
+          aria-expanded={expanded}
+          aria-label={`Toggle details for ${player.name}`}
+        >
+          {/* Rank */}
+          <span
+            className="w-6 text-right font-bold shrink-0"
+            style={{ color: posColor }}
+          >
+            {player.overall_rank}
+          </span>
 
-        {/* Name + subtitle */}
-        <div className="flex-1 min-w-0">
-          <div className="font-bold text-sm flex items-center gap-1 flex-wrap">
-            <span className="truncate">{player.name}</span>
-            {isFavPlayer && <span className="shrink-0">⭐</span>}
-            {isFavTeam && player.team && (
+          {/* Headshot */}
+          {!imgError ? (
+            <img
+              src={`https://sleepercdn.com/content/nfl/players/thumb/${player.player_id}.jpg`}
+              onError={() => setImgError(true)}
+              alt={player.name}
+              className="w-11 h-11 rounded-full object-cover object-top shrink-0"
+              style={{ border: `2px solid ${posColor}` }}
+            />
+          ) : (
+            <div
+              className="w-11 h-11 rounded-full shrink-0 flex items-center justify-center text-[11px] font-bold"
+              style={{
+                border: `2px solid ${posColor}`,
+                color: posColor,
+                backgroundColor: `rgba(${posRgb}, 0.12)`,
+              }}
+            >
+              {player.position}
+            </div>
+          )}
+
+          {/* Name + subtitle */}
+          <div className="flex-1 min-w-0">
+            <div className="font-bold text-sm flex items-center gap-1 flex-wrap">
+              <span className={cn("truncate", isDrafted && "line-through")}>{player.name}</span>
+              {isFavPlayer && <span className="shrink-0">⭐</span>}
+              {isFavTeam && player.team && (
+                <img
+                  src={teamLogoUrl(player.team)}
+                  alt={fullTeamName}
+                  loading="lazy"
+                  decoding="async"
+                  className="w-[17px] h-[17px] rounded-sm object-contain shrink-0 opacity-90"
+                />
+              )}
+            </div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              {player.position} · <span>{fullTeamName}</span>
+            </div>
+          </div>
+
+          {/* Team logo + VBD */}
+          <div className="flex items-center gap-2.5 shrink-0">
+            {player.team && (
               <img
                 src={teamLogoUrl(player.team)}
                 alt={fullTeamName}
+                aria-hidden="true"
                 loading="lazy"
                 decoding="async"
-                className="w-[17px] h-[17px] rounded-sm object-contain shrink-0 opacity-90"
+                className="w-7 h-7 rounded object-contain"
               />
             )}
-          </div>
-          <div className="text-xs text-muted-foreground mt-0.5">
-            {player.position} · <span>{fullTeamName}</span>
-          </div>
-        </div>
-
-        {/* Team logo + VBD */}
-        <div className="flex items-center gap-2.5 shrink-0">
-          {player.team && (
-            <img
-              src={teamLogoUrl(player.team)}
-              alt={fullTeamName}
-              aria-hidden="true"
-              loading="lazy"
-              decoding="async"
-              className="w-7 h-7 rounded object-contain"
-            />
-          )}
-          <div className="text-right">
-            <div
-              className="text-lg font-black leading-none"
-              style={{ color: posColor }}
-            >
-              {player.vbd_score.toFixed(1)}
+            <div className="text-right">
+              <div
+                className="text-lg font-black leading-none"
+                style={{ color: posColor }}
+              >
+                {player.vbd_score.toFixed(1)}
+              </div>
+              <div className="text-[9px] text-muted-foreground uppercase tracking-wide">VBD</div>
             </div>
-            <div className="text-[9px] text-muted-foreground uppercase tracking-wide">VBD</div>
           </div>
-        </div>
 
-        {/* Chevron */}
-        <ChevronDown
-          className={cn(
-            "h-4 w-4 text-muted-foreground transition-transform shrink-0",
-            expanded && "rotate-180"
-          )}
-        />
-      </button>
+          {/* Chevron */}
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 text-muted-foreground transition-transform shrink-0",
+              expanded && "rotate-180"
+            )}
+          />
+        </button>
+      </div>
 
       {/* Expanded detail panel */}
       {expanded && (

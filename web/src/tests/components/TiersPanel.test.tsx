@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TiersPanel } from "@/components/TiersPanel";
 import generateResponse from "../fixtures/generate-response.json";
@@ -42,6 +42,10 @@ const tier7Response: GenerateResponse = {
 };
 
 describe("TiersPanel", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
   it("shows placeholder when no result", () => {
     render(<TiersPanel result={null} isPending={false} onDownloadXlsx={() => {}} />);
     expect(screen.getByText(/click generate/i)).toBeInTheDocument();
@@ -232,6 +236,136 @@ describe("TiersPanel", () => {
       // Tier 2 is not overridden, should show "Strong Starter"
       const starterEl = screen.getByText("Strong Starter");
       expect(starterEl.parentElement).toHaveTextContent(/Tier 2/);
+    });
+  });
+
+  describe("draft mode", () => {
+    it("does not show the draft toggle button on player rows until Draft Mode is on", () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      expect(screen.queryByRole("button", { name: /mark ja'marr chase as drafted/i })).not.toBeInTheDocument();
+    });
+
+    it("toggling Draft Mode on reveals per-player draft affordances", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+      expect(screen.getByRole("button", { name: /mark ja'marr chase as drafted/i })).toBeInTheDocument();
+    });
+
+    it("Draft Mode toggle exposes aria-checked state", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      const toggle = screen.getByRole("switch", { name: /draft mode/i });
+      expect(toggle).toHaveAttribute("aria-checked", "false");
+      await user.click(toggle);
+      expect(toggle).toHaveAttribute("aria-checked", "true");
+    });
+
+    it("clicking a player's draft button marks it drafted: strike-through + header count", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+      await user.click(screen.getByRole("button", { name: /mark ja'marr chase as drafted/i }));
+
+      // Header shows "1 drafted"
+      expect(screen.getByText(/1 drafted/i)).toBeInTheDocument();
+
+      // The name now has strike-through styling in the player row (a <span>;
+      // the Drafted section below renders the same name as a plain <button>).
+      const nameEls = screen.getAllByText("Ja'Marr Chase");
+      const rowNameEl = nameEls.find((el) => el.tagName === "SPAN")!;
+      expect(rowNameEl.className).toContain("line-through");
+
+      // The toggle button's accessible name flips to "available"
+      expect(screen.getByRole("button", { name: /mark ja'marr chase as available/i })).toBeInTheDocument();
+    });
+
+    it("clicking the draft toggle again un-drafts the player", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+      await user.click(screen.getByRole("button", { name: /mark ja'marr chase as drafted/i }));
+      expect(screen.getByText(/1 drafted/i)).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: /mark ja'marr chase as available/i }));
+      expect(screen.queryByText(/1 drafted/i)).not.toBeInTheDocument();
+      const nameEl = screen.getByText("Ja'Marr Chase");
+      expect(nameEl.tagName).toBe("SPAN");
+      expect(nameEl.className).not.toContain("line-through");
+    });
+
+    it("Reset Draft clears all drafted players", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+      await user.click(screen.getByRole("button", { name: /mark ja'marr chase as drafted/i }));
+      await user.click(screen.getByRole("button", { name: /mark bijan robinson as drafted/i }));
+      expect(screen.getByText(/2 drafted/i)).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: /^reset draft$/i }));
+      // Header suffix now reads "0 drafted" (still in Draft Mode), not "2 drafted".
+      expect(screen.getByText(/0 drafted/i)).toBeInTheDocument();
+      expect(screen.queryByText(/2 drafted/i)).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /mark ja'marr chase as drafted/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /mark bijan robinson as drafted/i })).toBeInTheDocument();
+    });
+
+    it("the available-count badge for Tier 1 drops from 2 to 1 after drafting one of its players", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+
+      // Tier 1 contains Ja'Marr Chase and Bijan Robinson (2 players) in the fixture.
+      const tier1Header = screen.getByText(/^Tier 1$/).closest("div")!;
+      expect(within(tier1Header).getByText("2 players")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: /mark ja'marr chase as drafted/i }));
+      expect(within(tier1Header).getByText("1 player")).toBeInTheDocument();
+    });
+
+    it("shows the collapsible 'Drafted' section only when draft mode is on and at least one player is drafted", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      expect(screen.queryByText(/^Drafted \(/)).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+      expect(screen.queryByText(/^Drafted \(/)).not.toBeInTheDocument(); // 0 drafted yet
+
+      await user.click(screen.getByRole("button", { name: /mark ja'marr chase as drafted/i }));
+      expect(screen.getByText("Drafted (1)")).toBeInTheDocument();
+    });
+
+    it("clicking a name in the Drafted section un-drafts that player", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+      await user.click(screen.getByRole("button", { name: /mark ja'marr chase as drafted/i }));
+
+      const draftedSection = screen.getByText("Drafted (1)").closest("details")!;
+      await user.click(within(draftedSection).getByText("Ja'Marr Chase"));
+
+      expect(screen.queryByText(/^Drafted \(/)).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /mark ja'marr chase as drafted/i })).toBeInTheDocument();
+    });
+
+    it("turning Draft Mode back off hides the draft affordances but keeps the count for next time (persisted via the hook)", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      const toggle = screen.getByRole("switch", { name: /draft mode/i });
+      await user.click(toggle);
+      await user.click(screen.getByRole("button", { name: /mark ja'marr chase as drafted/i }));
+      await user.click(toggle); // turn draft mode off
+
+      expect(screen.queryByRole("button", { name: /mark ja'marr chase as (drafted|available)/i })).not.toBeInTheDocument();
+      expect(screen.queryByText(/drafted/i, { selector: "p" })).not.toBeInTheDocument();
+
+      // Turning Draft Mode back on must reveal the previously-drafted player as
+      // still drafted — i.e. the drafted set was kept, not cleared, while off.
+      await user.click(toggle); // turn draft mode back on
+      expect(screen.getByText(/1 drafted/i)).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /mark ja'marr chase as available/i }),
+      ).toBeInTheDocument();
     });
   });
 });

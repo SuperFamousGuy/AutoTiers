@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Download } from "lucide-react";
+import { Download, ListChecks } from "lucide-react";
 import { PositionFilter, type PositionFilterValue } from "./PositionFilter";
 import { TierGroup } from "./TierGroup";
 import { getCustomTierLabel, getPositionalTierLabel } from "@/lib/tiers";
+import { useDraftBoard } from "@/hooks/useDraftBoard";
 import type { GenerateResponse, ScoringFormat } from "@/api/types";
 
 const SCORING_FORMAT_LABELS: Record<ScoringFormat, string> = {
@@ -22,10 +23,16 @@ interface TiersPanelProps {
   /** When true, surfaces the dev-only "Download debug CSV" button (?debug=1). */
   debugMode?: boolean;
   onDownloadDebugCsv?: () => void;
+  /** Stable id for the linked league (or "default"), used to scope Draft Mode persistence per league + scoring format. */
+  leagueKey?: string;
 }
 
-export function TiersPanel({ result, isPending, onDownloadXlsx, keepers, scoringFormat, tierLabelOverrides, debugMode, onDownloadDebugCsv }: TiersPanelProps) {
+export function TiersPanel({ result, isPending, onDownloadXlsx, keepers, scoringFormat, tierLabelOverrides, debugMode, onDownloadDebugCsv, leagueKey }: TiersPanelProps) {
   const [filter, setFilter] = useState<PositionFilterValue>("ALL");
+  const [draftMode, setDraftMode] = useState(false);
+
+  const draftStorageKey = `${leagueKey ?? "default"}:${scoringFormat ?? "standard"}`;
+  const { isDrafted, draftedCount, toggleDrafted, reset: resetDraft, drafted } = useDraftBoard(draftStorageKey);
 
   const groupedByTier = useMemo(() => {
     if (!result) return [] as { label: string; descriptiveLabel?: string; players: GenerateResponse["players"] }[];
@@ -68,6 +75,14 @@ export function TiersPanel({ result, isPending, onDownloadXlsx, keepers, scoring
     }
   }, [result, filter, tierLabelOverrides]);
 
+  // For the collapsible "Drafted" list — every drafted player (regardless of
+  // the active position filter), in their overall-rank order, so the list is
+  // stable even while a position chip is selected.
+  const draftedPlayers = useMemo(() => {
+    if (!result || draftedCount === 0) return [] as GenerateResponse["players"];
+    return result.players.filter((p) => isDrafted(p.player_id));
+  }, [result, isDrafted, draftedCount, drafted]);
+
   if (isPending) {
     return (
       <section className="p-6 overflow-y-auto min-h-0">
@@ -101,13 +116,58 @@ export function TiersPanel({ result, isPending, onDownloadXlsx, keepers, scoring
         </div>
       )}
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
-        <div>
-          <h2 className="text-lg font-semibold">Tiers</h2>
-          <p className="text-xs text-muted-foreground">
-            {scoringFormat ? SCORING_FORMAT_LABELS[scoringFormat] : "Standard"} · {result.total ?? result.players.length} players
-          </p>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h2 className="text-lg font-semibold">Tiers</h2>
+            <p className="text-xs text-muted-foreground">
+              {scoringFormat ? SCORING_FORMAT_LABELS[scoringFormat] : "Standard"} · {result.total ?? result.players.length} players
+              {draftMode && ` · ${draftedCount} drafted`}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {draftMode && (
+              <Button
+                onClick={resetDraft}
+                variant="outline"
+                size="sm"
+              >
+                Reset Draft
+              </Button>
+            )}
+            <Button
+              onClick={() => setDraftMode((d) => !d)}
+              variant={draftMode ? "default" : "outline"}
+              size="sm"
+              role="switch"
+              aria-checked={draftMode}
+              aria-label="Draft Mode"
+            >
+              <ListChecks className="mr-2 h-4 w-4" />
+              Draft Mode
+            </Button>
+          </div>
         </div>
         <PositionFilter value={filter} onChange={setFilter} />
+        {draftMode && draftedCount > 0 && (
+          <details className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
+            <summary className="cursor-pointer font-semibold text-foreground">
+              Drafted ({draftedCount})
+            </summary>
+            <ul className="mt-2 space-y-1">
+              {draftedPlayers.map((p) => (
+                <li key={p.player_id}>
+                  <button
+                    type="button"
+                    onClick={() => toggleDrafted(p.player_id)}
+                    className="text-left text-muted-foreground hover:text-foreground hover:underline"
+                  >
+                    {p.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
         <div className="space-y-4">
           {groupedByTier.map((group) => (
             <TierGroup
@@ -115,6 +175,9 @@ export function TiersPanel({ result, isPending, onDownloadXlsx, keepers, scoring
               label={group.label}
               descriptiveLabel={group.descriptiveLabel}
               players={group.players}
+              draftMode={draftMode}
+              isDrafted={isDrafted}
+              onToggleDraft={toggleDrafted}
             />
           ))}
         </div>
