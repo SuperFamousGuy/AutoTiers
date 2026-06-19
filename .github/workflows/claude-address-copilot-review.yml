@@ -287,7 +287,7 @@ jobs:
           gh pr edit "$PR" --repo "$REPO" --add-label "$LABEL"
           echo "Reserved budget: stamped $LABEL."
 
-      - name: Address Copilot review
+      - name: Address Copilot review (commit only, do not push)
         if: steps.budget.outputs.has_budget == 'true'
         uses: anthropics/claude-code-action@v1
         env:
@@ -305,6 +305,19 @@ jobs:
             the current branch (${{ steps.head.outputs.ref }}), with no further
             human input.
 
+            CRITICAL — read this before you start. Do NOT `git push` and do NOT
+            resolve any review thread inside this step. A Copilot fix can edit a
+            file under `.github/workflows/`, and a `git push` from inside this
+            action goes out as the action's GitHub App OIDC token (the action
+            re-seats git's credential after checkout), which GitHub REFUSES to
+            let write workflow files. Pushing here would fail exactly that way.
+            A later workflow step pushes the branch authenticated as the
+            Copilot-licensed PAT (which carries `workflows` scope), and a step
+            after THAT resolves the threads — but only once the push has actually
+            landed. If you resolve threads here, a failed push would leave threads
+            marked resolved with no fix on the remote (silent bad state). So:
+            commit + reply ONLY; never push, never resolve.
+
             Process:
             1. Invoke the `resolve-pr-comments` skill and run it for PR
                #${{ matrix.pr }}. Triage every UNRESOLVED Copilot review thread
@@ -318,15 +331,83 @@ jobs:
                  - backend: `cd backend && pytest -q --ignore=tests/test_sources`
                  - web tests: `cd web && npx vitest run`
                  - web types: `cd web && npx tsc --noEmit`
-            3. If ANY suite fails: do NOT commit, do NOT push. Post a comment on
-               the PR explaining what you changed and why it could not land
-               (with the failing output), then STOP.
+            3. If ANY suite fails: do NOT commit, do NOT push, do NOT resolve.
+               Post a comment on the PR explaining what you changed and why it
+               could not land (with the failing output), then STOP. Do NOT write
+               the `.addressed.flag` file.
             4. If all suites pass: commit the fixes with a conventional-style
                message (e.g. `fix: address Copilot review on PR
-               #${{ matrix.pr }}`), push to the EXISTING branch, then reply to
-               and resolve each addressed Copilot thread. Do NOT open a new pull
+               #${{ matrix.pr }}`). Leave the commit as the current branch HEAD.
+               Do NOT push it — a later step pushes it as the PAT. Then REPLY to
+               each addressed Copilot thread (a reply is a plain comment and is
+               safe to post before the push), but do NOT resolve any thread yet —
+               a later step resolves them only after the push succeeds. Finally,
+               write a sentinel file at the repo root named `.addressed.flag`
+               (any content) so the push and resolve steps know a fix was
+               committed. Do NOT commit `.addressed.flag`. Do NOT open a new pull
                request. Do NOT re-request Copilot review.
           claude_args: |
             --model claude-opus-4-8
             --max-turns 80
             --allowedTools Edit,Write,Read,Glob,Grep,Bash,Task
+
+      # Push the agent's commit, AUTHENTICATED as PR_AUTHOR_PAT, in a step the
+      # action cannot override. This is the same fix shipped for the auto-implement
+      # pipeline in PR #353 (see claude-implement-issue.yml "Push implemented
+      # branch"): the agent only COMMITS, because inside claude-code-action git's
+      # credential is the action's minted OIDC App token, which GitHub refuses to
+      # let write `.github/workflows/` files (the live #358 failure on
+      # claude-sweeper-health.yml). `GH_TOKEN` alone would not help — it steers
+      # `gh`, not raw `git push`. So we re-seat git's transport explicitly:
+      # `-c http...extraheader=` clears the App-token Authorization header the
+      # action persisted, and the inline token in the remote URL authenticates
+      # the push as the PAT (which carries `workflows` + `contents` scope). Gated
+      # on the `.addressed.flag` sentinel so a suites-failed / no-fix run (no
+      # flag) pushes nothing.
+      - name: Push addressed branch
+        if: steps.budget.outputs.has_budget == 'true' && hashFiles('.addressed.flag') != ''
+        env:
+          PAT: ${{ secrets.PR_AUTHOR_PAT }}
+          REF: ${{ steps.head.outputs.ref }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # `-c` is a git-level option and MUST precede the `push` subcommand —
+          # `git push -c ...` errors with "unknown switch `c`".
+          git -c http.https://github.com/.extraheader= push \
+            "https://x-access-token:${PAT}@github.com/${REPO}.git" \
+            "HEAD:refs/heads/${REF}"
+
+      # Resolve the Copilot threads ONLY after the push has landed. Splitting
+      # resolution out of the address step (and gating it on the push step
+      # succeeding) is the ordering decision that prevents the silent-bad-state
+      # failure: a thread is never marked resolved unless the fix is actually on
+      # the remote. `if: success()` ensures a failed push short-circuits this
+      # step, leaving the threads open for the next cron tick to retry. Gated on
+      # the same `.addressed.flag` sentinel so a no-fix run does not spin up Claude
+      # to resolve nothing.
+      - name: Resolve Copilot threads (after push)
+        if: success() && steps.budget.outputs.has_budget == 'true' && hashFiles('.addressed.flag') != ''
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.PR_AUTHOR_PAT }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            The fix for PR #${{ matrix.pr }} has already been committed, replied
+            to, and PUSHED to the remote branch (${{ steps.head.outputs.ref }}).
+            Your ONLY job now is to RESOLVE the Copilot review threads that were
+            addressed. Do NOT make code changes, do NOT commit, do NOT push.
+
+            For PR #${{ matrix.pr }}, fetch the UNRESOLVED review threads whose
+            first comment author is Copilot (`Copilot` /
+            `copilot-pull-request-reviewer` / `copilot-pull-request-reviewer[bot]`)
+            and that already carry a reply from the addressing pass, and resolve
+            each via the `resolveReviewThread` GraphQL mutation (the thread node
+            `id`, not the comment databaseId). The `resolve-pr-comments` skill
+            documents the exact mutation. Do NOT re-request Copilot review and do
+            NOT open a new pull request.
+          claude_args: |
+            --model claude-opus-4-8
+            --max-turns 40
+            --allowedTools Read,Glob,Grep,Bash,Task
