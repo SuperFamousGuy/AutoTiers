@@ -96,7 +96,7 @@ env:
   FIX_CHECKS_STALE_LABEL: fix-checks-sweeper-stale
 
 jobs:
-  health-check:
+  copilot-health:
     name: check sweeper freshness
     runs-on: ubuntu-latest
     timeout-minutes: 5

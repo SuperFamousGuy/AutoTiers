@@ -40,12 +40,14 @@ disabled, which is precisely the case we most need to catch.
 
 Run standalone (used by the workflow):
 
-    # copilot sweeper (staleness only)
+    # copilot sweeper (staleness only). Its configured cron is hourly
+    # (`0 * * * *`), so the health workflow wires INTERVAL_MINUTES=60 and
+    # MAX_MISSED_TICKS=3 (a ~4h grace window); this example mirrors that.
     python3 backend/scripts/sweeper_health.py \
-        --last-run "2026-06-18T11:50:00Z" \
+        --last-run "2026-06-18T09:50:00Z" \
         --now "2026-06-18T13:05:00Z" \
-        --interval-minutes 10 \
-        --max-missed-ticks 6
+        --interval-minutes 60 \
+        --max-missed-ticks 3
 
     # fix-checks sweeper (staleness + scan-success)
     python3 backend/scripts/sweeper_health.py \
