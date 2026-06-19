@@ -89,17 +89,21 @@ jobs:
       # can be rolled back to a known-good prior image (issue #188 — see
       # docs/runbooks/deploy-rollback.md).
       - name: Build Docker image
+        env:
+          IMAGE_TAG: ${{ steps.tags.outputs.release_tag }}
         run: |
           docker build \
             --platform linux/amd64 \
-            -t ${{ vars.ECR_REPO }}:latest \
-            -t ${{ vars.ECR_REPO }}:${{ steps.tags.outputs.release_tag }} \
+            -t "${{ vars.ECR_REPO }}:latest" \
+            -t "${{ vars.ECR_REPO }}:${IMAGE_TAG}" \
             ./backend
 
       - name: Push image to ECR
+        env:
+          IMAGE_TAG: ${{ steps.tags.outputs.release_tag }}
         run: |
-          docker push ${{ vars.ECR_REPO }}:latest
-          docker push ${{ vars.ECR_REPO }}:${{ steps.tags.outputs.release_tag }}
+          docker push "${{ vars.ECR_REPO }}:latest"
+          docker push "${{ vars.ECR_REPO }}:${IMAGE_TAG}"
 
       # Apply database migrations as a one-off ECS task BEFORE rolling the
       # services, so the new image never serves traffic against an out-of-date

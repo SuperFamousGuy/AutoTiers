@@ -95,8 +95,11 @@ SERVICE=autotiers-prod-backend
 aws ecs list-task-definitions --family-prefix "$SERVICE" \
   --sort DESC --max-items 10 --no-cli-pager
 
+# Set this to the prior good revision number from the list above.
+GOOD_REVISION=123
+
 aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" \
-  --task-definition autotiers-prod-backend:<GOOD_REVISION> --no-cli-pager
+  --task-definition "$SERVICE:$GOOD_REVISION" --no-cli-pager
 ```
 
 Note: revisions that reference `:latest` will pull whatever `:latest` currently

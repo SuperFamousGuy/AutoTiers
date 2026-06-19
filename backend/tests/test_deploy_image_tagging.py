@@ -39,26 +39,23 @@ class TestVersionedImageTag:
 
     def test_build_tags_both_latest_and_version(self):
         """docker build must carry both the moving :latest tag and the
-        immutable versioned tag."""
-        assert "-t ${{ vars.ECR_REPO }}:latest" in self.TEXT
-        assert (
-            "-t ${{ vars.ECR_REPO }}:${{ steps.tags.outputs.release_tag }}"
-            in self.TEXT
-        )
+        immutable versioned tag. The versioned tag must reach the shell via the
+        IMAGE_TAG env var (not direct interpolation) and be quoted."""
+        assert "IMAGE_TAG: ${{ steps.tags.outputs.release_tag }}" in self.TEXT
+        assert '-t "${{ vars.ECR_REPO }}:latest"' in self.TEXT
+        assert '-t "${{ vars.ECR_REPO }}:${IMAGE_TAG}"' in self.TEXT
 
     def test_pushes_both_tags(self):
         """Both tags must be pushed — a built-but-unpushed versioned tag is no
-        use for rollback."""
-        assert "docker push ${{ vars.ECR_REPO }}:latest" in self.TEXT
-        assert (
-            "docker push ${{ vars.ECR_REPO }}:${{ steps.tags.outputs.release_tag }}"
-            in self.TEXT
-        )
+        use for rollback. The versioned push uses the quoted IMAGE_TAG env var
+        rather than inline expression interpolation."""
+        assert 'docker push "${{ vars.ECR_REPO }}:latest"' in self.TEXT
+        assert 'docker push "${{ vars.ECR_REPO }}:${IMAGE_TAG}"' in self.TEXT
 
     def test_latest_still_pushed(self):
         """:latest must keep being pushed — the ECS task definition references
         it (acceptance criterion)."""
-        assert self.TEXT.count("docker push ${{ vars.ECR_REPO }}:latest") == 1
+        assert self.TEXT.count('docker push "${{ vars.ECR_REPO }}:latest"') == 1
 
     def test_tags_resolved_before_build(self):
         """The tag-resolution step must precede the build that consumes it."""
