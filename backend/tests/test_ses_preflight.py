@@ -286,3 +286,33 @@ def test_get_account_flattened_shape_is_tolerated():
     assert acct["production_access_enabled"] is True
     assert acct["max_24h_send"] == 50000
     assert acct["max_send_rate"] == 14
+
+
+def test_production_access_string_false_is_not_production():
+    """A literal "false" string must fail closed, not coerce to True."""
+    from scripts.ses_preflight import _account_from_get_account
+
+    acct = _account_from_get_account({"ProductionAccessEnabled": "false"})
+    assert acct["production_access_enabled"] is False
+
+
+def test_production_access_string_true_is_honoured():
+    from scripts.ses_preflight import _account_from_get_account
+
+    acct = _account_from_get_account({"ProductionAccessEnabled": "true"})
+    assert acct["production_access_enabled"] is True
+
+
+def test_production_access_missing_defaults_to_sandboxed():
+    from scripts.ses_preflight import _account_from_get_account
+
+    acct = _account_from_get_account({})
+    assert acct["production_access_enabled"] is False
+
+
+def test_production_access_non_boolean_raises():
+    """Garbage in the safety-gate field is loud, not silently coerced."""
+    from scripts.ses_preflight import _account_from_get_account
+
+    with pytest.raises(ValueError):
+        _account_from_get_account({"ProductionAccessEnabled": "yes"})

@@ -67,7 +67,7 @@ from typing import List, Optional, Sequence
 class SesReadinessVerdict:
     """Structured result of an SES send-readiness evaluation."""
 
-    status: str  # see _STATUS_* constants below
+    status: str  # see STATUS_* constants below
     safe: bool  # False => config can silently drop mail to real users
     enable_ses: bool
     production_access_enabled: bool
@@ -274,6 +274,32 @@ def _identities_from_list_identities(payload: dict) -> List[str]:
     return [str(i) for i in identities]
 
 
+def _coerce_production_access(value: object) -> bool:
+    """Strictly interpret ``ProductionAccessEnabled`` as a boolean (fail closed).
+
+    This is a safety gate, so it must not over-trust its input. A plain
+    ``bool(value)`` treats any non-empty string — including ``"false"`` — as
+    ``True``, which would silently mark a sandboxed account as production-ready
+    (exactly the trap #273 guards against). Here only a genuine JSON boolean
+    (what a real ``aws sesv2 get-account`` returns) or an explicit
+    ``"true"``/``"false"`` string is honoured; a missing key defaults to the
+    safe ``False`` (sandboxed), and anything else is rejected loudly rather
+    than coerced.
+    """
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in ("true", "false"):
+            return text == "true"
+    raise ValueError(
+        "get-account JSON: 'ProductionAccessEnabled' must be a boolean, "
+        f"got {value!r}"
+    )
+
+
 def _account_from_get_account(payload: dict) -> dict:
     """Pull the fields we care about out of `aws sesv2 get-account` JSON.
 
@@ -281,7 +307,7 @@ def _account_from_get_account(payload: dict) -> dict:
     (``{"SendQuota": {"Max24HourSend": ...}}``) and a flattened one, since the
     CLI shape has shifted across versions.
     """
-    production = bool(payload.get("ProductionAccessEnabled", False))
+    production = _coerce_production_access(payload.get("ProductionAccessEnabled", False))
     quota = payload.get("SendQuota") or {}
     max_24h = payload.get("Max24HourSend", quota.get("Max24HourSend"))
     max_rate = payload.get("MaxSendRate", quota.get("MaxSendRate"))
@@ -317,7 +343,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument(
         "--get-account-json",
         help="Path to `aws sesv2 get-account` JSON ('-' for stdin). Overrides "
-        "--production-access / --max-* flags when present.",
+        "--production-access; supplies --max-* values unless those flags are "
+        "passed explicitly (an explicit --max-* still wins).",
     )
     parser.add_argument(
         "--verified-identities-json",

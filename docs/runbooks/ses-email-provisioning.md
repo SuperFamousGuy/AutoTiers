@@ -136,6 +136,7 @@ unsafe for real users.
 Confirm production access actually landed before flipping the switch:
 
 ```bash
+cd ..  # back to repo root (Step 1 left you in infra/)
 aws sesv2 get-account --region us-east-1 > /tmp/acct.json
 python3 backend/scripts/ses_preflight.py --enable-ses --get-account-json /tmp/acct.json
 # Wait for status "production_ready" (exit 0) before Step 4.
