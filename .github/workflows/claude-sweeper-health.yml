@@ -3,8 +3,10 @@ name: claude-sweeper-health
 # Staleness / health alarm for the Claude cron sweepers:
 #   - claude-address-copilot-review.yml  (copilot-review sweeper, PR #344)
 #   - claude-fix-pr-checks.yml            (fix-PR-checks sweeper, PR #372)
-# Each sweeper is watched by its own job (copilot-health / fix-checks-health)
-# with its own dedup label, so an alarm on one never touches the other.
+#   - claude-auto-merge.yml               (auto-merge sweeper, PR #376 / issue #377)
+# Each sweeper is watched by its own job (copilot-health / fix-checks-health /
+# auto-merge-health) with its own dedup label, so an alarm on one never touches
+# the others.
 #
 # WHY THIS EXISTS (issue #348):
 # GitHub's scheduled (cron) workflows are not a reliable heartbeat. The sweeper
@@ -94,6 +96,28 @@ env:
   # Label used to deduplicate the fix-checks alarm issue (distinct from the
   # copilot sweeper's label so the two alarms never collide).
   FIX_CHECKS_STALE_LABEL: fix-checks-sweeper-stale
+
+  # --- auto-merge sweeper (claude-auto-merge.yml, PR #376 / issue #377) ---
+  # The auto-merge sweeper's CONFIGURED cadence is every 3 hours at minute 50
+  # (`50 */3 * * *`) => 180 min. It is a SINGLE job (scan + merge in one), so
+  # unlike the fix-checks sweeper there is no separate `scan` job whose
+  # conclusion differs from the run's — the RUN-level conclusion is the health
+  # signal (see the auto-merge-health job for why). We still use `--mode scan`
+  # so a sweeper that keeps ticking but FAILS every run (predicate evaluator or
+  # candidate query broke) surfaces as "broken", not just a missing run as
+  # "stale". GRACE WINDOW: 180 * (3 + 1) = 720 min (12h). That is the SAME
+  # 4x-cadence multiple the copilot watcher uses (240/60), scaled to this
+  # sweeper's slower 180-min cadence; an absolute 240-min window like the other
+  # two would be barely one tick here and would false-alarm on a single
+  # throttled tick. Auto-merge is the least time-sensitive sweeper and its
+  # work-signal is idempotent, so a wider window is fine: a genuine >12h outage
+  # or the 60-day auto-disable still trips it.
+  AUTO_MERGE_WORKFLOW: claude-auto-merge.yml
+  AUTO_MERGE_INTERVAL_MINUTES: "180"
+  AUTO_MERGE_MAX_MISSED_TICKS: "3"
+  # Label used to deduplicate the auto-merge alarm issue (distinct from the
+  # other sweepers' labels so the three alarms never collide).
+  AUTO_MERGE_STALE_LABEL: auto-merge-sweeper-stale
 
 jobs:
   copilot-health:
@@ -312,4 +336,115 @@ jobs:
           else
             # no_runs: sweeper not live on the default branch yet. Do nothing.
             echo "No fix-checks sweeper run history yet; not alarming. $detail"
+          fi
+
+  auto-merge-health:
+    name: check auto-merge sweeper freshness
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Evaluate auto-merge sweeper health and alarm if needed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # The auto-merge sweeper is a SINGLE job (scan + merge in one). Unlike
+          # the fix-checks sweeper there is no separate cheap `scan` job whose
+          # conclusion differs from the run's, so the RUN-level conclusion IS the
+          # health signal: a `success` run means the scan completed (all six
+          # merge predicates evaluated cleanly, whether or not any PR was
+          # merged), while a `failure` run means the scan/predicate logic itself
+          # broke. A routine merge race (someone pushed between scan and merge)
+          # only emits a `::warning::` and still concludes `success`, so it never
+          # masquerades as a health failure. We therefore need NO per-job
+          # run-view lookup (the fix-checks job inspects an individual job's
+          # conclusion only because its run can fail on a per-PR job while its
+          # scan succeeded) — last_success is simply the newest run whose
+          # run-level conclusion is `success`.
+          #   * last_run     — most recent run, any conclusion: still ticking at
+          #                    all? (catches cron drift / 60-day auto-disable)
+          #   * last_success — most recent run that concluded `success`: is the
+          #                    scan logic still working? (catches "broken")
+          # As with the other jobs, a non-zero gh exit fails loudly rather than
+          # masquerading as a benign empty result.
+          if ! runs_json="$(gh run list \
+            --repo "$REPO" \
+            --workflow "$AUTO_MERGE_WORKFLOW" \
+            --limit 30 \
+            --json databaseId,createdAt,conclusion,status)"; then
+            echo "::error::Failed to query run history for $AUTO_MERGE_WORKFLOW; cannot evaluate auto-merge sweeper health." >&2
+            exit 1
+          fi
+
+          last_run="$(echo "$runs_json" | jq -r '.[0].createdAt // ""')"
+          echo "Auto-merge sweeper last run: '${last_run:-<none>}'"
+
+          # Newest COMPLETED run whose run-level conclusion is `success`. --limit
+          # 30 at this sweeper's 180-min cadence covers ~90h of history, well
+          # past the 720-min (12h) window, so any success within the window is in
+          # this lookback. If the lookback misses an older success we only
+          # UNDER-count last_success -> bias toward the "broken" alarm, never a
+          # false "healthy". In-progress/queued ticks carry no conclusion yet and
+          # are excluded by the status==completed filter.
+          last_success="$(echo "$runs_json" | jq -r \
+            '[.[] | select(.status == "completed" and .conclusion == "success")][0].createdAt // ""')"
+          echo "Auto-merge sweeper last successful run: '${last_success:-<none>}'"
+
+          now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          verdict="$(python3 backend/scripts/sweeper_health.py \
+            --mode scan \
+            --last-run "$last_run" \
+            --last-success "$last_success" \
+            --now "$now" \
+            --interval-minutes "$AUTO_MERGE_INTERVAL_MINUTES" \
+            --max-missed-ticks "$AUTO_MERGE_MAX_MISSED_TICKS")"
+          echo "Verdict: $verdict"
+
+          status="$(echo "$verdict" | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])')"
+          detail="$(echo "$verdict" | python3 -c 'import json,sys; print(json.load(sys.stdin)["detail"])')"
+
+          # Find an existing open alarm issue (dedup by the auto-merge label).
+          existing="$(gh issue list --repo "$REPO" \
+            --label "$AUTO_MERGE_STALE_LABEL" --state open --limit 1 \
+            --json number --jq '.[0].number // ""')"
+
+          # "stale" (not ticking) and "broken" (run failing) both warrant an
+          # alarm; the verdict detail explains which it is. "healthy" (including
+          # an idle tick that merged nothing) and "no_runs" (not live yet) do not.
+          if [ "$status" = "stale" ] || [ "$status" = "broken" ]; then
+            body="$(printf '## Auto-merge sweeper appears %s\n\n%s\n\nRaw verdict:\n\n```json\n%s\n```\n\n**What to check**\n- If STALE (not ticking): is `%s` disabled? (Actions tab, or after 60 days of repo inactivity — re-enable with `gh workflow enable %s`, or push any commit to reset the 60-day clock.) Are scheduled workflows being throttled/skipped for this repo right now?\n- If BROKEN (run failing): open the latest `%s` run and read the `scan and auto-merge clean PRs` job log. A healthy tick concludes `success` (whether or not it merged anything); a routine merge race only logs a warning and still succeeds, so a failing run means the scan/predicate logic itself is erroring.\n\nThis issue auto-closes once the sweeper runs successfully within the expected window again.\n\n_Filed by `claude-sweeper-health.yml` (issue #377)._' "$status" "$detail" "$verdict" "$AUTO_MERGE_WORKFLOW" "$AUTO_MERGE_WORKFLOW" "$AUTO_MERGE_WORKFLOW")"
+            if [ -n "$existing" ]; then
+              echo "Alarm already open (#$existing); adding a status comment."
+              gh issue comment "$existing" --repo "$REPO" --body "$body"
+            else
+              echo "Opening new auto-merge alarm issue (status=$status)."
+              gh label create "$AUTO_MERGE_STALE_LABEL" --repo "$REPO" \
+                --color b60205 --description "auto-merge sweeper is stale or its run is failing" \
+                2>/dev/null || true
+              gh issue create --repo "$REPO" \
+                --title "alarm: auto-merge sweeper is $status" \
+                --label "$AUTO_MERGE_STALE_LABEL" \
+                --body "$body"
+            fi
+          elif [ "$status" = "healthy" ]; then
+            if [ -n "$existing" ]; then
+              echo "Auto-merge sweeper recovered; closing alarm #$existing."
+              gh issue comment "$existing" --repo "$REPO" --body \
+                "Auto-merge sweeper is running successfully on schedule again. $detail Auto-closing."
+              gh issue close "$existing" --repo "$REPO" --reason completed
+            else
+              echo "Auto-merge sweeper healthy; no alarm open. Nothing to do."
+            fi
+          else
+            # no_runs: sweeper not live on the default branch yet. Do nothing.
+            echo "No auto-merge sweeper run history yet; not alarming. $detail"
           fi
