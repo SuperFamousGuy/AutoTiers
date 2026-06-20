@@ -68,14 +68,16 @@ name: claude-resolve-conflicts
 
 on:
   schedule:
-    # Every 2 hours on the even hour. OFFSET from the copilot sweeper (minute 0,
-    # hourly) and the fix-checks sweeper (minute 30, hourly) so the three
-    # agentic sweepers never tick in the same minute and double-spend the shared
-    # subscription quota. Conflicts are less time-sensitive than failing checks,
-    # so a 2-hourly cadence is fine; the work-signal is idempotent, so a missed
-    # tick is just picked up by the next one. (GitHub throttles high-frequency
-    # cron on low-activity repos anyway.)
-    - cron: "0 */2 * * *"
+    # Every 2 hours at minute 45. OFFSET from the other scheduled workflows so no
+    # two tick in the same minute and double-spend the shared subscription quota:
+    # copilot sweeper = minute 0 (hourly), fix-checks sweeper = minute 30
+    # (hourly), sweeper-health = minute 17 (hourly). Minute 45 collides with none
+    # of them. (Do NOT use "0 */2 * * *" — minute 0 collides with the hourly
+    # copilot sweeper on every even hour.) Conflicts are less time-sensitive than
+    # failing checks, so a 2-hourly cadence is fine; the work-signal is
+    # idempotent, so a missed tick is just picked up by the next one. (GitHub
+    # throttles high-frequency cron on low-activity repos anyway.)
+    - cron: "45 */2 * * *"
   workflow_dispatch: {} # manual kick for testing
 
 concurrency:
@@ -431,7 +433,7 @@ Expected: matches in scan (count + cap notice), budget step, and stamp step.
 - [ ] **Step 5: Cron is offset from the other two sweepers**
 
 Run: `grep -rn 'cron:' .github/workflows/claude-*.yml`
-Expected: `claude-address-copilot-review.yml` = `"0 * * * *"`, `claude-fix-pr-checks.yml` = `"30 * * * *"`, `claude-resolve-conflicts.yml` = `"0 */2 * * *"` — no two share the same minute field collision on the same tick. (No commit; verification only.)
+Expected minute fields, all distinct: `claude-address-copilot-review.yml` = `"0 * * * *"` (min 0), `claude-sweeper-health.yml` = `"17 * * * *"` (min 17), `claude-fix-pr-checks.yml` = `"30 * * * *"` (min 30), `claude-resolve-conflicts.yml` = `"45 */2 * * *"` (min 45). No two sweepers share a minute, so they never tick together and double-spend quota. (No commit; verification only.)
 
 ---
 

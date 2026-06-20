@@ -38,14 +38,16 @@ name: claude-resolve-conflicts
 
 on:
   schedule:
-    # Every 2 hours on the even hour. OFFSET from the copilot sweeper (minute 0,
-    # hourly) and the fix-checks sweeper (minute 30, hourly) so the three
-    # agentic sweepers never tick in the same minute and double-spend the shared
-    # subscription quota. Conflicts are less time-sensitive than failing checks,
-    # so a 2-hourly cadence is fine; the work-signal is idempotent, so a missed
-    # tick is just picked up by the next one. (GitHub throttles high-frequency
-    # cron on low-activity repos anyway.)
-    - cron: "0 */2 * * *"
+    # Every 2 hours at minute 45. OFFSET from the other scheduled workflows so no
+    # two tick in the same minute and double-spend the shared subscription quota:
+    # copilot sweeper = minute 0 (hourly), fix-checks sweeper = minute 30
+    # (hourly), sweeper-health = minute 17 (hourly). Minute 45 collides with none
+    # of them. (Do NOT use "0 */2 * * *" — minute 0 collides with the hourly
+    # copilot sweeper on every even hour.) Conflicts are less time-sensitive than
+    # failing checks, so a 2-hourly cadence is fine; the work-signal is
+    # idempotent, so a missed tick is just picked up by the next one. (GitHub
+    # throttles high-frequency cron on low-activity repos anyway.)
+    - cron: "45 */2 * * *"
   workflow_dispatch: {} # manual kick for testing
 
 concurrency:

@@ -25,7 +25,7 @@ A scheduled (cron) workflow runs as the repo/owner identity, is not approval-gat
 ## Workflow: `claude-resolve-conflicts.yml`
 
 ### Triggers
-- `schedule: cron: "0 */2 * * *"` — every 2 hours on the even hour. Offset from the copilot sweeper (minute 0, hourly) and the fix-checks sweeper (minute 30, hourly) so the three agentic sweepers never tick in the same minute and double-spend the shared subscription quota. Conflicts are less time-sensitive than failing checks, so a 2-hourly cadence is fine; the work-signal is idempotent so a missed tick is harmless. (Note: GitHub throttles high-frequency cron on low-activity repos — a faster cadence would not be honored anyway.)
+- `schedule: cron: "45 */2 * * *"` — every 2 hours at minute 45. Offset from the other scheduled workflows so no two tick in the same minute and double-spend the shared subscription quota: copilot sweeper = minute 0 (hourly), fix-checks sweeper = minute 30 (hourly), sweeper-health = minute 17 (hourly). Minute 45 collides with none. (Do NOT use `"0 */2 * * *"` — minute 0 collides with the hourly copilot sweeper on every even hour.) Conflicts are less time-sensitive than failing checks, so a 2-hourly cadence is fine; the work-signal is idempotent so a missed tick is harmless. (Note: GitHub throttles high-frequency cron on low-activity repos — a faster cadence would not be honored anyway.)
 - `workflow_dispatch: {}` — manual kick for testing.
 
 ### Concurrency
