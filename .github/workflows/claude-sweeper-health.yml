@@ -79,14 +79,18 @@ env:
   STALE_LABEL: sweeper-stale
 
   # --- fix-PR-checks sweeper (claude-fix-pr-checks.yml, PR #372 / issue #373) ---
-  # The fix-checks sweeper's CONFIGURED cadence is every 10 minutes
-  # (`2,12,22,...`). We watch it with the SAME ~4h grace window as the copilot
-  # sweeper above so GitHub's throttled/best-effort delivery of a sub-hourly
-  # cron never trips a false alarm: 10 * (23 + 1) = 240 min. A genuine outage
-  # (>4h) or the 60-day auto-disable still trips it.
+  # The fix-checks sweeper's CONFIGURED cadence is hourly at minute 30
+  # (`30 * * * *`). It deliberately does NOT poll sub-hourly: GitHub heavily
+  # throttles high-frequency cron on a low-activity repo (the copilot sweeper
+  # observed a `*/10` schedule delivered only every ~2-2.5h), so a faster
+  # cadence would never be honored — see claude-fix-pr-checks.yml's schedule
+  # comment. We watch it with the SAME ~4h grace window as the copilot sweeper
+  # above so GitHub's throttled/best-effort delivery of an hourly cron never
+  # trips a false alarm: 60 * (3 + 1) = 240 min. A genuine outage (>4h) or the
+  # 60-day auto-disable still trips it.
   FIX_CHECKS_WORKFLOW: claude-fix-pr-checks.yml
-  FIX_CHECKS_INTERVAL_MINUTES: "10"
-  FIX_CHECKS_MAX_MISSED_TICKS: "23"
+  FIX_CHECKS_INTERVAL_MINUTES: "60"
+  FIX_CHECKS_MAX_MISSED_TICKS: "3"
   # Name prefix of the cheap stage-1 scan job inside the fix-checks sweeper. A
   # SUCCESSFUL scan (even when it finds no eligible PRs, `any=false`) is the
   # healthy-idle signal; a failing scan is the "broken" signal we must alarm on.
@@ -218,8 +222,8 @@ jobs:
           # with the copilot job, a non-zero gh exit fails loudly rather than
           # masquerading as a benign empty result.
           # --limit 30 comfortably covers the 240-min window: at the sweeper's
-          # 10-min cadence that window holds ~24 runs, so any scan success
-          # within the window is inside this lookback. If the lookback misses an
+          # hourly cadence that window holds ~4 runs, so any scan success within
+          # the window is well inside this lookback. If the lookback misses an
           # older success, we only UNDER-count last_success -> bias toward the
           # "broken" alarm, never toward a false "healthy".
           if ! runs_json="$(gh run list \

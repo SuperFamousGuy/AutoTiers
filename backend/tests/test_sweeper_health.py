@@ -171,8 +171,8 @@ def test_main_respects_custom_flags():
 
 # --------------------------------------------------------------------------- #
 # Fix-checks sweeper (issue #373): scan-based health.                         #
-# The fix-checks sweeper's grace window mirrors the copilot one: a 10-min     #
-# configured cadence with max_missed_ticks=23 => allowed gap 10*(23+1)=240    #
+# The fix-checks sweeper's grace window mirrors the copilot one: an hourly    #
+# configured cadence with max_missed_ticks=3 => allowed gap 60*(3+1)=240      #
 # min. These tests use the same defaults (interval=10, max=6 => gap=70) the   #
 # pure function ships with, except where they assert the production window.   #
 # --------------------------------------------------------------------------- #
@@ -253,8 +253,8 @@ def test_scan_boundary_success_just_past_window_is_broken():
 
 
 def test_scan_production_window_240_min():
-    # The values wired into the workflow: 10-min cadence, 23 missed ticks.
-    common = dict(now=NOW, interval_minutes=10, max_missed_ticks=23)
+    # The values wired into the workflow: hourly cadence, 3 missed ticks.
+    common = dict(now=NOW, interval_minutes=60, max_missed_ticks=3)
     healthy = evaluate_scan_sweeper_health(
         last_run=_at(239), last_success=_at(239), **common
     )

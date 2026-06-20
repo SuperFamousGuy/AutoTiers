@@ -49,14 +49,17 @@ Run standalone (used by the workflow):
         --interval-minutes 60 \
         --max-missed-ticks 3
 
-    # fix-checks sweeper (staleness + scan-success)
+    # fix-checks sweeper (staleness + scan-success). Its configured cron is
+    # hourly (`30 * * * *`), so the health workflow wires
+    # FIX_CHECKS_INTERVAL_MINUTES=60 and FIX_CHECKS_MAX_MISSED_TICKS=3 (the same
+    # ~4h grace window as the copilot sweeper); this example mirrors that.
     python3 backend/scripts/sweeper_health.py \
         --mode scan \
         --last-run "2026-06-18T12:58:00Z" \
         --last-success "2026-06-18T12:58:00Z" \
         --now "2026-06-18T13:05:00Z" \
-        --interval-minutes 10 \
-        --max-missed-ticks 23
+        --interval-minutes 60 \
+        --max-missed-ticks 3
 
 Exit code is 0 always (the workflow inspects the JSON on stdout and decides
 what to do); parse errors exit non-zero so a malformed input is loud rather
