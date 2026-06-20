@@ -1,0 +1,300 @@
+name: claude-auto-merge
+
+# Cron-driven sweeper. AUTO-MERGES open PRs that are unambiguously safe to merge.
+# PURE-MECHANICAL (no Claude, no PAT) — modeled on claude-sweeper-health.yml, NOT
+# on the Claude+PAT sweepers. All six merge predicates are deterministic gh/GraphQL
+# reads, so an LLM would only add cost + a non-deterministic actor to a DESTRUCTIVE
+# action (merge). It uses the built-in GITHUB_TOKEN: `main` is unprotected, so a
+# merge is a plain Contents+PR write the token can do; nothing here pushes to
+# .github/workflows/, so the PAT the other sweepers need is unnecessary.
+#
+# WHY CRON, NOT an event trigger (same constraints the other sweepers documented):
+#  1. BOT-ACTOR GATING: a run triggered by a bot actor is parked in
+#     `action_required` awaiting manual approval -> not hands-off.
+#  2. LOOP: reacting to PR events re-fires on our own activity.
+# A SCHEDULED workflow runs as the repo/owner identity and is NOT approval-gated.
+# We poll an idempotent work-signal ("open PR satisfying all six predicates"); a
+# merged PR is closed and never re-scanned, so the signal is self-clearing.
+#
+# SAFETY: ships DRY_RUN=true (report-only). The scan logs which PRs WOULD merge
+# without merging any. After the predicate is sanity-checked against real PRs,
+# flip DRY_RUN to "false" (one-line commit) to arm the merge. workflow_dispatch
+# has a dry_run input that overrides the env for a single manual run.
+#
+# THE SIX PREDICATES (ALL required), per open non-draft same-repo PR with no hold
+# label:
+#  1. CI passing      : statusCheckRollup.state == SUCCESS (null rollup = no checks
+#                       => NOT eligible; PENDING/FAILURE => NOT eligible).
+#  2. No conflicts    : mergeable == MERGEABLE (UNKNOWN => settling, skip tick;
+#                       CONFLICTING => resolve-conflicts sweeper's job).
+#  3. Copilot reviewed: a review exists from copilot-pull-request-reviewer[bot] in
+#                       ANY state. !! NOT state==APPROVED — Copilot reviews come
+#                       back COMMENTED, so gating on APPROVED never fires. !!
+#  4. No open threads : zero reviewThreads with isResolved==false, AND no human's
+#                       latest review is CHANGES_REQUESTED.
+#  5. Quiet 24h       : now - max(last commit, comments, review comments, reviews)
+#                       >= QUIET_HOURS.
+#  6. Trusted author  : author is a Bot (__typename Bot / login ends [bot]) OR a
+#                       repo collaborator with admin|write|maintain permission.
+#
+# NOTE (YAML/heredoc gotcha): the python predicate is written to a tempfile via an
+# INDENTED heredoc and de-indented with sed before it runs. A flush-left heredoc
+# body would terminate the `run: |` block scalar early and break YAML parsing.
+#
+# Design: docs/superpowers/specs/2026-06-20-auto-merge-clean-prs-design.md
+
+on:
+  schedule:
+    # Every 3 hours at minute 50. OFFSET from the four other scheduled workflows
+    # so no two tick in the same minute and double-spend the run budget:
+    # copilot-review = min 0, sweeper-health = min 17, fix-checks = min 30,
+    # resolve-conflicts = min 45. Minute 50 collides with NONE. A `*/3` schedule
+    # still fires AT its minute field (the cron-collision gotcha), so the minute
+    # is what must be unique; the hour spacing is irrelevant to collision.
+    # Auto-merge is the least time-sensitive sweeper and the work-signal is
+    # idempotent, so 3-hourly is ample. (GitHub throttles high-frequency cron on
+    # this low-activity repo anyway.)
+    - cron: "50 */3 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Report-only (true) or actually merge (false). Overrides the DRY_RUN env for this run."
+        type: boolean
+        default: true
+
+concurrency:
+  # Serialize ticks so two overlapping runs never both decide to merge the same
+  # PR. cancel-in-progress:false lets an in-flight sweep finish.
+  group: claude-auto-merge-sweeper
+  cancel-in-progress: false
+
+permissions:
+  contents: write # perform the merge commit
+  pull-requests: write # merge via the PR + delete the head branch
+  checks: read # read check runs (rollup)
+  statuses: read # read commit statuses (rollup)
+
+env:
+  # Report-only by default. Flip to "false" to arm the merge after previewing.
+  DRY_RUN: "true"
+  # Criterion 5 threshold (hours of inactivity required before merge).
+  QUIET_HOURS: "24"
+  # Criterion 3 keys off this exact reviewer login (verified live 2026-06-20).
+  COPILOT_REVIEWER_LOGIN: "copilot-pull-request-reviewer[bot]"
+  # Merge method: squash keeps main linear, one commit per PR. Tunable.
+  MERGE_METHOD: "squash"
+  # Escape-hatch labels: a PR carrying any of these is never auto-merged.
+  HOLD_LABELS: "do-not-merge,hold"
+
+jobs:
+  # Single job: scan + merge. The merge IS the cheap action (one API call), so
+  # unlike the Claude sweepers there is no separate expensive stage.
+  auto-merge:
+    name: scan and auto-merge clean PRs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Write predicate evaluator
+        run: |
+          # De-indent the heredoc (10 leading spaces from the YAML scalar) so the
+          # python file lands at column 0. A flush-left heredoc body here would
+          # break the YAML block scalar, hence the indent + sed strip.
+          sed 's/^          //' > /tmp/predicate.py <<'PY'
+          import json, os, sys
+          from datetime import datetime, timezone
+
+          d = json.load(sys.stdin)
+          pull = (d.get("data") or {}).get("repository", {}).get("pullRequest")
+          if not pull:
+              print("SKIP:no-pull-data"); sys.exit(0)
+
+          def parse(ts):
+              return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+          if pull.get("isDraft"):
+              print("SKIP:draft"); sys.exit(0)
+          hold = {l.strip() for l in os.environ["HOLD_LABELS"].split(",") if l.strip()}
+          labels = {n["name"] for n in (pull.get("labels") or {}).get("nodes", [])}
+          if labels & hold:
+              print("SKIP:hold-label"); sys.exit(0)
+
+          mergeable = pull.get("mergeable")
+          if mergeable == "UNKNOWN":
+              print("SKIP:mergeable-unknown-settling"); sys.exit(0)
+          if mergeable != "MERGEABLE":
+              print(f"SKIP:not-mergeable({mergeable})"); sys.exit(0)
+
+          commits = (pull.get("commits") or {}).get("nodes", [])
+          if not commits:
+              print("SKIP:no-head-commit"); sys.exit(0)
+          head = commits[0]["commit"]
+          rollup = head.get("statusCheckRollup")
+          if rollup is None:
+              print("SKIP:no-checks"); sys.exit(0)
+          if rollup.get("state") != "SUCCESS":
+              print(f"SKIP:checks-{rollup.get('state')}"); sys.exit(0)
+
+          copilot = os.environ["COPILOT_REVIEWER_LOGIN"]
+          reviews = (pull.get("reviews") or {}).get("nodes", [])
+          if not any((r.get("author") or {}).get("login") == copilot for r in reviews):
+              print("SKIP:no-copilot-review"); sys.exit(0)
+
+          threads = (pull.get("reviewThreads") or {}).get("nodes", [])
+          if any(not t.get("isResolved") for t in threads):
+              print("SKIP:unresolved-threads"); sys.exit(0)
+
+          latest = {}
+          for r in reviews:
+              login = (r.get("author") or {}).get("login")
+              sub = r.get("submittedAt")
+              state = r.get("state")
+              if not login or login == copilot or not sub:
+                  continue
+              if state not in ("APPROVED", "CHANGES_REQUESTED"):
+                  continue
+              if login not in latest or parse(sub) > parse(latest[login][0]):
+                  latest[login] = (sub, state)
+          if any(state == "CHANGES_REQUESTED" for _, state in latest.values()):
+              print("SKIP:changes-requested"); sys.exit(0)
+
+          stamps = [head["committedDate"]]
+          for c in (pull.get("comments") or {}).get("nodes", []):
+              stamps.append(c["createdAt"])
+          for r in reviews:
+              if r.get("submittedAt"):
+                  stamps.append(r["submittedAt"])
+          for t in threads:
+              for c in (t.get("comments") or {}).get("nodes", []):
+                  stamps.append(c.get("updatedAt") or c["createdAt"])
+          newest = max(parse(s) for s in stamps)
+          age_h = (datetime.now(timezone.utc) - newest).total_seconds() / 3600.0
+          quiet = float(os.environ["QUIET_HOURS"])
+          if age_h < quiet:
+              print(f"SKIP:active-{age_h:.1f}h-ago"); sys.exit(0)
+
+          author = pull.get("author") or {}
+          login = author.get("login", "")
+          if author.get("__typename") == "Bot" or login.endswith("[bot]"):
+              print("ELIGIBLE"); sys.exit(0)
+
+          print(f"NEEDS_COLLAB:{login}"); sys.exit(0)
+          PY
+          echo "predicate written:"; head -3 /tmp/predicate.py
+
+      - name: Scan open PRs and merge the clean ones
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+          DRY_RUN_OVERRIDE: ${{ github.event.inputs.dry_run }}
+        run: |
+          set -euo pipefail
+
+          dry_run="${DRY_RUN}"
+          if [ -n "${DRY_RUN_OVERRIDE:-}" ]; then
+            dry_run="${DRY_RUN_OVERRIDE}"
+          fi
+          echo "DRY_RUN effective = ${dry_run}"
+
+          # Fail-safe arm-guard (issue #382): normalize case, then treat ONLY an
+          # explicit "false" as "armed". Every other value -- the default "true",
+          # a stray hand-edit to "True"/"1"/"yes", an empty string, or any other
+          # garbage -- stays report-only, so truthiness drift can never silently
+          # arm the merge. The markers below let the regression test extract and
+          # execute THIS exact logic; keep them in sync.
+          # >>> arm-guard (issue #382) >>>
+          dry_run_normalized="$(printf '%s' "${dry_run}" | tr '[:upper:]' '[:lower:]')"
+          if [ "${dry_run_normalized}" = "false" ]; then
+            armed="true"
+          else
+            armed="false"
+          fi
+          # <<< arm-guard (issue #382) <<<
+          echo "auto-merge armed = ${armed} (only an explicit 'false' arms; effective DRY_RUN='${dry_run}')"
+
+          repo_name="${REPO#*/}"
+
+          candidates="$(gh pr list --repo "$REPO" --state open --limit 100 \
+            --json number,isCrossRepository,isDraft \
+            --jq '[.[] | select(.isCrossRepository == false and .isDraft == false) | .number]')"
+          echo "candidate PRs (open same-repo non-draft): $candidates"
+
+          for pr in $(echo "$candidates" | python3 -c 'import json,sys; print(" ".join(str(n) for n in json.load(sys.stdin)))'); do
+            echo "----- evaluating PR #$pr -----"
+
+            # SC2016: $owner/$repo/$pr below are GraphQL variables bound via `gh api -F`,
+            # NOT shell expansions; double-quoting would expand them to empty.
+            # shellcheck disable=SC2016
+            data="$(gh api graphql -f query='
+              query($owner:String!,$repo:String!,$pr:Int!){
+                repository(owner:$owner,name:$repo){
+                  pullRequest(number:$pr){
+                    mergeable
+                    isDraft
+                    author{ __typename login }
+                    labels(first:50){ nodes{ name } }
+                    commits(last:1){ nodes{ commit{
+                      committedDate
+                      statusCheckRollup{ state }
+                    }}}
+                    comments(last:100){ nodes{ createdAt } }
+                    reviews(last:100){ nodes{ author{ login } state submittedAt } }
+                    reviewThreads(first:100){ nodes{
+                      isResolved
+                      comments(last:50){ nodes{ createdAt updatedAt } }
+                    }}
+                  }
+                }
+              }' -F owner="$OWNER" -F repo="$repo_name" -F pr="$pr" 2>/tmp/gql-err || true)"
+
+            if [ -z "$data" ]; then
+              echo "::warning::PR #$pr: GraphQL returned empty (possible API failure); treating as NOT eligible. stderr: $(tr '\n' ' ' < /tmp/gql-err)"
+              rm -f /tmp/gql-err
+              continue
+            fi
+            rm -f /tmp/gql-err
+
+            verdict="$(echo "$data" | QUIET_HOURS="$QUIET_HOURS" \
+              COPILOT_REVIEWER_LOGIN="$COPILOT_REVIEWER_LOGIN" \
+              HOLD_LABELS="$HOLD_LABELS" python3 /tmp/predicate.py)"
+
+            case "$verdict" in
+              SKIP:*)
+                echo "PR #$pr: ${verdict#SKIP:} -> not eligible."
+                continue
+                ;;
+              NEEDS_COLLAB:*)
+                login="${verdict#NEEDS_COLLAB:}"
+                perm="$(gh api "repos/${REPO}/collaborators/${login}/permission" \
+                  --jq '.permission' 2>/dev/null || echo "none")"
+                case "$perm" in
+                  admin|write|maintain)
+                    echo "PR #$pr: author $login is collaborator ($perm) -> eligible."
+                    ;;
+                  *)
+                    echo "PR #$pr: author $login not a trusted collaborator (perm=$perm) -> not eligible."
+                    continue
+                    ;;
+                esac
+                ;;
+              ELIGIBLE)
+                echo "PR #$pr: author is a bot -> eligible."
+                ;;
+              *)
+                echo "::warning::PR #$pr: unexpected verdict '$verdict'; treating as NOT eligible."
+                continue
+                ;;
+            esac
+
+            if [ "$armed" != "true" ]; then
+              echo "PR #$pr: WOULD MERGE (method=${MERGE_METHOD}, --delete-branch). DRY_RUN on; not merging."
+              continue
+            fi
+
+            echo "PR #$pr: MERGING (method=${MERGE_METHOD}, --delete-branch)."
+            if ! gh pr merge "$pr" --repo "$REPO" "--${MERGE_METHOD}" --delete-branch; then
+              echo "::warning::PR #$pr: merge failed (race or transient API error); will be re-evaluated next tick."
+            fi
+          done
+
+          echo "auto-merge sweep complete."
