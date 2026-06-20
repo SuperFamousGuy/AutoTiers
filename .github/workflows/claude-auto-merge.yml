@@ -196,6 +196,22 @@ jobs:
           fi
           echo "DRY_RUN effective = ${dry_run}"
 
+          # Fail-safe arm-guard (issue #382): normalize case, then treat ONLY an
+          # explicit "false" as "armed". Every other value -- the default "true",
+          # a stray hand-edit to "True"/"1"/"yes", an empty string, or any other
+          # garbage -- stays report-only, so truthiness drift can never silently
+          # arm the merge. The markers below let the regression test extract and
+          # execute THIS exact logic; keep them in sync.
+          # >>> arm-guard (issue #382) >>>
+          dry_run_normalized="$(printf '%s' "${dry_run}" | tr '[:upper:]' '[:lower:]')"
+          if [ "${dry_run_normalized}" = "false" ]; then
+            armed="true"
+          else
+            armed="false"
+          fi
+          # <<< arm-guard (issue #382) <<<
+          echo "auto-merge armed = ${armed} (only an explicit 'false' arms; effective DRY_RUN='${dry_run}')"
+
           repo_name="${REPO#*/}"
 
           candidates="$(gh pr list --repo "$REPO" --state open --limit 100 \
@@ -270,7 +286,7 @@ jobs:
                 ;;
             esac
 
-            if [ "$dry_run" = "true" ]; then
+            if [ "$armed" != "true" ]; then
               echo "PR #$pr: WOULD MERGE (method=${MERGE_METHOD}, --delete-branch). DRY_RUN on; not merging."
               continue
             fi
