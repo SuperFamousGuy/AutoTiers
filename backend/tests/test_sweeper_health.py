@@ -270,6 +270,36 @@ def test_scan_production_window_240_min():
     assert stale.status == "stale"
 
 
+def test_scan_auto_merge_production_window_720_min():
+    # The values wired into the workflow for the auto-merge sweeper (issue #377):
+    # a 180-min cadence (`50 */3 * * *`) with max_missed_ticks=3 => allowed gap
+    # 180*(3+1) = 720 min (12h). A single throttled 3-hourly tick (a ~360-min
+    # gap) must stay healthy; a >12h outage must trip "stale"; a sweeper that
+    # keeps ticking but never lands a successful run must trip "broken".
+    common = dict(now=NOW, interval_minutes=180, max_missed_ticks=3)
+    # One missed 3-hourly tick (~6h gap) is well inside the 12h window.
+    healthy = evaluate_scan_sweeper_health(
+        last_run=_at(360), last_success=_at(360), **common
+    )
+    assert healthy.status == "healthy"
+    assert healthy.allowed_gap_minutes == 720
+    # Exactly at the boundary is still healthy (gap is `>`, not `>=`).
+    boundary = evaluate_scan_sweeper_health(
+        last_run=_at(720), last_success=_at(720), **common
+    )
+    assert boundary.status == "healthy"
+    # Just past 12h with no fresh run => stale (cron drift / 60-day disable).
+    stale = evaluate_scan_sweeper_health(
+        last_run=_at(720.5), last_success=_at(720.5), **common
+    )
+    assert stale.status == "stale"
+    # Still ticking but the last success is past the window => broken.
+    broken = evaluate_scan_sweeper_health(
+        last_run=_at(10), last_success=_at(721), **common
+    )
+    assert broken.status == "broken"
+
+
 def test_scan_future_last_run_raises():
     with pytest.raises(ValueError):
         evaluate_scan_sweeper_health(last_run=_at(-5), last_success=None, now=NOW)
