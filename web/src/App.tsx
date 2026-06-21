@@ -11,6 +11,7 @@ import { ProfilePicker } from "@/components/ProfilePicker";
 import { ManageProfilesDialog } from "@/components/ManageProfilesDialog";
 import { LinkedAccountsDialog } from "@/components/LinkedAccountsDialog";
 import { MobilePanelTabBar, type MobilePanel } from "@/components/MobilePanelTabBar";
+import { AdSlot } from "@/components/AdSlot";
 import { PasswordResetPanel } from "@/components/PasswordResetPanel";
 import { EmailVerificationBanner, shouldShowVerificationBanner, dismissVerificationBanner } from "@/components/EmailVerificationBanner";
 import { AuthDialog } from "@/components/AuthDialog";
@@ -485,6 +486,9 @@ export default function App() {
           />
         </div>
       </main>
+      {/* Monetization: slim, dismissible sponsor strip. Renders nothing unless
+          the deployment opts in via VITE_ADS_ENABLED (#387). */}
+      <AdSlot slot={import.meta.env.VITE_ADSENSE_FOOTER_SLOT} />
       <ManageProfilesDialog
         open={manageOpen}
         onOpenChange={setManageOpen}
