@@ -16,6 +16,7 @@ unit-tested separately in `test_sweeper_health.py`; this file only checks that
 the workflow feeds the right inputs to that math for the auto-merge sweeper.
 """
 
+import re
 from pathlib import Path
 
 WORKFLOW = (
@@ -29,10 +30,19 @@ TEXT = WORKFLOW.read_text()
 
 
 def _auto_merge_job_block() -> str:
-    """The text of the auto-merge-health job, from its key to end of file (it is
-    the last job in the workflow). Scoping assertions to this slice stops them
-    from being satisfied by an identical string in one of the other two jobs."""
-    return TEXT[TEXT.index("  auto-merge-health:") :]
+    """The text of the auto-merge-health job: from its key up to the next
+    top-level job key (or EOF). Bounding the slice to the next job key — rather
+    than to end of file — stops assertions from being satisfied by an identical
+    string in another job AND keeps them correct if a job is ever added after
+    auto-merge-health (it is currently last)."""
+    key = "  auto-merge-health:"
+    start = TEXT.index(key)
+    rest = TEXT[start + len(key) :]
+    # Next top-level job key: a line indented exactly two spaces (job keys live
+    # under `jobs:`), an identifier, then a colon.
+    nxt = re.search(r"^  [A-Za-z0-9_-]+:", rest, re.MULTILINE)
+    end = start + len(key) + nxt.start() if nxt else len(TEXT)
+    return TEXT[start:end]
 
 
 def test_auto_merge_health_job_exists():
@@ -91,8 +101,13 @@ def test_auto_merge_label_is_distinct():
     # alarms dedup against the same issue.
     assert "STALE_LABEL: sweeper-stale" in TEXT  # copilot
     assert "FIX_CHECKS_STALE_LABEL: fix-checks-sweeper-stale" in TEXT  # fix-checks
-    values = {"sweeper-stale", "fix-checks-sweeper-stale", "auto-merge-sweeper-stale"}
-    assert len(values) == 3  # genuinely distinct label values
+    # Pull the ACTUAL label values out of the workflow (every `*STALE_LABEL:`
+    # env assignment) and assert they are genuinely distinct. A hard-coded set
+    # would pass even if two sweepers accidentally shared a label value; this
+    # reads what the workflow really declares.
+    values = re.findall(r"STALE_LABEL: (\S+)", TEXT)
+    assert len(values) == 3, f"expected 3 STALE_LABEL definitions, got {values}"
+    assert len(set(values)) == 3, f"label values not distinct: {values}"
 
 
 def test_auto_merge_no_runs_is_not_an_alarm():
