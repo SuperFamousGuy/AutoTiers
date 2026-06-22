@@ -139,13 +139,13 @@ Pre-req: this branch / PR is merged to `main`, so the `create_before_destroy` +
    `run_migrations` is gone from the plan:
 
    ```bash
-   terraform plan -out=reconcile.tfplan
+   cd infra && terraform plan -out=reconcile.tfplan
    ```
 
 5. **Apply the saved plan** in the window:
 
    ```bash
-   terraform apply reconcile.tfplan
+   cd infra && terraform apply reconcile.tfplan
    ```
 
    Watch the ALB SG: Terraform creates `...-sg-alb-<suffix>`, repoints
@@ -162,7 +162,7 @@ Pre-req: this branch / PR is merged to `main`, so the `create_before_destroy` +
    truth again:
 
    ```bash
-   terraform plan   # expect: No changes. Your infrastructure matches the configuration.
+   cd infra && terraform plan   # expect: No changes. Your infrastructure matches the configuration.
    ```
 
 ## If a clean plan is *not* reached

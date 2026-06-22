@@ -93,7 +93,10 @@ class TestAlbSecurityGroupLifecycle:
     def test_ecs_ingress_still_references_alb_sg(self):
         """The cascade the fix protects only exists because the ECS SG ingress
         references the ALB SG — pin that reference so the rationale stays valid."""
-        assert "security_groups = [aws_security_group.alb.id]" in self.TEXT
+        assert re.search(
+            r"security_groups\s*=\s*\[\s*aws_security_group\.alb\.id\s*,?\s*\]",
+            self.TEXT,
+        ), "ECS SG ingress must reference aws_security_group.alb.id"
 
 
 class TestReconcileRunbook:
