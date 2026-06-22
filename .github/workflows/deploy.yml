@@ -107,17 +107,40 @@ jobs:
           docker push "${{ vars.ECR_REPO }}:latest"
           docker push "${{ vars.ECR_REPO }}:${IMAGE_TAG}"
 
+      # Register (or re-register) the migrate task definition from source
+      # committed in this repo BEFORE running it, so a release can never again
+      # depend on a human having run `terraform apply` locally to create the
+      # `autotiers-prod-migrate` task def (issue #395 — this was the root cause
+      # of the v3.8-v3.11 deploy failures). The migrate-specific recipe lives in
+      # infra/migrate-task-definition.json; the account-specific execution role,
+      # secret ARNs and log config are borrowed from the running backend task
+      # definition, so no extra repo variables are required and a
+      # deliberately-deleted migrate task def is re-created by the next deploy.
+      # The image is the version we just pushed, so the migration runs the new
+      # code's `alembic upgrade head`.
+      - name: Register migration task definition
+        id: migrate-taskdef
+        env:
+          IMAGE_TAG: ${{ steps.tags.outputs.release_tag }}
+        run: |
+          ./infra/scripts/register_migrate_task_def.sh \
+            --cluster ${{ vars.ECS_CLUSTER }} \
+            --region ${{ vars.AWS_REGION }} \
+            --from-service ${{ vars.BACKEND_SERVICE }} \
+            --image "${{ vars.ECR_REPO }}:${IMAGE_TAG}"
+
       # Apply database migrations as a one-off ECS task BEFORE rolling the
       # services, so the new image never serves traffic against an out-of-date
-      # schema (issue #182). The task family is `<cluster>-migrate` by
-      # convention (see infra/migrations.tf); the network config is reused from
-      # the backend service so no extra repo variables are required. A non-zero
-      # migration exit code fails this step and the services are NOT redeployed.
+      # schema (issue #182). Target the exact `family:revision` the step above
+      # just registered (not a pre-existing one); the network config is reused
+      # from the backend service so no extra repo variables are required. A
+      # non-zero migration exit code fails this step and the services are NOT
+      # redeployed.
       - name: Run database migrations
         run: |
           ./infra/scripts/run_migrations.sh \
             --cluster ${{ vars.ECS_CLUSTER }} \
-            --task-definition ${{ vars.ECS_CLUSTER }}-migrate \
+            --task-definition ${{ steps.migrate-taskdef.outputs.task_definition }} \
             --region ${{ vars.AWS_REGION }} \
             --from-service ${{ vars.BACKEND_SERVICE }}
 
