@@ -36,7 +36,10 @@ resource "aws_sns_topic" "ops_alerts" {
 
 # CloudWatch publishes alarm-state transitions as the cloudwatch.amazonaws.com
 # service principal; without this the topic rejects those deliveries. Scoped to
-# this account so no other source can publish.
+# this account AND to alarms in our own naming prefix (mirrors the
+# ses_notifications least-privilege pattern) so no other alarm in the account
+# can publish here. The ArnLike wildcard still allows future ops alarms named
+# `${var.app_name}-${var.environment}-*` to reuse this topic.
 data "aws_iam_policy_document" "ops_alerts" {
   statement {
     effect    = "Allow"
@@ -52,6 +55,12 @@ data "aws_iam_policy_document" "ops_alerts" {
       test     = "StringEquals"
       variable = "AWS:SourceAccount"
       values   = [data.aws_caller_identity.current.account_id]
+    }
+
+    condition {
+      test     = "ArnLike"
+      variable = "AWS:SourceArn"
+      values   = ["arn:aws:cloudwatch:${var.aws_region}:${data.aws_caller_identity.current.account_id}:alarm:${var.app_name}-${var.environment}-*"]
     }
   }
 }

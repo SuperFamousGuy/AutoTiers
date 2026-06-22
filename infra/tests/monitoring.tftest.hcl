@@ -6,7 +6,10 @@
 # evaluation-period count.
 #
 # Run with:  cd infra && terraform test
-# Requires Terraform >= 1.7 (uses mock_provider so no AWS credentials needed).
+# Only `terraform test` requires Terraform >= 1.7 (this file uses mock_provider,
+# introduced in 1.7, so no AWS credentials are needed). The module itself still
+# targets >= 1.6 (see infra/main.tf required_version) — the higher floor applies
+# to running these tests, not to applying the module.
 
 mock_provider "aws" {}
 mock_provider "random" {}
