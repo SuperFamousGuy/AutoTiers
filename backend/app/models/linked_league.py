@@ -18,7 +18,7 @@ class LinkedLeague(Base):
         ForeignKey("profiles.id", ondelete="CASCADE"),
         primary_key=True,
     )
-    provider: Mapped[str] = mapped_column(String, nullable=False)  # "sleeper" | "espn"
+    provider: Mapped[str] = mapped_column(String, nullable=False)  # "sleeper" | "espn" | "yahoo" | "cbs"
     # league_id / league_metadata_json / keepers_json are nullable: users can
     # link a provider account without selecting a league (so we can pull
     # auth-gated rankings later even if they haven't joined a league).

@@ -76,3 +76,13 @@ export function connectYahoo(
     { method: "POST", body: JSON.stringify(body) },
   );
 }
+
+export function connectCbs(
+  profileId: string,
+  body: { email: string; password: string; league_id: string },
+): Promise<LinkedLeagueResponse> {
+  return apiFetch<LinkedLeagueResponse>(
+    `/api/profiles/${profileId}/link/cbs`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}

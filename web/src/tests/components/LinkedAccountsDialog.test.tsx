@@ -19,6 +19,7 @@ vi.mock("@/api/linkedLeague", () => ({
   listSleeperLeagues: vi.fn(),
   connectSleeper: vi.fn(),
   connectEspn: vi.fn(),
+  connectCbs: vi.fn(),
   refreshLink: vi.fn(),
   disconnectLink: vi.fn(),
 }));
@@ -231,5 +232,37 @@ describe("LinkedAccountsDialog", () => {
     const form = await screen.findByTestId("yahoo-connect-form");
     await u.click(form);
     expect(onRefresh).toHaveBeenCalled();
+  });
+
+  it("CBS tab is enabled (no longer 'Coming Soon') and shows the connect form", async () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
+    );
+    const cbsTab = screen.getByRole("button", { name: /^cbs$/i });
+    expect(cbsTab).toBeEnabled();
+    expect(screen.queryByText(/cbs sports.*coming soon/i)).not.toBeInTheDocument();
+    const u = userEvent.setup();
+    await u.click(cbsTab);
+    expect(await screen.findByLabelText(/cbs email/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/cbs password/i)).toBeInTheDocument();
+  });
+
+  it("CBS tab shows 'Select a profile' when no activeProfile is provided", async () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} />,
+    );
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /^cbs$/i }));
+    expect(await screen.findByText(/select a profile/i)).toBeInTheDocument();
+  });
+
+  it("NFL Fantasy tab remains disabled and shows 'Coming Soon' — CBS's launch must not affect it", () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
+    );
+    expect(screen.getByRole("button", { name: /^nfl fantasy$/i })).toBeDisabled();
   });
 });

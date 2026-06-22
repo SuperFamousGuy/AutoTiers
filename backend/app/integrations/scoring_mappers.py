@@ -80,3 +80,62 @@ def yahoo_to_settings(raw_scoring: dict, league_size: int) -> dict:
         "bonus_100yd_receiving": False,
         "bonus_first_downs": False,
     }
+
+
+# CBS stat-key names — UNVERIFIED against a live /league/rules payload (no
+# Engineer access to a real CBS account during implementation; the FFMWR
+# reference implementation reads roster/schedule/transactions sub-keys of
+# /league/rules but never the per-stat point-value scoring sub-key, so it
+# gave no example to confirm against). These are the most plausible
+# abbreviations based on CBS's public scoring-rules page categories
+# ("Passing" -> passTD, "Receiving" -> rec). cbs_to_settings degrades to the
+# qb_td_points/rec defaults below (same honest-placeholder pattern as ESPN's
+# fallback) if a key isn't found, rather than raising. Update these constants
+# once a real CBS /league/rules response is available — see Implementation
+# Report "token-reusability/CBS field names" escalation.
+_CBS_RECEPTION_KEYS = ("rec", "REC", "Rec")
+_CBS_PASS_TD_KEYS = ("passTD", "PassTD", "pass_td")
+
+
+def cbs_to_settings(raw_scoring: dict, league_size: int) -> dict:
+    """Map CBS /league/rules payload to AutoTiers settings fields.
+
+    raw_scoring is the "rules" body of GET /league/rules — expected to expose
+    a "scoring" sub-key whose entries are keyed by stat abbreviation with a
+    nested {"value": ...} the same way /league/rules exposes other settings
+    (e.g. num_playoff_teams, add_drop_faab_starting_budget per the FFMWR
+    reference). Falls back to 4.0 QB TD points / standard (non-PPR) scoring
+    when the expected keys aren't present, mirroring ESPN/Sleeper's defaults.
+    """
+    scoring = raw_scoring.get("scoring") or {}
+
+    def _stat_value(keys: tuple[str, ...], default: float) -> float:
+        for key in keys:
+            entry = scoring.get(key)
+            if entry is None:
+                continue
+            if isinstance(entry, dict):
+                value = entry.get("value")
+            else:
+                value = entry
+            if value is not None:
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    continue
+        return default
+
+    rec = _stat_value(_CBS_RECEPTION_KEYS, 0.0)
+    pass_td = _stat_value(_CBS_PASS_TD_KEYS, 4.0)
+
+    return {
+        "scoring_format": _classify_ppr(rec),
+        "league_size": league_size,
+        "qb_td_points": pass_td,
+        # CBS's /league/rules sub-keys for yardage/first-down bonuses are not
+        # confirmed (same caveat ESPN and Yahoo carry today) — honest
+        # placeholder until verified against a live league.
+        "bonus_100yd_rushing": False,
+        "bonus_100yd_receiving": False,
+        "bonus_first_downs": False,
+    }

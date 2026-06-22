@@ -26,7 +26,14 @@ from app.integrations.yahoo_fantasy import (
     fetch_league as fetch_yahoo_league,
     YahooLeagueSummary,
 )
-from app.integrations.scoring_mappers import sleeper_to_settings, espn_to_settings, yahoo_to_settings
+from app.integrations.cbs import (
+    get_access_token as get_cbs_access_token,
+    fetch_league as fetch_cbs_league,
+    CbsAuthRequired,
+)
+from app.integrations.scoring_mappers import (
+    sleeper_to_settings, espn_to_settings, yahoo_to_settings, cbs_to_settings,
+)
 from app.security.fernet import encrypt, decrypt
 from app.schemas.linked_league import LinkedLeagueOut
 from app.schemas.auth import ProfileOut
@@ -73,6 +80,15 @@ class YahooLeagueSummaryOut(BaseModel):
 class YahooConnectBody(BaseModel):
     league_key: str
     season: int
+
+
+class CbsConnectBody(BaseModel):
+    # Unlike EspnConnectBody, all three fields are required: CBS's API has no
+    # "list my leagues" endpoint, so a league_id must be supplied up front —
+    # there is no meaningful "pre-link account without a league" state.
+    email: str
+    password: str
+    league_id: str
 
 
 async def _check_ownership(
@@ -325,6 +341,63 @@ async def post_yahoo(
     return _build_response(ll, profile)
 
 
+@router.post("/cbs", response_model=LinkedLeagueResponse)
+async def post_cbs(
+    profile_id: uuid.UUID,
+    body: CbsConnectBody,
+    user: User = require_user,
+    db: AsyncSession = Depends(get_db),
+) -> LinkedLeagueResponse:
+    email = body.email.strip()
+    password = body.password.strip()
+    league_id = body.league_id.strip()
+    if not email or not password or not league_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide your CBS email, password, and league ID. Nothing to link without all three.",
+        )
+
+    profile = await _resolve_profile(profile_id, user, db)
+
+    try:
+        access_token = await get_cbs_access_token(email, password)
+    except CbsAuthRequired:
+        raise HTTPException(
+            status_code=400,
+            detail="CBS rejected your email or password — check both and try again.",
+        )
+    except Exception as e:
+        raise _provider_http_error("CBS", e)
+    # `password` is not referenced again after this point and is never logged
+    # or persisted — only `access_token` (below) is written to the DB.
+
+    try:
+        data = await fetch_cbs_league(league_id, access_token)
+    except CbsAuthRequired:
+        raise HTTPException(
+            status_code=400,
+            detail="CBS session expired — reconnect your CBS account.",
+        )
+    except Exception as e:
+        raise _provider_http_error("CBS", e)
+
+    mapped = cbs_to_settings(data.raw_scoring, league_size=data.league_size)
+    ll = _upsert_linked_league(profile, db)
+    ll.provider = "cbs"
+    ll.username_or_swid = email
+    ll.credentials_encrypted = encrypt(access_token)
+    ll.league_id = data.league_id
+    ll.league_metadata_json = {"name": data.name, "season": data.season}
+    ll.keepers_json = data.keepers
+    ll.adp_json = data.adp_json
+    ll.last_synced_at = datetime.now(timezone.utc)
+    _apply_settings(profile, mapped)
+
+    await db.commit()
+    await db.refresh(profile, attribute_names=["linked_league"])
+    return _build_response(ll, profile)
+
+
 @router.post("/refresh", response_model=LinkedLeagueResponse)
 async def refresh(
     profile_id: uuid.UUID,
@@ -372,6 +445,17 @@ async def refresh(
         except Exception as e:
             raise _provider_http_error("Yahoo", e)
         mapped = yahoo_to_settings(data.raw_scoring, league_size=data.league_size)
+    elif ll.provider == "cbs":
+        access_token = decrypt(ll.credentials_encrypted) if ll.credentials_encrypted else None
+        if not access_token:
+            raise HTTPException(status_code=400, detail="CBS access token missing — please reconnect.")
+        try:
+            data = await fetch_cbs_league(ll.league_id, access_token)
+        except CbsAuthRequired:
+            raise HTTPException(status_code=400, detail="CBS session expired — reconnect your CBS account.")
+        except Exception as e:
+            raise _provider_http_error("CBS", e)
+        mapped = cbs_to_settings(data.raw_scoring, league_size=data.league_size)
     else:
         raise HTTPException(status_code=400, detail=f"Unknown provider '{ll.provider}'")
 
