@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 class LinkedLeagueOut(BaseModel):
     profile_id: uuid.UUID
-    provider: str  # "sleeper" | "espn"
+    provider: str  # "sleeper" | "espn" | "yahoo" | "cbs"
     # league_id and the league-derived fields are None when the user pre-linked
     # a provider account without selecting a league.
     league_id: Optional[str]

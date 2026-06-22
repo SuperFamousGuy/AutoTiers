@@ -6,6 +6,7 @@ import { ApiError } from "@/api/client";
 import { SleeperConnectForm } from "@/components/SleeperConnectForm";
 import { EspnConnectForm } from "@/components/EspnConnectForm";
 import { YahooConnectForm } from "@/components/YahooConnectForm";
+import { CbsConnectForm } from "@/components/CbsConnectForm";
 import { PasswordManagementSection } from "@/components/PasswordManagementSection";
 import {
   GoogleIcon,
@@ -39,7 +40,7 @@ const TABS: {
   { id: "espn", label: "ESPN", Icon: EspnIcon },
   { id: "yahoo", label: "Yahoo", Icon: YahooIcon },
   { id: "nfl", label: "NFL Fantasy", Icon: NflFantasyIcon, comingSoon: true },
-  { id: "cbs", label: "CBS", Icon: CbsIcon, comingSoon: true },
+  { id: "cbs", label: "CBS", Icon: CbsIcon },
 ];
 
 export function LinkedAccountsDialog({
@@ -122,18 +123,30 @@ export function LinkedAccountsDialog({
             onRefresh={onRefresh}
           />
         );
+      case "cbs":
+        if (!activeProfile) {
+          return (
+            <p className="py-4 text-center text-xs text-muted-foreground">
+              Select a profile above to connect a fantasy league.
+            </p>
+          );
+        }
+        return (
+          <CbsConnectForm
+            profile={activeProfile}
+            onLinked={() => onRefresh()}
+            onRefresh={onRefresh}
+          />
+        );
       case "nfl":
-      case "cbs": {
-        const name = activeTab === "nfl" ? "NFL Fantasy" : "CBS Sports";
         return (
           <div className="space-y-1 py-6 text-center">
-            <p className="text-sm font-medium">{name} — Coming Soon</p>
+            <p className="text-sm font-medium">NFL Fantasy — Coming Soon</p>
             <p className="text-xs text-muted-foreground">
               We're working on it. Check back next season.
             </p>
           </div>
         );
-      }
     }
   }
 

@@ -483,3 +483,344 @@ async def test_cross_user_access_returns_404(async_client, test_db):
     await _login(async_client, email="alice@example.com")
     r = await async_client.delete(f"/api/profiles/{p2.id}/link")
     assert r.status_code == 404
+
+
+_CBS_AUTH_URL = "https://api.cbssports.com/general/oauth/mobile/login?response_format=json"
+
+
+def _cbs_league_url(league_id: str, view: str) -> str:
+    return (
+        f"https://{league_id}.football.cbssports.com/api/league/{view}"
+        f"?version=3.0&response_format=json&sport=football&league_id={league_id}"
+    )
+
+
+def _mock_cbs_league_success(router, league_id="999999", name="CBS Champs", num_teams=10):
+    router.post(_CBS_AUTH_URL).mock(
+        return_value=Response(200, json={"body": {"access_token": "cbs-access-token"}}),
+    )
+    router.get(_cbs_league_url(league_id, "details")).mock(
+        return_value=Response(200, json={
+            "body": {"league_details": {"name": name, "num_teams": num_teams}},
+        }),
+    )
+    router.get(_cbs_league_url(league_id, "rules")).mock(
+        return_value=Response(200, json={
+            "body": {"rules": {"scoring": {"rec": {"value": "1.0"}, "passTD": {"value": "4"}}}},
+        }),
+    )
+    router.get(_cbs_league_url(league_id, "teams")).mock(
+        return_value=Response(200, json={"body": {"teams": []}}),
+    )
+    router.get(_cbs_league_url(league_id, "rosters")).mock(
+        return_value=Response(200, json={"body": {"rosters": {"teams": []}}}),
+    )
+    router.get(_cbs_league_url(league_id, "transaction-list/log")).mock(
+        return_value=Response(200, json={"body": {"transaction_log": []}}),
+    )
+
+
+@pytest.mark.asyncio
+async def test_post_cbs_succeeds_and_persists_encrypted_token_not_password(async_client, test_db):
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    with respx.mock() as router:
+        _mock_cbs_league_success(router)
+        r = await async_client.post(
+            f"/api/profiles/{p.id}/link/cbs",
+            json={"email": "fan@example.com", "password": "hunter2", "league_id": "999999"},
+        )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["linked_league"]["provider"] == "cbs"
+    assert body["linked_league"]["league_id"] == "999999"
+    assert body["linked_league"]["league_metadata_json"]["name"] == "CBS Champs"
+    assert body["profile"]["settings_json"]["scoring_format"] == "ppr"
+    assert body["profile"]["settings_json"]["league_size"] == 10
+
+    # Neither the password nor the raw access token should ever appear on
+    # the wire — LinkedLeagueOut omits credentials_encrypted entirely.
+    assert "password" not in body["linked_league"]
+    assert "credentials_encrypted" not in body["linked_league"]
+    assert "access_token" not in body["linked_league"]
+    assert "email" not in body["linked_league"]
+
+    rows = (await test_db.scalars(select(LinkedLeague))).all()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.username_or_swid == "fan@example.com"
+    # The persisted credential must be the encrypted access token, never the
+    # plaintext password and never the plaintext token.
+    assert row.credentials_encrypted is not None
+    assert row.credentials_encrypted != "hunter2"
+    assert row.credentials_encrypted != "cbs-access-token"
+    from app.security.fernet import decrypt
+    assert decrypt(row.credentials_encrypted) == "cbs-access-token"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "malformed_transaction_log,rosters_teams",
+    [
+        # `None` entries inside `moves` for voided/cancelled transactions.
+        pytest.param([{"moves": [None]}], [], id="none-in-moves"),
+        # Truthy-non-list `moves` (a JSON boolean) — `x.get(key) or []`
+        # does NOT catch this since `True` is truthy, not falsy.
+        pytest.param([{"moves": True}], [], id="moves-is-bool-true"),
+        # Truthy-non-list `moves` (a JSON number) — same failure mode.
+        pytest.param([{"moves": 5}], [], id="moves-is-int"),
+        # The whole transaction_log body being a non-list.
+        pytest.param(True, [], id="transaction-log-is-bool"),
+        # A roster team's `players` being a truthy non-list (a JSON number).
+        pytest.param([], [{"players": 7}], id="players-is-int"),
+    ],
+)
+async def test_post_cbs_malformed_transaction_log_links_successfully_with_empty_keepers(
+    async_client, test_db, malformed_transaction_log, rosters_teams,
+):
+    """CBS's transaction log (and roster payload) can contain malformed
+    shapes — `None` entries inside `moves` for voided/cancelled
+    transactions, or truthy-non-list values like a JSON boolean/number where
+    a list was expected (`"moves": true`, `"players": 7`). Linking must
+    succeed (200) with an empty keepers list, not 502 — a malformed entry
+    must never block account linking entirely (the _extract_keepers crash
+    this regresses: TypeError on iterating a non-list / AttributeError on
+    None.get(), surfaced through fetch_league as a 502 via
+    _provider_http_error)."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    league_id = "999999"
+    with respx.mock() as router:
+        router.post(_CBS_AUTH_URL).mock(
+            return_value=Response(200, json={"body": {"access_token": "cbs-access-token"}}),
+        )
+        router.get(_cbs_league_url(league_id, "details")).mock(
+            return_value=Response(200, json={
+                "body": {"league_details": {"name": "CBS Champs", "num_teams": 10}},
+            }),
+        )
+        router.get(_cbs_league_url(league_id, "rules")).mock(
+            return_value=Response(200, json={"body": {"rules": {"scoring": {"rec": {"value": "1.0"}}}}}),
+        )
+        router.get(_cbs_league_url(league_id, "teams")).mock(
+            return_value=Response(200, json={"body": {"teams": []}}),
+        )
+        router.get(_cbs_league_url(league_id, "rosters")).mock(
+            return_value=Response(200, json={"body": {"rosters": {"teams": rosters_teams}}}),
+        )
+        router.get(_cbs_league_url(league_id, "transaction-list/log")).mock(
+            return_value=Response(200, json={"body": {"transaction_log": malformed_transaction_log}}),
+        )
+        r = await async_client.post(
+            f"/api/profiles/{p.id}/link/cbs",
+            json={"email": "fan@example.com", "password": "hunter2", "league_id": league_id},
+        )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["linked_league"]["provider"] == "cbs"
+    assert body["linked_league"]["keepers_json"] == []
+
+    rows = (await test_db.scalars(select(LinkedLeague))).all()
+    assert len(rows) == 1
+    assert rows[0].keepers_json == []
+
+
+@pytest.mark.asyncio
+async def test_post_cbs_bad_credentials_returns_400_via_embedded_error_body(async_client, test_db):
+    """CBS's auth quirk: bad credentials return HTTP 200 with an embedded
+    errors array. AutoTiers must still surface this as a 400 with a clear
+    'check both and try again' message, not a 200 success or a generic 502."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    with respx.mock() as router:
+        router.post(_CBS_AUTH_URL).mock(
+            return_value=Response(200, json={
+                "body": {"errors": ["The member ID or password entered is incorrect."]},
+                "statusCode": 200,
+            }),
+        )
+        r = await async_client.post(
+            f"/api/profiles/{p.id}/link/cbs",
+            json={"email": "fan@example.com", "password": "wrong", "league_id": "999999"},
+        )
+    assert r.status_code == 400
+    assert "rejected" in r.json()["detail"].lower()
+
+    # No row should have been created on a failed auth.
+    rows = (await test_db.scalars(select(LinkedLeague))).all()
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_post_cbs_rejects_empty_body(async_client, test_db):
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    r = await async_client.post(f"/api/profiles/{p.id}/link/cbs", json={})
+    assert r.status_code == 422  # pydantic: email/password/league_id are required
+
+
+@pytest.mark.asyncio
+async def test_post_cbs_rejects_whitespace_only_fields(async_client, test_db):
+    """Whitespace-only input must fail the same as empty input (bug-class #2)."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    r = await async_client.post(
+        f"/api/profiles/{p.id}/link/cbs",
+        json={"email": "  ", "password": "  ", "league_id": "  "},
+    )
+    assert r.status_code == 400
+    assert "email" in r.json()["detail"].lower()
+    assert "password" in r.json()["detail"].lower()
+    assert "league" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_post_cbs_invalid_league_fetch_token_returns_reconnect_message(async_client, test_db):
+    """Defensive case: token rejected immediately after exchange (unlikely
+    but the design calls it out explicitly) — must map to the reconnect
+    message, not a generic 502."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    with respx.mock() as router:
+        router.post(_CBS_AUTH_URL).mock(
+            return_value=Response(200, json={"body": {"access_token": "tok"}}),
+        )
+        router.get(_cbs_league_url("999999", "details")).mock(
+            return_value=Response(400, text="Failed Authentication: error - invalid access token"),
+        )
+        r = await async_client.post(
+            f"/api/profiles/{p.id}/link/cbs",
+            json={"email": "fan@example.com", "password": "hunter2", "league_id": "999999"},
+        )
+    assert r.status_code == 400
+    assert "reconnect" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_post_cbs_returns_504_on_auth_timeout(async_client, test_db):
+    import httpx as httpx_module
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    with respx.mock() as router:
+        router.post(_CBS_AUTH_URL).mock(side_effect=httpx_module.ReadTimeout("slow"))
+        r = await async_client.post(
+            f"/api/profiles/{p.id}/link/cbs",
+            json={"email": "fan@example.com", "password": "hunter2", "league_id": "999999"},
+        )
+    assert r.status_code == 504
+    assert "cbs" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_post_cbs_wrong_league_id_returns_502(async_client, test_db):
+    """A league id that doesn't exist (CBS returns a generic 5xx/4xx that
+    isn't the 'invalid access token' string) maps to the spec's 502 'verify
+    the league id and your credentials' message, not a raw 500."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    with respx.mock() as router:
+        router.post(_CBS_AUTH_URL).mock(
+            return_value=Response(200, json={"body": {"access_token": "tok"}}),
+        )
+        router.get(_cbs_league_url("000000", "details")).mock(
+            return_value=Response(404, json={"error": "league not found"}),
+        )
+        r = await async_client.post(
+            f"/api/profiles/{p.id}/link/cbs",
+            json={"email": "fan@example.com", "password": "hunter2", "league_id": "000000"},
+        )
+    assert r.status_code == 502
+    detail = r.json()["detail"].lower()
+    assert "cbs" in detail and "404" in detail
+
+
+@pytest.mark.asyncio
+async def test_refresh_cbs_reuses_stored_token_without_reprompting_credentials(async_client, test_db):
+    """/link/refresh must reuse the persisted encrypted token — it never asks
+    for email/password again (the 'store token-only' design decision)."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    from datetime import datetime, timezone
+    from app.security.fernet import encrypt
+    ll = LinkedLeague(
+        profile_id=p.id, provider="cbs", league_id="999999",
+        username_or_swid="fan@example.com",
+        credentials_encrypted=encrypt("stored-access-token"),
+        league_metadata_json={"name": "Old", "season": 2026},
+        keepers_json=[], adp_json=None,
+        last_synced_at=datetime.now(timezone.utc),
+    )
+    test_db.add(ll)
+    await test_db.commit()
+
+    with respx.mock() as router:
+        # No respx mock registered for the auth endpoint — if refresh tries
+        # to re-authenticate, this test fails with a respx "no route" error.
+        router.get(_cbs_league_url("999999", "details")).mock(
+            return_value=Response(200, json={"body": {"league_details": {"name": "Refreshed", "num_teams": 12}}}),
+        )
+        router.get(_cbs_league_url("999999", "rules")).mock(
+            return_value=Response(200, json={"body": {"rules": {"scoring": {"rec": {"value": "0.5"}, "passTD": {"value": "4"}}}}}),
+        )
+        router.get(_cbs_league_url("999999", "teams")).mock(return_value=Response(200, json={"body": {"teams": []}}))
+        router.get(_cbs_league_url("999999", "rosters")).mock(return_value=Response(200, json={"body": {"rosters": {"teams": []}}}))
+        router.get(_cbs_league_url("999999", "transaction-list/log")).mock(
+            return_value=Response(200, json={"body": {"transaction_log": []}}),
+        )
+        r = await async_client.post(f"/api/profiles/{p.id}/link/refresh")
+
+    assert r.status_code == 200, r.text
+    assert r.json()["linked_league"]["league_metadata_json"]["name"] == "Refreshed"
+    assert r.json()["profile"]["settings_json"]["scoring_format"] == "half_ppr"
+
+
+@pytest.mark.asyncio
+async def test_refresh_cbs_expired_token_returns_reconnect_message(async_client, test_db):
+    """An expired/invalid stored token surfaces as the 'reconnect' message,
+    not a silent failure or a generic 502 — this is the safe degradation
+    path the design names for the unverified token-expiry open question."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    from datetime import datetime, timezone
+    from app.security.fernet import encrypt
+    ll = LinkedLeague(
+        profile_id=p.id, provider="cbs", league_id="999999",
+        username_or_swid="fan@example.com",
+        credentials_encrypted=encrypt("stale-token"),
+        league_metadata_json={"name": "Old", "season": 2026},
+        keepers_json=[], adp_json=None,
+        last_synced_at=datetime.now(timezone.utc),
+    )
+    test_db.add(ll)
+    await test_db.commit()
+
+    with respx.mock() as router:
+        router.get(_cbs_league_url("999999", "details")).mock(
+            return_value=Response(400, text="Failed Authentication: error - invalid access token"),
+        )
+        r = await async_client.post(f"/api/profiles/{p.id}/link/refresh")
+
+    assert r.status_code == 400
+    assert "reconnect" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_refresh_cbs_missing_token_returns_400(async_client, test_db):
+    """A CBS row with no stored credential (shouldn't normally happen, but
+    defensive) must not crash trying to decrypt None."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    from datetime import datetime, timezone
+    ll = LinkedLeague(
+        profile_id=p.id, provider="cbs", league_id="999999",
+        username_or_swid="fan@example.com",
+        credentials_encrypted=None,
+        league_metadata_json={"name": "Old", "season": 2026},
+        keepers_json=[], adp_json=None,
+        last_synced_at=datetime.now(timezone.utc),
+    )
+    test_db.add(ll)
+    await test_db.commit()
+    r = await async_client.post(f"/api/profiles/{p.id}/link/refresh")
+    assert r.status_code == 400
+    assert "reconnect" in r.json()["detail"].lower()

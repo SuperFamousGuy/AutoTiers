@@ -27,4 +27,22 @@ describe("LinkedLeagueChip", () => {
     await waitFor(() => expect(refreshLink).toHaveBeenCalledWith("p1"));
     await waitFor(() => expect(onRefreshed).toHaveBeenCalled());
   });
+
+  it("renders 'CBS' (not a Yahoo fallback) when provider is cbs", () => {
+    // Regression guard: the original label logic was a ternary chain that
+    // defaulted to "Yahoo" for any unrecognized provider — adding "cbs"
+    // without fixing that chain would have silently mislabeled this chip.
+    render(<LinkedLeagueChip profileId="p1" provider="cbs" leagueName="CBS Champs" onRefreshed={vi.fn()} />);
+    expect(screen.getByText(/auto-detected from cbs/i)).toBeInTheDocument();
+  });
+
+  it("renders 'ESPN' when provider is espn", () => {
+    render(<LinkedLeagueChip profileId="p1" provider="espn" leagueName="ESPN Champs" onRefreshed={vi.fn()} />);
+    expect(screen.getByText(/auto-detected from espn/i)).toBeInTheDocument();
+  });
+
+  it("renders 'Yahoo' when provider is yahoo", () => {
+    render(<LinkedLeagueChip profileId="p1" provider="yahoo" leagueName="Yahoo Champs" onRefreshed={vi.fn()} />);
+    expect(screen.getByText(/auto-detected from yahoo/i)).toBeInTheDocument();
+  });
 });
