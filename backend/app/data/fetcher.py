@@ -11,7 +11,6 @@ from app.data.sources.sleeper import SleeperFetcher
 from app.data.sources.nfl_data import NflDataFetcher
 from app.data.sources.fantasypros import FantasyProsFetcher
 from app.data.sources.cbs import CBSFetcher
-from app.data.sources.spotrac import SpotracFetcher
 from app.data.status import upsert_status, get_all_status
 
 
@@ -32,7 +31,7 @@ class DataFetcher:
 
         if not sleeper_result.success:
             skipped_at = datetime.utcnow()
-            for name in ("nfl_data_py", "fantasypros", "cbs", "spotrac"):
+            for name in ("nfl_data_py", "fantasypros", "cbs"):
                 skipped = SourceResult(
                     source=name, rows_upserted=0, last_attempted=skipped_at,
                     success=False, error="skipped — sleeper refresh failed",
@@ -49,11 +48,16 @@ class DataFetcher:
         # endpoint requires authentication (S2/SWID cookies); we use FantasyPros
         # consensus as the projection source instead. EspnFetcher source is kept
         # in app/data/sources/espn.py for future re-enable if cookie auth is added.
+        # NOTE: SpotracFetcher was retired (see issue #402). Spotrac's old positional
+        # cap-hit pages (/nfl/positional/{POS}/cap_hit/) now 404; the replacement
+        # rankings endpoint serves its table via a Cloudflare-Turnstile-protected
+        # AJAX request that an httpx scraper cannot satisfy. The PlayerContract-backed
+        # "Follow the Money" rule still works when contract data is present, but we no
+        # longer have a free production feed for it.
         downstream = [
             ("nfl_data_py", NflDataFetcher(prior_seasons=3, latest_season=self.prior_season)),
             ("fantasypros", FantasyProsFetcher()),
             ("cbs", CBSFetcher()),
-            ("spotrac", SpotracFetcher()),
         ]
         for name, src in downstream:
             try:

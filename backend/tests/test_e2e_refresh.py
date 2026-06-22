@@ -35,10 +35,7 @@ def all_mocks(monkeypatch):
         )
         # CBS: scaffold-only, no real fixture data — mock as failing.
         router.get(url__regex=r"https://www\.cbssports\.com/.*").mock(return_value=Response(500))
-        # Spotrac: mock all per-position pages as empty so the fetcher succeeds.
-        router.get(url__regex=r"https://www\.spotrac\.com/nfl/positional/.*").mock(
-            return_value=Response(200, text="<html><body></body></html>")
-        )
+        # Spotrac retired (issue #402) — no longer fetched, so no mock needed.
         yield router
 
 
