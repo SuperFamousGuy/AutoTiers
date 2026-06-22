@@ -559,6 +559,52 @@ async def test_post_cbs_succeeds_and_persists_encrypted_token_not_password(async
 
 
 @pytest.mark.asyncio
+async def test_post_cbs_malformed_transaction_log_links_successfully_with_empty_keepers(async_client, test_db):
+    """CBS's transaction log can contain `None` entries inside `moves` for
+    voided/cancelled transactions. Linking must succeed (200) with an empty
+    keepers list, not 502 — a malformed transaction-log entry must never
+    block account linking entirely (the _extract_keepers crash this
+    regresses: AttributeError on None.get(), surfaced through fetch_league
+    as a 502 via _provider_http_error)."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    league_id = "999999"
+    with respx.mock() as router:
+        router.post(_CBS_AUTH_URL).mock(
+            return_value=Response(200, json={"body": {"access_token": "cbs-access-token"}}),
+        )
+        router.get(_cbs_league_url(league_id, "details")).mock(
+            return_value=Response(200, json={
+                "body": {"league_details": {"name": "CBS Champs", "num_teams": 10}},
+            }),
+        )
+        router.get(_cbs_league_url(league_id, "rules")).mock(
+            return_value=Response(200, json={"body": {"rules": {"scoring": {"rec": {"value": "1.0"}}}}}),
+        )
+        router.get(_cbs_league_url(league_id, "teams")).mock(
+            return_value=Response(200, json={"body": {"teams": []}}),
+        )
+        router.get(_cbs_league_url(league_id, "rosters")).mock(
+            return_value=Response(200, json={"body": {"rosters": {"teams": []}}}),
+        )
+        router.get(_cbs_league_url(league_id, "transaction-list/log")).mock(
+            return_value=Response(200, json={"body": {"transaction_log": [{"moves": [None]}]}}),
+        )
+        r = await async_client.post(
+            f"/api/profiles/{p.id}/link/cbs",
+            json={"email": "fan@example.com", "password": "hunter2", "league_id": league_id},
+        )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["linked_league"]["provider"] == "cbs"
+    assert body["linked_league"]["keepers_json"] == []
+
+    rows = (await test_db.scalars(select(LinkedLeague))).all()
+    assert len(rows) == 1
+    assert rows[0].keepers_json == []
+
+
+@pytest.mark.asyncio
 async def test_post_cbs_bad_credentials_returns_400_via_embedded_error_body(async_client, test_db):
     """CBS's auth quirk: bad credentials return HTTP 200 with an embedded
     errors array. AutoTiers must still surface this as a 400 with a clear

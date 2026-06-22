@@ -172,12 +172,27 @@ def _extract_keepers(transaction_log: list[dict], rosters_raw: list[dict]) -> li
     See Implementation Report "keepers escalation" for the recommended
     follow-up: capture a real transaction-list/log payload from a live CBS
     league and verify/correct this discriminator.
+
+    Robustness: every entry in transaction_log/rosters_raw, and every nested
+    moves/players/player/team value within them, is treated as untrusted —
+    CBS's transaction log is known to contain `None` entries in `moves` for
+    voided/cancelled transactions, and any other shape mismatch (a
+    transaction, move, player, or roster team that isn't a dict) is handled
+    the same way: that single entry is skipped via `continue`, never raising.
+    A malformed or unexpected entry anywhere in this payload degrades to an
+    empty (or partial) keepers list, never an exception — this is what makes
+    the "silently returns [] rather than crashing" claim above actually true
+    for all inputs, not just well-formed ones.
     """
     # Build a name -> {position, team} lookup from the roster payload so we
     # can enrich whatever player identifier the transaction log uses.
     player_lookup: dict[str, dict] = {}
     for team in rosters_raw:
+        if not isinstance(team, dict):
+            continue
         for player in team.get("players") or []:
+            if not isinstance(player, dict):
+                continue
             full_name = player.get("fullname") or player.get("full_name")
             if not full_name:
                 continue
@@ -188,12 +203,18 @@ def _extract_keepers(transaction_log: list[dict], rosters_raw: list[dict]) -> li
 
     keepers: list[dict] = []
     for tx in transaction_log:
+        if not isinstance(tx, dict):
+            continue
         for move in tx.get("moves") or []:
+            if not isinstance(move, dict):
+                continue
             move_type = str(move.get("type") or "").lower()
             is_keeper = "keeper" in move_type or bool(move.get("is_keeper"))
             if not is_keeper:
                 continue
-            player = move.get("player") or {}
+            player = move.get("player")
+            if not isinstance(player, dict):
+                continue
             full_name = player.get("fullname") or player.get("full_name") or ""
             if not full_name:
                 continue

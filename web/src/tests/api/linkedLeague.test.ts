@@ -120,3 +120,46 @@ describe("Yahoo Fantasy API client", () => {
     expect(out.linked_league.provider).toBe("yahoo");
   });
 });
+
+describe("CBS Sports API client", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("connectCbs POSTs email, password, and league_id to /api/profiles/{id}/link/cbs", async () => {
+    const { connectCbs } = await import("@/api/linkedLeague");
+    const spy = vi.spyOn(global, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          linked_league: { profile_id: PID, provider: "cbs", league_id: "999999",
+            league_metadata_json: { name: "CBS Champs", season: 2026 },
+            keepers_json: [], adp_json: null, last_synced_at: "2026-01-01T00:00:00Z" },
+          profile: { id: PID, name: "My", settings_json: {}, rules_json: {}, linked_league: null },
+        }),
+        { status: 200 },
+      ),
+    );
+    const out = await connectCbs(PID, {
+      email: "fan@example.com",
+      password: "hunter2",
+      league_id: "999999",
+    });
+    expect(String(spy.mock.calls[0][0])).toContain(`/api/profiles/${PID}/link/cbs`);
+    expect(spy.mock.calls[0][1]?.method).toBe("POST");
+    const body = JSON.parse(spy.mock.calls[0][1]?.body as string);
+    expect(body).toEqual({
+      email: "fan@example.com",
+      password: "hunter2",
+      league_id: "999999",
+    });
+    expect(out.linked_league.provider).toBe("cbs");
+  });
+
+  it("connectCbs throws ApiError on a non-ok response (e.g. bad credentials)", async () => {
+    const { connectCbs } = await import("@/api/linkedLeague");
+    vi.spyOn(global, "fetch").mockResolvedValueOnce(
+      new Response("CBS rejected your email or password", { status: 400 }),
+    );
+    await expect(
+      connectCbs(PID, { email: "fan@example.com", password: "wrong", league_id: "999999" }),
+    ).rejects.toBeInstanceOf(ApiError);
+  });
+});

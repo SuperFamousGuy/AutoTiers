@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 import respx
 from httpx import Response
-from app.integrations.cbs import get_access_token, fetch_league, CbsAuthRequired, _current_season
+from app.integrations.cbs import get_access_token, fetch_league, CbsAuthRequired, _current_season, _extract_keepers
 
 
 _AUTH_URL = "https://api.cbssports.com/general/oauth/mobile/login?response_format=json"
@@ -259,6 +259,66 @@ async def test_fetch_league_keepers_empty_when_no_keeper_moves_present():
         league = await fetch_league(league_id, "valid-token")
 
     assert league.keepers == []
+
+
+def test_extract_keepers_none_in_moves_does_not_raise():
+    """A voided/cancelled CBS transaction is realistically represented as
+    `None` inside the moves list, not omitted — must be skipped, not crash."""
+    assert _extract_keepers([{"moves": [None]}], []) == []
+
+
+def test_extract_keepers_non_dict_transaction_does_not_raise():
+    """A transaction-log entry that isn't itself a dict must be skipped."""
+    assert _extract_keepers([None, "garbage", 42, []], []) == []
+
+
+def test_extract_keepers_non_dict_move_does_not_raise():
+    """A move inside a (valid) transaction's moves list that isn't a dict
+    must be skipped, not passed to .get()."""
+    assert _extract_keepers([{"moves": [None, "garbage", 123]}], []) == []
+
+
+def test_extract_keepers_non_dict_player_does_not_raise():
+    """A keeper-typed move whose 'player' value isn't a dict (e.g. a bare
+    string or null) must be skipped rather than raising on player.get()."""
+    assert _extract_keepers(
+        [{"moves": [{"type": "keeper", "player": "not-a-dict"}]}], []
+    ) == []
+    assert _extract_keepers(
+        [{"moves": [{"type": "keeper", "player": None}]}], []
+    ) == []
+
+
+def test_extract_keepers_non_dict_roster_team_does_not_raise():
+    """A roster entry in rosters_raw that isn't a dict must be skipped when
+    building the player lookup, not raise on team.get('players')."""
+    assert _extract_keepers([], [None, "garbage", 7]) == []
+
+
+def test_extract_keepers_non_dict_roster_player_does_not_raise():
+    """A player inside a (valid) roster team's players list that isn't a
+    dict must be skipped, not passed to .get()."""
+    assert _extract_keepers([], [{"players": [None, "garbage"]}]) == []
+
+
+def test_extract_keepers_skips_malformed_entries_but_keeps_valid_ones():
+    """Malformed entries are skipped individually — a real keeper elsewhere
+    in the same payload must still be extracted, not lost to the first bad
+    entry encountered."""
+    transaction_log = [
+        None,
+        "garbage",
+        {"moves": None},
+        {"moves": [None, "garbage", {"type": "keeper", "player": "oops"}]},
+        {"moves": [{"type": "keeper", "player": {"fullname": "Bob Smith"}}]},
+    ]
+    rosters_raw = [
+        None,
+        {"players": [None, {"fullname": "Bob Smith", "position": "RB", "pro_team": "KC"}]},
+    ]
+    assert _extract_keepers(transaction_log, rosters_raw) == [
+        {"player_name": "Bob Smith", "position": "RB", "team": "KC"},
+    ]
 
 
 def test_current_season_rolls_over_in_march():
