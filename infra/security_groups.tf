@@ -2,7 +2,20 @@
 # ALB Security Group — accepts HTTP (80) and HTTPS (443) from the internet.
 ###############################################################################
 resource "aws_security_group" "alb" {
-  name        = "${var.app_name}-${var.environment}-sg-alb"
+  # An SG `description` is IMMUTABLE in AWS: Terraform cannot edit it in place, so
+  # any change to the wording below forces Terraform to REPLACE this security
+  # group. The ALB sits on the live api path, so the default destroy-before-create
+  # ordering would briefly strip the production ALB's security group. The
+  # create_before_destroy lifecycle below stands the replacement on its head — the
+  # new SG is created and attached before the old one is detached and destroyed.
+  #
+  # create_before_destroy on a security group only works with name_prefix, not a
+  # static name: SG names must be unique within a VPC, so a fixed name would make
+  # the new SG collide with the still-present old one and fail the apply mid-flight
+  # (falling back to exactly the destroy-before-create trap we are avoiding).
+  # AWS appends a unique suffix to the prefix; the human-facing Name tag is kept
+  # stable below. See issue #396.
+  name_prefix = "${var.app_name}-${var.environment}-sg-alb-"
   description = "Allow HTTP and HTTPS inbound to the ALB"
   vpc_id      = aws_vpc.main.id
 
@@ -32,6 +45,10 @@ resource "aws_security_group" "alb" {
 
   tags = {
     Name = "${var.app_name}-${var.environment}-sg-alb"
+  }
+
+  lifecycle {
+    create_before_destroy = true
   }
 }
 
