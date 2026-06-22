@@ -1,9 +1,9 @@
 """Tests for the CBS expert rankings probe/scaffold (issue #422).
 
 Placed at the top level of ``tests/`` (not ``tests/test_sources/``) on purpose:
-the CI backend run ignores ``tests/test_sources/`` (it OOMs there), and the
-diff-coverage gate computes coverage from that same run. These tests must run
-in-suite to cover the new fetcher's lines.
+keeping them here in the lightweight set means they always run in the standard
+backend suite, so the diff-coverage gate sees them and the new fetcher's lines
+are covered.
 """
 import pytest
 import respx
@@ -69,13 +69,21 @@ async def test_blocked_on_client_side_rendered_shell():
 
 @pytest.mark.asyncio
 async def test_network_failure_is_handled_gracefully():
-    """An HTTP error on every format page is isolated; result is failed, not raised."""
+    """An HTTP error on every format page is isolated; result is failed, not raised.
+
+    The error must indicate an HTTP/fetch failure and must NOT be the
+    client-side-rendered blocker error: nothing was fetched successfully, so
+    attributing the empty result to client-side rendering would be wrong.
+    """
     with respx.mock(base_url="https://www.cbssports.com") as router:
         router.get(url__regex=_RANKINGS_PATH_RE).mock(return_value=Response(500))
         result = await CBSRankingsFetcher().fetch()
 
     assert result.success is False
     assert result.rows_upserted == 0
+    assert "fetch failed" in (result.error or "")
+    assert "500" in (result.error or "")
+    assert "client-side rendered" not in (result.error or "")
 
 
 @pytest.mark.asyncio

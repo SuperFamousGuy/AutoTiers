@@ -64,6 +64,14 @@ _BLOCKED_ERROR = (
     "populates the table — see issue #422. Source not yet buildable."
 )
 
+# Distinct from ``_BLOCKED_ERROR``: used when *no* scoring-format page could be
+# fetched at all (network/server failure), so the empty result must not be
+# misattributed to client-side rendering. Kept as a stable prefix so tests and
+# the freshness UI can match on it.
+_FETCH_FAILED_PREFIX = (
+    "CBS rankings fetch failed: no scoring-format page could be retrieved"
+)
+
 
 @dataclass(frozen=True)
 class RankingRow:
@@ -88,6 +96,13 @@ class CBSRankingsFetcher:
         # the static fetch yields nothing to persist regardless.
         attempted = datetime.utcnow()
         rows: list[RankingRow] = []
+        # Track requests that completed with a 2xx (counted only after
+        # ``raise_for_status()``) and capture per-format failures, so an
+        # empty result can be correctly attributed to a blocked shell
+        # (fetched OK, parsed 0 rows) vs. a network/server failure
+        # (nothing fetched).
+        successful_fetches = 0
+        fetch_errors: list[str] = []
 
         try:
             async with httpx.AsyncClient(
@@ -100,6 +115,7 @@ class CBSRankingsFetcher:
                             f"/fantasy/football/rankings/{slug}/top200/consensus/"
                         )
                         resp.raise_for_status()
+                        successful_fetches += 1
                         rows.extend(
                             self._parse_rankings(resp.text, scoring_format)
                         )
@@ -108,6 +124,7 @@ class CBSRankingsFetcher:
                             "[cbs_rankings] failed to fetch %s rankings: %s",
                             scoring_format, e,
                         )
+                        fetch_errors.append(f"{scoring_format}: {e}")
                         continue
         except Exception as e:  # noqa: BLE001 — client construction / unexpected
             return SourceResult(
@@ -116,7 +133,21 @@ class CBSRankingsFetcher:
             )
 
         if not rows:
-            # The expected state today: a client-side-rendered shell.
+            if successful_fetches == 0:
+                # Nothing was fetched successfully: a network/server failure,
+                # NOT the client-side-rendered shell. Report it as such with
+                # the per-format errors so callers can act on the real cause.
+                error = (
+                    f"{_FETCH_FAILED_PREFIX} "
+                    f"({'; '.join(fetch_errors) or 'no requests attempted'}). "
+                    "See issue #422."
+                )
+                logger.warning("[cbs_rankings] %s", error)
+                return SourceResult(
+                    source=self.name, rows_upserted=0,
+                    last_attempted=attempted, success=False, error=error,
+                )
+            # Pages fetched OK but parsed 0 rows: a client-side-rendered shell.
             logger.warning("[cbs_rankings] %s", _BLOCKED_ERROR)
             return SourceResult(
                 source=self.name, rows_upserted=0,
@@ -147,12 +178,17 @@ class CBSRankingsFetcher:
         rank cell, a player-name anchor with the team in a ``<small>``, and a
         position cell. Rows missing a name or a parseable rank are skipped, never
         fatal.
+
+        Only the known CBS rankings-table selectors are matched. A bare
+        ``soup.find("table")`` fallback was deliberately dropped: on the
+        client-side-rendered shell (or other marketing pages) it can latch onto
+        an unrelated ``<table>`` and emit bogus "rankings" rows, which would make
+        ``fetch()`` report ``success=True`` incorrectly.
         """
         soup = BeautifulSoup(html, "lxml")
         table = (
             soup.find("table", class_="rankings-table")
             or soup.find("table", class_="TableBase")
-            or soup.find("table")
         )
         if table is None:
             return []
