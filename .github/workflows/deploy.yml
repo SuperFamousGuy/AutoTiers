@@ -19,6 +19,7 @@
 #   S3_BUCKET           — S3 bucket name for the compiled frontend assets
 #   CF_DIST_ID          — CloudFront distribution ID
 #   VITE_API_URL        — backend API origin, e.g. https://api.auto-tiers.com
+#   VITE_ADS_ENABLED        — "true" to turn on ad units (master switch; ads hidden otherwise)
 #   VITE_ADSENSE_CLIENT_ID  — AdSense publisher id, e.g. ca-pub-XXXXXXXXXXXXXXXX
 #   VITE_ADSENSE_FOOTER_SLOT — AdSense footer ad-unit slot id (numeric)
 #
@@ -180,6 +181,7 @@ jobs:
         working-directory: web
         env:
           VITE_API_URL: ${{ vars.VITE_API_URL }}
+          VITE_ADS_ENABLED: ${{ vars.VITE_ADS_ENABLED }}
           VITE_ADSENSE_CLIENT_ID: ${{ vars.VITE_ADSENSE_CLIENT_ID }}
           VITE_ADSENSE_FOOTER_SLOT: ${{ vars.VITE_ADSENSE_FOOTER_SLOT }}
         run: npm run build
