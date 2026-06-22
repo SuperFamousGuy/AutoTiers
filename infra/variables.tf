@@ -292,3 +292,23 @@ variable "ses_ops_email" {
   type        = string
   default     = ""
 }
+
+###############################################################################
+# Operational alarms (see monitoring.tf — issue #401)
+###############################################################################
+variable "ops_alert_email" {
+  description = "Optional email address subscribed to the ops-alerts SNS topic (scheduler health / data-freshness alarms). Leave empty to skip; the topic is still created so other subscriptions can be wired. The subscription requires a manual confirmation click."
+  type        = string
+  default     = ""
+}
+
+variable "scheduler_alarm_evaluation_periods" {
+  description = "Number of consecutive 1-minute periods the scheduler RunningTaskCount must stay below 1 before the alarm fires. The default (5) tolerates a normal rolling redeploy (the old task drains while the new one starts) without paging, while still catching a real outage within ~5 minutes."
+  type        = number
+  default     = 5
+
+  validation {
+    condition     = var.scheduler_alarm_evaluation_periods >= 1
+    error_message = "scheduler_alarm_evaluation_periods must be at least 1."
+  }
+}

@@ -45,6 +45,11 @@ output "ses_notifications_topic_arn" {
   value       = aws_sns_topic.ses_notifications.arn
 }
 
+output "ops_alerts_topic_arn" {
+  description = "SNS topic receiving operational alarms (scheduler RunningTaskCount, data freshness — issue #401). Subscribe the team's pager/chat here (or set var.ops_alert_email)."
+  value       = aws_sns_topic.ops_alerts.arn
+}
+
 # When DNS is external (manage_dns = false), these are the records to add at
 # your DNS provider so SES can verify the domain, sign with DKIM, and route
 # bounces. null when manage_dns = true (Terraform publishes them itself).

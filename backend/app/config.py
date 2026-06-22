@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     # SES recipient while SES is in sandbox (we send to this fixed address, not to the
     # submitting user). Override via FEEDBACK_RECIPIENT env. Not hardcoded in the route.
     feedback_recipient: str = "feedback@autotiers.example"
+    # Data-freshness alarm threshold (issue #401). The /api/data/health endpoint
+    # reports `stale` (and returns HTTP 503) when the oldest source's
+    # last_attempted is older than this many hours — catching a scheduler that
+    # has crash-looped or frozen and stopped refreshing data. Override via
+    # DATA_FRESHNESS_THRESHOLD_HOURS.
+    data_freshness_threshold_hours: float = 2.0
 
 
 settings = Settings()
