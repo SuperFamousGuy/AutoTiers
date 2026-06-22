@@ -406,8 +406,16 @@ def _account_from_get_account(payload: dict) -> dict:
     max_rate = payload.get("MaxSendRate", quota.get("MaxSendRate"))
     # ReviewDetails lives under Details in the documented shape; tolerate a
     # flattened top-level ReviewDetails too. Absent => no review on record.
-    details = payload.get("Details") or {}
-    review_details = details.get("ReviewDetails") or payload.get("ReviewDetails") or {}
+    # This is fail-soft enrichment: any non-dict shape (drift or operator JSON)
+    # is treated as absent rather than crashing the safety verdict.
+    details = payload.get("Details")
+    if not isinstance(details, dict):
+        details = {}
+    review_details = details.get("ReviewDetails")
+    if not isinstance(review_details, dict):
+        review_details = payload.get("ReviewDetails")
+    if not isinstance(review_details, dict):
+        review_details = {}
     return {
         "production_access_enabled": production,
         "max_24h_send": float(max_24h) if max_24h is not None else None,

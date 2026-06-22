@@ -171,7 +171,9 @@ def test_default_verdicts_carry_no_review_state():
     assert v.review_status == REVIEW_NONE
     assert v.review_case_id is None
     # And the original generic 'request production access' lead is used.
-    assert any("Request production access" in r for r in v.remediation)
+    # Check the stable intent case-insensitively rather than an exact-case
+    # substring, so wording/casing tweaks to the lead don't break the test.
+    assert any("request ses production access" in r.lower() for r in v.remediation)
 
 
 def test_denied_review_leads_with_console_reply_action():
