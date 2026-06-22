@@ -118,6 +118,24 @@ async def test_refresh_continues_when_one_source_fails(test_db, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_refresh_purges_retired_source_status(test_db, mock_all_sources):
+    """A stale status row for a retired source (spotrac) is dropped on refresh."""
+    from datetime import datetime
+    test_db.add(DataSourceStatus(
+        source="spotrac", last_attempted=datetime.utcnow(), rows_upserted=0,
+        last_error="404 retired",
+    ))
+    await test_db.commit()
+
+    fetcher = DataFetcher(prior_season=2025, current_season=2026)
+    results = await fetcher.refresh_all(test_db)
+
+    assert "spotrac" not in results
+    remaining = {s.source for s in (await test_db.scalars(select(DataSourceStatus))).all()}
+    assert "spotrac" not in remaining
+
+
+@pytest.mark.asyncio
 async def test_refresh_returns_skipped_when_sleeper_fails(test_db):
     """If Sleeper fails, downstream sources need its player map — they're skipped."""
     with respx.mock() as router:

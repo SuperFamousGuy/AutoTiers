@@ -11,7 +11,7 @@ from app.data.sources.sleeper import SleeperFetcher
 from app.data.sources.nfl_data import NflDataFetcher
 from app.data.sources.fantasypros import FantasyProsFetcher
 from app.data.sources.cbs import CBSFetcher
-from app.data.status import upsert_status, get_all_status
+from app.data.status import upsert_status, get_all_status, purge_retired_status
 
 
 logger = logging.getLogger(__name__)
@@ -25,6 +25,11 @@ class DataFetcher:
         self.current_season = current_season
 
     async def refresh_all(self, db: AsyncSession) -> dict[str, dict]:
+        # 0. Drop stale status rows for retired sources (e.g. spotrac, issue
+        # #402) so they don't linger as perpetual errors in API/UI responses.
+        # Committed alongside the fresh status rows by db.commit() below.
+        await purge_retired_status(db)
+
         # 1. Sleeper first — provides player table and cross-IDs.
         sleeper_result = await SleeperFetcher().fetch(db)
         await self._persist(db, sleeper_result)
