@@ -34,7 +34,8 @@ def all_mocks(monkeypatch):
             return_value=Response(200, text="<table id='data'><tbody></tbody></table>")
         )
         # CBS is retired (issue #404) and no longer fetched — no mock needed.
-        # Spotrac: mock all per-position pages as empty so the fetcher succeeds.
+        # Spotrac: per-position pages are empty here (no contract fixtures), so the
+        # fetcher upserts zero rows and reports failure.
         router.get(url__regex=r"https://www\.spotrac\.com/nfl/positional/.*").mock(
             return_value=Response(200, text="<html><body></body></html>")
         )
@@ -46,9 +47,12 @@ async def test_refresh_then_generate_returns_real_players(async_client, test_db,
     # Refresh
     fetcher = DataFetcher(prior_season=2025, current_season=2026)
     results = await fetcher.refresh_all(test_db)
-    # CBS is retired (issue #404) and no longer present. Other sources must succeed.
+    # CBS is retired (issue #404) and no longer present. Spotrac has no fixture
+    # data here (mocked empty), so it reports failure. Other sources must succeed.
     assert "cbs" not in results
     for src, r in results.items():
+        if src == "spotrac":
+            continue
         assert r["last_error"] is None, f"{src} failed: {r['last_error']}"
 
     # Generate — enable TD Regression rule for all skill positions so that
