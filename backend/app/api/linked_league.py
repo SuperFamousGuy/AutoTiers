@@ -144,9 +144,12 @@ def _provider_http_error(provider: str, e: Exception) -> HTTPException:
             status_code=502,
             detail=f"Couldn't reach {provider} ({type(e).__name__}).",
         )
+    # Generic fallback: never echo the raw exception type/text to the client —
+    # it can leak internal implementation detail. The full traceback is already
+    # captured by logger.exception above for server-side debugging.
     return HTTPException(
         status_code=502,
-        detail=f"Unexpected {provider} error: {type(e).__name__}: {e}",
+        detail=f"Unexpected error while contacting {provider}. Please try again later.",
     )
 
 
