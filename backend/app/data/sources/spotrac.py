@@ -77,7 +77,7 @@ class SpotracFetcher:
             return SourceResult(
                 source=self.name, rows_upserted=0,
                 last_attempted=attempted, success=False,
-                error="No contracts extracted from Spotrac (source layout may have changed; needs investigation)",
+                error="No Spotrac contracts persisted (0 rows upserted; parsed rows may have all failed player matching, or the source layout changed; needs investigation)",
             )
 
         return SourceResult(
