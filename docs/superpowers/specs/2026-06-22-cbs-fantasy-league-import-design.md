@@ -53,7 +53,8 @@ All error copy is the backend's `HTTPException.detail` surfaced verbatim via `Ap
 | CBS token request times out | 504 | via `_provider_http_error`: "CBS timed out. Try again in a moment." |
 | CBS league fetch returns invalid/expired token (HTTP 400 "Failed Authentication") | 400 | "CBS session expired — reconnect your CBS account." (mirrors `EspnAuthRequired` → "ESPN cookies expired — please reconnect.") |
 | League ID not found / wrong league | 502 (falls into `_provider_http_error`'s generic HTTPStatusError branch) | "CBS returned HTTP {status}. Verify the league id and your credentials." |
-| Empty body (no email, password, or league_id) | 400 | "Provide your CBS email, password, and league ID. Nothing to link without all three." (mirrors the ESPN empty-body guard, bug-class #2) |
+| Missing required field (email, password, or league_id absent from body) | 422 | Pydantic validation error — `CbsConnectBody`'s three fields are all required, so a missing field is rejected before the handler runs (tests assert 422). |
+| Whitespace-only values (fields present but blank after `.strip()`) | 400 | "Provide your CBS email, password, and league ID. Nothing to link without all three." (mirrors the ESPN empty-body guard, bug-class #2) |
 
 The frontend never hand-crafts a "your password might be wrong" guess — it renders `e.message` from `ApiError` directly, same as `EspnConnectForm`/`YahooConnectForm` do today.
 
@@ -66,7 +67,7 @@ The CBS tab itself is never blank — it always shows the form (State 1) or the 
 - Keyboard reach: all three inputs and the Connect button are native `<input>`/`<button>` elements, reachable via `Tab` in document order (email → password → league ID → Connect), matching `EspnConnectForm`'s layout pattern.
 - Focus visible: no new `outline: none` introduced; relies on the existing Tailwind/shadcn focus-ring defaults already used by sibling forms.
 - `type="password"` on the password field is non-negotiable per the security posture — confirmed required by the request and matches `EspnConnectForm`'s SWID/espn_s2 fields (lines 194–213 of that file use the same `type="password"` treatment for opaque secrets, even though those aren't literally passwords — CBS's field IS a real password, so the bar is at least as high).
-- `aria-label` on every input (email, password, league ID) and on the Connect/Refresh/Disconnect buttons, matching the existing pattern (`aria-label="Disconnect ESPN"` etc.) — use `"Disconnect CBS"`, `"Connect CBS"` analogues.
+- `aria-label` on every input (email, password, league ID). For the buttons, the Connect and Refresh buttons rely on their visible text label (matching the ESPN/Sleeper/Yahoo forms), while only the icon-ambiguous Disconnect button gets an explicit `aria-label="Disconnect CBS"` — the same pattern the sibling forms use (`aria-label="Disconnect ESPN"` etc.).
 
 ## Code-facing impact
 
