@@ -149,6 +149,26 @@ async def fetch_league(league_id: str, access_token: str) -> LeagueData:
     )
 
 
+def _as_dict_list(value) -> list[dict]:
+    """Coerce `value` into a list of dicts, or [] if it isn't usable.
+
+    Two failure modes get collapsed into the same safe result:
+    1. `value` itself isn't a list at all (e.g. a JSON boolean/number/string
+       where a list was expected — `"moves": true` or `"players": 7`). The
+       common `x.get(key) or []` idiom does NOT catch this: `or []` only
+       substitutes on a *falsy* value (None, [], ""), but `True`/`5`/`"x"`
+       are truthy, so a bare `for item in (x.get(key) or [])` raises
+       `TypeError: 'bool' object is not iterable` before any per-item
+       isinstance check ever runs.
+    2. `value` is a list but contains non-dict items (e.g. `None` for a
+       voided/cancelled transaction) — those individual items are filtered
+       out rather than the whole list being discarded.
+    """
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
 def _extract_keepers(transaction_log: list[dict], rosters_raw: list[dict]) -> list[dict]:
     """Derive keepers from the league transaction log.
 
@@ -173,26 +193,24 @@ def _extract_keepers(transaction_log: list[dict], rosters_raw: list[dict]) -> li
     follow-up: capture a real transaction-list/log payload from a live CBS
     league and verify/correct this discriminator.
 
-    Robustness: every entry in transaction_log/rosters_raw, and every nested
-    moves/players/player/team value within them, is treated as untrusted —
-    CBS's transaction log is known to contain `None` entries in `moves` for
-    voided/cancelled transactions, and any other shape mismatch (a
-    transaction, move, player, or roster team that isn't a dict) is handled
-    the same way: that single entry is skipped via `continue`, never raising.
-    A malformed or unexpected entry anywhere in this payload degrades to an
-    empty (or partial) keepers list, never an exception — this is what makes
-    the "silently returns [] rather than crashing" claim above actually true
-    for all inputs, not just well-formed ones.
+    Robustness: every list-shaped value consumed here — the top-level
+    transaction_log/rosters_raw arguments, each tx's "moves", and each
+    team's "players" — is routed through `_as_dict_list`, which handles
+    BOTH a value that isn't a list at all (e.g. `"moves": true` or
+    `"players": 7` — note `x.get(key) or []` alone does NOT catch this,
+    since `or []` only substitutes on a *falsy* value, and a JSON
+    boolean/number is truthy) AND a list containing non-dict items (CBS is
+    known to put `None` in `moves` for voided/cancelled transactions).
+    Single-dict fields (`move["player"]`, a roster `player`) keep their own
+    `isinstance(..., dict)` guard since a list is not expected there. Every
+    malformed or unexpected shape anywhere in this payload degrades to an
+    empty (or partial) keepers list — never an exception — for any input.
     """
     # Build a name -> {position, team} lookup from the roster payload so we
     # can enrich whatever player identifier the transaction log uses.
     player_lookup: dict[str, dict] = {}
-    for team in rosters_raw:
-        if not isinstance(team, dict):
-            continue
-        for player in team.get("players") or []:
-            if not isinstance(player, dict):
-                continue
+    for team in _as_dict_list(rosters_raw):
+        for player in _as_dict_list(team.get("players")):
             full_name = player.get("fullname") or player.get("full_name")
             if not full_name:
                 continue
@@ -202,12 +220,8 @@ def _extract_keepers(transaction_log: list[dict], rosters_raw: list[dict]) -> li
             }
 
     keepers: list[dict] = []
-    for tx in transaction_log:
-        if not isinstance(tx, dict):
-            continue
-        for move in tx.get("moves") or []:
-            if not isinstance(move, dict):
-                continue
+    for tx in _as_dict_list(transaction_log):
+        for move in _as_dict_list(tx.get("moves")):
             move_type = str(move.get("type") or "").lower()
             is_keeper = "keeper" in move_type or bool(move.get("is_keeper"))
             if not is_keeper:

@@ -301,6 +301,41 @@ def test_extract_keepers_non_dict_roster_player_does_not_raise():
     assert _extract_keepers([], [{"players": [None, "garbage"]}]) == []
 
 
+def test_extract_keepers_truthy_non_list_moves_does_not_raise():
+    """A JSON boolean/number where `moves` should be a list is truthy, so the
+    `x.get(key) or []` idiom does NOT substitute an empty list — it must be
+    routed through an isinstance(list) check before iteration begins, or
+    this raises `TypeError: 'bool'/'int' object is not iterable`."""
+    assert _extract_keepers([{"moves": True}], []) == []
+    assert _extract_keepers([{"moves": 5}], []) == []
+
+
+def test_extract_keepers_truthy_non_list_players_does_not_raise():
+    """Same failure mode as moves, but on a roster team's `players` key —
+    `{"players": 7}` is truthy and not iterable."""
+    assert _extract_keepers([], [{"players": 7}]) == []
+    assert _extract_keepers([], [{"players": True}]) == []
+
+
+def test_extract_keepers_non_list_transaction_log_argument_does_not_raise():
+    """The top-level transaction_log argument itself being a non-list
+    (e.g. a malformed CBS response body) must yield [], not raise on the
+    `for tx in transaction_log` loop."""
+    assert _extract_keepers(True, []) == []
+    assert _extract_keepers(42, []) == []
+    assert _extract_keepers("garbage", []) == []
+    assert _extract_keepers(None, []) == []
+
+
+def test_extract_keepers_non_list_rosters_raw_argument_does_not_raise():
+    """The top-level rosters_raw argument itself being a non-list must yield
+    [], not raise on the `for team in rosters_raw` loop."""
+    assert _extract_keepers([], True) == []
+    assert _extract_keepers([], 42) == []
+    assert _extract_keepers([], "garbage") == []
+    assert _extract_keepers([], None) == []
+
+
 def test_extract_keepers_skips_malformed_entries_but_keeps_valid_ones():
     """Malformed entries are skipped individually — a real keeper elsewhere
     in the same payload must still be extracted, not lost to the first bad

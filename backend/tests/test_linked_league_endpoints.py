@@ -559,13 +559,34 @@ async def test_post_cbs_succeeds_and_persists_encrypted_token_not_password(async
 
 
 @pytest.mark.asyncio
-async def test_post_cbs_malformed_transaction_log_links_successfully_with_empty_keepers(async_client, test_db):
-    """CBS's transaction log can contain `None` entries inside `moves` for
-    voided/cancelled transactions. Linking must succeed (200) with an empty
-    keepers list, not 502 — a malformed transaction-log entry must never
-    block account linking entirely (the _extract_keepers crash this
-    regresses: AttributeError on None.get(), surfaced through fetch_league
-    as a 502 via _provider_http_error)."""
+@pytest.mark.parametrize(
+    "malformed_transaction_log,rosters_teams",
+    [
+        # `None` entries inside `moves` for voided/cancelled transactions.
+        pytest.param([{"moves": [None]}], [], id="none-in-moves"),
+        # Truthy-non-list `moves` (a JSON boolean) — `x.get(key) or []`
+        # does NOT catch this since `True` is truthy, not falsy.
+        pytest.param([{"moves": True}], [], id="moves-is-bool-true"),
+        # Truthy-non-list `moves` (a JSON number) — same failure mode.
+        pytest.param([{"moves": 5}], [], id="moves-is-int"),
+        # The whole transaction_log body being a non-list.
+        pytest.param(True, [], id="transaction-log-is-bool"),
+        # A roster team's `players` being a truthy non-list (a JSON number).
+        pytest.param([], [{"players": 7}], id="players-is-int"),
+    ],
+)
+async def test_post_cbs_malformed_transaction_log_links_successfully_with_empty_keepers(
+    async_client, test_db, malformed_transaction_log, rosters_teams,
+):
+    """CBS's transaction log (and roster payload) can contain malformed
+    shapes — `None` entries inside `moves` for voided/cancelled
+    transactions, or truthy-non-list values like a JSON boolean/number where
+    a list was expected (`"moves": true`, `"players": 7`). Linking must
+    succeed (200) with an empty keepers list, not 502 — a malformed entry
+    must never block account linking entirely (the _extract_keepers crash
+    this regresses: TypeError on iterating a non-list / AttributeError on
+    None.get(), surfaced through fetch_league as a 502 via
+    _provider_http_error)."""
     u, p = await _make_user_and_profile(test_db)
     await _login(async_client)
     league_id = "999999"
@@ -585,10 +606,10 @@ async def test_post_cbs_malformed_transaction_log_links_successfully_with_empty_
             return_value=Response(200, json={"body": {"teams": []}}),
         )
         router.get(_cbs_league_url(league_id, "rosters")).mock(
-            return_value=Response(200, json={"body": {"rosters": {"teams": []}}}),
+            return_value=Response(200, json={"body": {"rosters": {"teams": rosters_teams}}}),
         )
         router.get(_cbs_league_url(league_id, "transaction-list/log")).mock(
-            return_value=Response(200, json={"body": {"transaction_log": [{"moves": [None]}]}}),
+            return_value=Response(200, json={"body": {"transaction_log": malformed_transaction_log}}),
         )
         r = await async_client.post(
             f"/api/profiles/{p.id}/link/cbs",
