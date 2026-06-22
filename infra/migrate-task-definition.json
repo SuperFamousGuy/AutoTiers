@@ -1,0 +1,27 @@
+{
+  "family": null,
+  "requiresCompatibilities": ["FARGATE"],
+  "networkMode": "awsvpc",
+  "cpu": "256",
+  "memory": "512",
+  "containerDefinitions": [
+    {
+      "name": "migrate",
+      "image": null,
+      "command": ["alembic", "upgrade", "head"],
+      "essential": true,
+      "environment": [
+        { "name": "DEBUG", "value": "false" },
+        { "name": "RUN_MIGRATIONS", "value": "false" },
+        { "name": "SEED_DEV_DATA", "value": "false" },
+        { "name": "RUN_SCHEDULER", "value": "false" }
+      ],
+      "secrets": [
+        { "name": "DATABASE_URL", "valueFrom": null },
+        { "name": "DATABASE_URL_SYNC", "valueFrom": null },
+        { "name": "JWT_SECRET", "valueFrom": null },
+        { "name": "SECRET_KEY", "valueFrom": null }
+      ]
+    }
+  ]
+}
