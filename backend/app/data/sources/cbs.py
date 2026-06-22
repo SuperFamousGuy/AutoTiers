@@ -1,9 +1,16 @@
 """CBS Sports projections scraper.
 
-Note: CBS's projection page may be client-side rendered. If BeautifulSoup
-can't find populated rows, the fetcher logs a warning and returns 0 upserted.
-The scaffold is in place so the architecture supports CBS once a
-data-extraction path is found (likely an underlying XHR JSON endpoint).
+RETIRED (issue #404): CBS's projection page is client-side rendered, so the
+static fetch+parse below found no populated rows and returned 0 upserted on
+every run. A chronically-empty source is worse than no source: it pinned the
+"data updated" freshness banner (which reports the OLDEST source) and cluttered
+the per-source tooltip with a permanent error.
+
+This fetcher is therefore NOT invoked by the orchestrator (app/data/fetcher.py),
+and `cbs` is listed in that module's RETIRED_SOURCES so any lingering status row
+is purged on refresh. The class is preserved in place — mirroring EspnFetcher —
+so re-enabling is a one-line orchestrator change once a real data-extraction
+path is found (an underlying XHR JSON endpoint, or a headless render).
 """
 from __future__ import annotations
 

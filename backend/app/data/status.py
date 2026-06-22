@@ -1,10 +1,11 @@
 """Read/write helpers for DataSourceStatus rows."""
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import DataSourceStatus
@@ -28,6 +29,19 @@ async def upsert_status(
     if success:
         existing.last_updated = last_attempted
         existing.rows_upserted = rows_upserted
+
+
+async def purge_statuses(db: AsyncSession, sources: Iterable[str]) -> None:
+    """Delete status rows for the given sources.
+
+    Used to evict retired sources so a permanently-dead row can't linger in
+    the status table and mask overall freshness (the banner reports the oldest
+    source) or clutter the per-source tooltip.
+    """
+    names = list(sources)
+    if not names:
+        return
+    await db.execute(delete(DataSourceStatus).where(DataSourceStatus.source.in_(names)))
 
 
 async def get_all_status(db: AsyncSession) -> dict[str, dict]:

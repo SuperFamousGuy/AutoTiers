@@ -2,7 +2,7 @@ import pytest
 from datetime import datetime
 from sqlalchemy import select
 from app.models import DataSourceStatus
-from app.data.status import upsert_status, get_all_status
+from app.data.status import upsert_status, get_all_status, purge_statuses
 
 
 @pytest.mark.asyncio
@@ -55,3 +55,31 @@ async def test_get_all_status_returns_dict(test_db):
     assert set(result.keys()) == {"sleeper", "espn"}
     assert result["sleeper"]["rows_upserted"] == 10
     assert result["espn"]["last_error"] == "bad"
+
+
+@pytest.mark.asyncio
+async def test_purge_statuses_removes_named_sources(test_db):
+    """purge_statuses deletes only the named rows, leaving the rest intact."""
+    now = datetime(2026, 5, 20, 12, 0, 0)
+    await upsert_status(test_db, source="cbs", last_attempted=now, success=False, rows_upserted=0, error="dead")
+    await upsert_status(test_db, source="sleeper", last_attempted=now, success=True, rows_upserted=10, error=None)
+    await test_db.commit()
+
+    await purge_statuses(test_db, ["cbs"])
+    await test_db.commit()
+
+    assert await test_db.scalar(select(DataSourceStatus).where(DataSourceStatus.source == "cbs")) is None
+    assert await test_db.scalar(select(DataSourceStatus).where(DataSourceStatus.source == "sleeper")) is not None
+
+
+@pytest.mark.asyncio
+async def test_purge_statuses_empty_is_noop(test_db):
+    """An empty source list is a no-op (no query issued, nothing deleted)."""
+    now = datetime(2026, 5, 20, 12, 0, 0)
+    await upsert_status(test_db, source="sleeper", last_attempted=now, success=True, rows_upserted=10, error=None)
+    await test_db.commit()
+
+    await purge_statuses(test_db, [])
+    await test_db.commit()
+
+    assert await test_db.scalar(select(DataSourceStatus).where(DataSourceStatus.source == "sleeper")) is not None

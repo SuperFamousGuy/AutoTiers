@@ -42,8 +42,8 @@ def mock_all_sources(monkeypatch):
         router.get(url__regex=r"https://www\.fantasypros\.com/nfl/adp/(overall|half-point-ppr)\.php").mock(
             return_value=Response(200, text="<table id='data'><tbody></tbody></table>")
         )
-        # CBS and Spotrac: scaffold-only / unreliable scrapes; mock as failing for now.
-        router.get(url__regex=r"https://www\.cbssports\.com/.*").mock(return_value=Response(500))
+        # Spotrac: unreliable scrape; mock as failing for now.
+        # CBS is retired (issue #404) and no longer fetched — no mock needed.
         router.get(url__regex=r"https://www\.spotrac\.com/.*").mock(return_value=Response(500))
         yield router
 
@@ -53,10 +53,11 @@ async def test_refresh_runs_all_sources(test_db, mock_all_sources):
     fetcher = DataFetcher(prior_season=2025, current_season=2026)
     results = await fetcher.refresh_all(test_db)
 
-    assert set(results.keys()) == {"sleeper", "nfl_data_py", "fantasypros", "cbs", "spotrac"}
-    # CBS and Spotrac are mocked to fail (no real fixture data yet); others should succeed.
+    # CBS is retired and must not appear in results.
+    assert set(results.keys()) == {"sleeper", "nfl_data_py", "fantasypros", "spotrac"}
+    # Spotrac is mocked to fail (no real fixture data yet); others should succeed.
     for src, r in results.items():
-        if src in ("cbs", "spotrac"):
+        if src == "spotrac":
             assert r["last_error"] is not None
             continue
         assert r["last_error"] is None, f"{src} unexpectedly failed: {r['last_error']}"
@@ -78,11 +79,12 @@ async def test_refresh_persists_status_rows(test_db, mock_all_sources):
 
     statuses = (await test_db.scalars(select(DataSourceStatus))).all()
     sources = {s.source for s in statuses}
-    assert sources == {"sleeper", "nfl_data_py", "fantasypros", "cbs", "spotrac"}
+    # CBS is retired (issue #404) and no longer tracked.
+    assert sources == {"sleeper", "nfl_data_py", "fantasypros", "spotrac"}
     for s in statuses:
         assert s.last_attempted is not None
-        if s.source in ("cbs", "spotrac"):
-            # CBS and Spotrac are scaffold-only; mocked to fail in this fixture.
+        if s.source == "spotrac":
+            # Spotrac is scaffold-only; mocked to fail in this fixture.
             assert s.last_error is not None
             continue
         assert s.last_updated is not None
@@ -103,16 +105,15 @@ async def test_refresh_continues_when_one_source_fails(test_db, monkeypatch):
     with respx.mock() as router:
         router.get(url__regex=r"https://api\.sleeper\.app/.*").mock(return_value=Response(200, json=SLEEPER_FIXTURE))
         router.get(url__regex=r"https://www\.fantasypros\.com/.*").mock(return_value=Response(503))
-        router.get(url__regex=r"https://www\.cbssports\.com/.*").mock(return_value=Response(500))
         router.get(url__regex=r"https://www\.spotrac\.com/.*").mock(return_value=Response(500))
 
         fetcher = DataFetcher(prior_season=2025, current_season=2026)
         results = await fetcher.refresh_all(test_db)
 
+    assert "cbs" not in results
     assert results["sleeper"]["last_error"] is None
     assert results["nfl_data_py"]["last_error"] is None
     assert results["fantasypros"]["last_error"] is not None and "503" in results["fantasypros"]["last_error"]
-    assert results["cbs"]["last_error"] is not None
     assert results["spotrac"]["last_error"] is not None
 
     fp_status = await test_db.scalar(select(DataSourceStatus).where(DataSourceStatus.source == "fantasypros"))
@@ -130,5 +131,29 @@ async def test_refresh_returns_skipped_when_sleeper_fails(test_db):
         results = await fetcher.refresh_all(test_db)
 
     assert "503" in results["sleeper"]["last_error"]
-    for src in ("nfl_data_py", "fantasypros", "cbs", "spotrac"):
+    assert "cbs" not in results
+    for src in ("nfl_data_py", "fantasypros", "spotrac"):
         assert "skipped" in (results[src]["last_error"] or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_refresh_purges_retired_cbs_status_row(test_db, mock_all_sources):
+    """A lingering cbs status row (retired source) is evicted on refresh so it
+    can't mask freshness or clutter the per-source tooltip (issue #404)."""
+    from datetime import datetime
+
+    test_db.add(DataSourceStatus(
+        source="cbs",
+        last_updated=None,
+        last_attempted=datetime(2025, 1, 1),
+        last_error="No projections extracted from CBS (page may be client-side rendered)",
+        rows_upserted=0,
+    ))
+    await test_db.commit()
+
+    fetcher = DataFetcher(prior_season=2025, current_season=2026)
+    results = await fetcher.refresh_all(test_db)
+
+    assert "cbs" not in results
+    cbs_status = await test_db.scalar(select(DataSourceStatus).where(DataSourceStatus.source == "cbs"))
+    assert cbs_status is None

@@ -33,8 +33,7 @@ def all_mocks(monkeypatch):
         router.get(url__regex=r"https://www\.fantasypros\.com/.*").mock(
             return_value=Response(200, text="<table id='data'><tbody></tbody></table>")
         )
-        # CBS: scaffold-only, no real fixture data — mock as failing.
-        router.get(url__regex=r"https://www\.cbssports\.com/.*").mock(return_value=Response(500))
+        # CBS is retired (issue #404) and no longer fetched — no mock needed.
         # Spotrac: mock all per-position pages as empty so the fetcher succeeds.
         router.get(url__regex=r"https://www\.spotrac\.com/nfl/positional/.*").mock(
             return_value=Response(200, text="<html><body></body></html>")
@@ -47,10 +46,9 @@ async def test_refresh_then_generate_returns_real_players(async_client, test_db,
     # Refresh
     fetcher = DataFetcher(prior_season=2025, current_season=2026)
     results = await fetcher.refresh_all(test_db)
-    # CBS is scaffold-only (mocked to fail). Other sources must succeed.
+    # CBS is retired (issue #404) and no longer present. Other sources must succeed.
+    assert "cbs" not in results
     for src, r in results.items():
-        if src == "cbs":
-            continue
         assert r["last_error"] is None, f"{src} failed: {r['last_error']}"
 
     # Generate — enable TD Regression rule for all skill positions so that
