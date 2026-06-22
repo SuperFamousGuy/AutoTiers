@@ -44,9 +44,10 @@ async def test_refresh_then_generate_returns_real_players(async_client, test_db,
     # Refresh
     fetcher = DataFetcher(prior_season=2025, current_season=2026)
     results = await fetcher.refresh_all(test_db)
-    # CBS is scaffold-only (mocked to fail). Other sources must succeed.
+    # CBS and Spotrac have no fixture data here (mocked empty/failing), so they
+    # report failure. Other sources must succeed.
     for src, r in results.items():
-        if src == "cbs":
+        if src in ("cbs", "spotrac"):
             continue
         assert r["last_error"] is None, f"{src} failed: {r['last_error']}"
 

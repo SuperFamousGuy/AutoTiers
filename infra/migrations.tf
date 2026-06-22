@@ -21,9 +21,20 @@
 # desired_count], so a later `terraform apply` that only re-runs migrations does
 # NOT re-touch the converged services — depends_on is a no-op when the dependent
 # has no planned change. That is fine: ROUTINE schema rollout on a release is
-# owned by the deploy workflow's sequential steps (run migrations -> wait ->
-# force-redeploy), not by `terraform apply`. Terraform's job here is first
-# provision and any apply that changes the image tag / migrations.
+# owned by the deploy workflow's sequential steps (register migrate task def ->
+# run migrations -> wait -> force-redeploy), not by `terraform apply`.
+# Terraform's job here is first provision and any apply that changes the image
+# tag / migrations.
+#
+# Migrate task-def OWNERSHIP (issue #395): the deploy workflow now REGISTERS the
+# migrate task definition on every release from a committed recipe
+# (infra/migrate-task-definition.json) via infra/scripts/register_migrate_task_def.sh,
+# borrowing the execution role / secret ARNs / log config from the running
+# backend task def. So a release no longer depends on this Terraform-owned task
+# def having been applied by hand — the workflow-registered revision is what the
+# migration actually runs. The resources below remain the first-provision
+# authority (and keep RUN_MIGRATIONS=false so the shared entrypoint never
+# double-migrates); they and the workflow recipe must be kept in agreement.
 ###############################################################################
 
 resource "aws_cloudwatch_log_group" "migrate" {

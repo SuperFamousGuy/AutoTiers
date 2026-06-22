@@ -273,8 +273,11 @@ resource "aws_ecs_task_definition" "scheduler" {
   family                   = "${var.app_name}-${var.environment}-scheduler"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = 256
-  memory                   = 512
+  # refresh_all loads nfl_data_py pandas frames + Sleeper + FantasyPros in one
+  # pass; 512 MB OOM-killed the boot-fire refresh (exit 137) into a crash-loop
+  # that froze data for 12 days. 512 cpu / 2048 memory is a valid Fargate combo.
+  cpu    = 512
+  memory = 2048
 
   execution_role_arn = aws_iam_role.ecs_task_execution.arn
   task_role_arn      = aws_iam_role.ecs_scheduler_task.arn
@@ -355,6 +358,23 @@ resource "aws_ecs_service" "scheduler" {
     Name = "${var.app_name}-${var.environment}-scheduler-service"
   }
 
+  # The CI deploy (.github/workflows/deploy.yml) rolls this service with a bare
+  # `update-service --force-new-deployment` (no --task-definition), which keeps
+  # the current revision and just repulls the immutable `:latest` image. We
+  # ignore task_definition here so Terraform does not fight that out-of-band
+  # ownership of the running revision.
+  #
+  # CONSEQUENCE for task-definition changes (cpu/memory/env/secrets): a plain
+  # `terraform apply` registers a NEW revision but does NOT move the service to
+  # it, and a bare `--force-new-deployment` redeploys the OLD revision. To make
+  # such a change take effect, point the service at the new revision explicitly
+  # after apply:
+  #   aws ecs update-service --cluster <cluster> --service <this-service> \
+  #     --task-definition <family> --force-new-deployment
+  # The family name selects the latest ACTIVE revision (the one apply just
+  # registered). Safe because backend_image_tag defaults to `latest`, so the
+  # new revision carries the same image already running — only cpu/memory
+  # (etc.) change, no image rollback.
   lifecycle {
     ignore_changes = [task_definition]
   }

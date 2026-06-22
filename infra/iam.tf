@@ -74,8 +74,17 @@ resource "aws_iam_role" "ecs_task" {
 }
 
 # Allow the app to send transactional email via SES (password reset + email
-# verification). Scoped to our own verified identity, and pinned to our own
-# from-address so a compromised task can't spoof other senders on the domain.
+# verification). The sender is pinned by the ses:FromAddress condition so a
+# compromised task can only ever send AS noreply@<domain> -- it cannot spoof
+# other senders on the domain.
+#
+# The Resource list must include BOTH the sender domain identity AND every
+# recipient-address identity (identity/*). SES authorizes ses:SendEmail against
+# *all* identities involved in a send, and while the account is in the SES
+# sandbox each recipient is itself a verified email identity. Scoping Resource
+# to only the domain identity caused AccessDenied on the recipient identity,
+# silently dropping all verification/reset mail (the from-address condition
+# still constrains who we can send AS, so identity/* does not weaken anti-spoof).
 data "aws_iam_policy_document" "ses_send" {
   statement {
     effect = "Allow"
@@ -83,7 +92,10 @@ data "aws_iam_policy_document" "ses_send" {
       "ses:SendEmail",
       "ses:SendRawEmail",
     ]
-    resources = [aws_ses_domain_identity.main.arn]
+    resources = [
+      aws_ses_domain_identity.main.arn,
+      "arn:aws:ses:${var.aws_region}:${data.aws_caller_identity.current.account_id}:identity/*",
+    ]
 
     condition {
       test     = "StringEquals"
