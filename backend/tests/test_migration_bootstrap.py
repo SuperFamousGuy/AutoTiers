@@ -34,6 +34,7 @@ MIGRATIONS_TF = REPO_ROOT / "infra" / "migrations.tf"
 ECS_TF = REPO_ROOT / "infra" / "ecs.tf"
 VARIABLES_TF = REPO_ROOT / "infra" / "variables.tf"
 RUN_MIGRATIONS_SH = REPO_ROOT / "infra" / "scripts" / "run_migrations.sh"
+REGISTER_MIGRATE_SH = REPO_ROOT / "infra" / "scripts" / "register_migrate_task_def.sh"
 DEPLOY_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "deploy.yml"
 
 
@@ -291,6 +292,149 @@ esac
 
 
 # ---------------------------------------------------------------------------
+# register_migrate_task_def.sh — the registration contract (issue #395).
+# ---------------------------------------------------------------------------
+class TestRegisterMigrateScript:
+    TEXT = REGISTER_MIGRATE_SH.read_text()
+
+    def test_exists_and_executable(self):
+        """A lost chmod bit would break the prod deploy at the register step."""
+        assert REGISTER_MIGRATE_SH.exists()
+        assert os.access(REGISTER_MIGRATE_SH, os.X_OK)
+
+    def test_fails_fast(self):
+        assert "set -euo pipefail" in self.TEXT
+
+    def test_registers_task_definition(self):
+        assert "aws ecs register-task-definition" in self.TEXT
+
+    def test_emits_task_definition_to_github_output(self):
+        """The register step must expose the family:revision it produced via
+        $GITHUB_OUTPUT under the `task_definition` key the run step reads."""
+        assert "task_definition=" in self.TEXT
+        assert "GITHUB_OUTPUT" in self.TEXT
+
+
+# ---------------------------------------------------------------------------
+# register_migrate_task_def.sh — functional: drive it with a fake `aws` on PATH
+# (and the real python3 merge) so the $GITHUB_OUTPUT contract is pinned to
+# behaviour, not just string-matched. Guards against AWS CLI output-shape
+# changes or a renamed output key silently breaking the deploy.
+# ---------------------------------------------------------------------------
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash required")
+class TestRegisterMigrateScriptBehaviour:
+    # describe-services -> backend task def ARN; describe-task-definition -> a
+    # backend task def the merge can satisfy (the four secrets the recipe names,
+    # an execution role, and a log config); register-task-definition -> the new
+    # ARN whose family:revision the script must echo into $GITHUB_OUTPUT.
+    FAKE_AWS = r"""#!/usr/bin/env bash
+args="$*"
+case "$args" in
+  *"describe-services"*"services[0].taskDefinition"*)
+    printf '%s\n' "arn:aws:ecs:us-east-1:1:task-definition/autotiers-prod-backend:7"
+    ;;
+  *"describe-task-definition"*"taskDefinition"*)
+    cat <<'JSON'
+{
+  "family": "autotiers-prod-backend",
+  "executionRoleArn": "arn:aws:iam::1:role/exec",
+  "taskRoleArn": "arn:aws:iam::1:role/task",
+  "containerDefinitions": [
+    {
+      "name": "backend",
+      "image": "1.dkr.ecr.us-east-1.amazonaws.com/autotiers-backend:latest",
+      "secrets": [
+        {"name": "DATABASE_URL", "valueFrom": "arn:aws:secretsmanager:us-east-1:1:secret:database_url"},
+        {"name": "DATABASE_URL_SYNC", "valueFrom": "arn:aws:secretsmanager:us-east-1:1:secret:database_url_sync"},
+        {"name": "JWT_SECRET", "valueFrom": "arn:aws:secretsmanager:us-east-1:1:secret:jwt_secret"},
+        {"name": "SECRET_KEY", "valueFrom": "arn:aws:secretsmanager:us-east-1:1:secret:secret_key"}
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/autotiers-prod/backend",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}
+JSON
+    ;;
+  *"register-task-definition"*)
+    printf '%s\n' "${FAKE_REGISTERED_ARN:-arn:aws:ecs:us-east-1:1:task-definition/autotiers-prod-migrate:42}"
+    ;;
+  *) echo "unexpected aws call: $args" >&2; exit 99 ;;
+esac
+"""
+
+    def _run(self, tmp_path, *, registered_arn=None):
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        aws = bin_dir / "aws"
+        aws.write_text(self.FAKE_AWS)
+        aws.chmod(0o755)
+
+        github_output = tmp_path / "github_output"
+        github_output.write_text("")
+
+        env = dict(os.environ)
+        env["PATH"] = f"{bin_dir}:{env['PATH']}"  # real python3 still resolves
+        env["GITHUB_OUTPUT"] = str(github_output)
+        if registered_arn is not None:
+            env["FAKE_REGISTERED_ARN"] = registered_arn
+
+        proc = subprocess.run(
+            ["bash", str(REGISTER_MIGRATE_SH),
+             "--cluster", "autotiers-prod",
+             "--region", "us-east-1",
+             "--from-service", "autotiers-prod-backend",
+             "--image", "1.dkr.ecr.us-east-1.amazonaws.com/autotiers-backend:v3.13"],
+            env=env, capture_output=True, text=True, timeout=60,
+        )
+        return proc, github_output
+
+    def test_emits_registered_family_revision_to_github_output(self, tmp_path):
+        """Happy path: it must write task_definition=<family>:<revision> from the
+        ARN register-task-definition returned, so the run step targets exactly
+        the revision this step produced."""
+        proc, github_output = self._run(tmp_path)
+        assert proc.returncode == 0, proc.stderr
+        assert "task_definition=autotiers-prod-migrate:42" in github_output.read_text()
+
+    def test_emits_the_actual_returned_revision(self, tmp_path):
+        """The emitted ref tracks the ARN AWS returned, not a hard-coded value."""
+        proc, github_output = self._run(
+            tmp_path,
+            registered_arn="arn:aws:ecs:us-east-1:1:task-definition/autotiers-prod-migrate:99",
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert "task_definition=autotiers-prod-migrate:99" in github_output.read_text()
+
+    def test_no_arn_returned_fails(self, tmp_path):
+        """If register-task-definition yields no ARN, the script must fail so the
+        deploy stops rather than running migrations against nothing."""
+        proc, github_output = self._run(tmp_path, registered_arn="None")
+        assert proc.returncode != 0
+        assert "task_definition=" not in github_output.read_text()
+
+    def test_missing_required_args_exits_nonzero(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "aws").write_text(self.FAKE_AWS)
+        (bin_dir / "aws").chmod(0o755)
+        env = dict(os.environ)
+        env["PATH"] = f"{bin_dir}:{env['PATH']}"
+        # No --cluster / --from-service / --image.
+        proc = subprocess.run(
+            ["bash", str(REGISTER_MIGRATE_SH), "--region", "us-east-1"],
+            env=env, capture_output=True, text=True, timeout=60,
+        )
+        assert proc.returncode != 0
+
+
+# ---------------------------------------------------------------------------
 # deploy.yml — migrations run before the services roll.
 # ---------------------------------------------------------------------------
 class TestDeployWorkflow:
@@ -336,3 +480,22 @@ class TestDeployWorkflow:
         assert len(cmds) == 2, f"expected 2 redeploy commands, found {len(cmds)}"
         for cmd in cmds:
             assert "--task-definition" in cmd
+
+    def test_registers_migrate_taskdef_before_running(self):
+        """The workflow must (re-)register the migrate task def from source
+        BEFORE running migrations (issue #395), never the other way around."""
+        assert "Register migration task definition" in self.TEXT
+        assert "register_migrate_task_def.sh" in self.TEXT
+        register_idx = self.TEXT.index("Register migration task definition")
+        migrate_idx = self.TEXT.index("Run database migrations")
+        assert register_idx < migrate_idx
+
+    def test_migrations_target_freshly_registered_taskdef(self):
+        """Migrations must run against the exact `family:revision` the register
+        step just produced (via its step output), not a pre-existing family
+        reference. Pins the output key so a rename/regression is caught."""
+        assert "id: migrate-taskdef" in self.TEXT
+        assert (
+            "--task-definition ${{ steps.migrate-taskdef.outputs.task_definition }}"
+            in self.TEXT
+        )

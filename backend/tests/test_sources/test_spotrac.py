@@ -47,15 +47,41 @@ async def test_spotrac_fetcher_upserts_player_contracts(test_db, mock_spotrac):
 
 
 @pytest.mark.asyncio
-async def test_spotrac_fetcher_skips_unmatched_player(test_db, mock_spotrac):
+async def test_spotrac_fetcher_fails_when_zero_upserted(test_db, mock_spotrac):
+    """HTTP succeeds but nothing is upserted (no matching player) → failure.
+
+    Mirrors cbs.py: upserted==0 must surface at /api/data/status as a dead
+    source rather than masquerade as a successful fetch.
+    """
     from app.data.sources.spotrac import SpotracFetcher
 
-    # No matching player seeded
+    # No matching player seeded, so every scraped row is dropped.
     fetcher = SpotracFetcher()
     result = await fetcher.fetch(test_db)
-    assert result.success
+    assert result.success is False
+    assert result.rows_upserted == 0
+    assert "investigation" in (result.error or "")
     rows = (await test_db.scalars(select(PlayerContract))).all()
     assert len(rows) == 0
+
+
+@pytest.mark.asyncio
+async def test_spotrac_fetcher_fails_when_all_positions_404(test_db):
+    """Every position 404s → all-positions-failed failure (pre-existing path)."""
+    import respx
+    from httpx import Response
+    from app.data.sources.spotrac import SpotracFetcher
+
+    with respx.mock(base_url="https://www.spotrac.com") as router:
+        router.get(url__regex=r"/nfl/positional/.*/cap_hit/?").mock(
+            return_value=Response(404)
+        )
+        fetcher = SpotracFetcher()
+        result = await fetcher.fetch(test_db)
+
+    assert result.success is False
+    assert result.rows_upserted == 0
+    assert "all positions failed" in (result.error or "")
 
 
 @pytest.mark.asyncio

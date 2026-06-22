@@ -72,6 +72,14 @@ class SpotracFetcher:
             )
 
         await db.commit()
+
+        if upserted == 0:
+            return SourceResult(
+                source=self.name, rows_upserted=0,
+                last_attempted=attempted, success=False,
+                error="No Spotrac contracts persisted (0 rows upserted; parsed rows may have all failed player matching, or the source layout changed; needs investigation)",
+            )
+
         return SourceResult(
             source=self.name, rows_upserted=upserted,
             last_attempted=attempted, success=True, error=None,
