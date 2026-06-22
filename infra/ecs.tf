@@ -273,8 +273,11 @@ resource "aws_ecs_task_definition" "scheduler" {
   family                   = "${var.app_name}-${var.environment}-scheduler"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = 256
-  memory                   = 512
+  # refresh_all loads nfl_data_py pandas frames + Sleeper + FantasyPros in one
+  # pass; 512 MB OOM-killed the boot-fire refresh (exit 137) into a crash-loop
+  # that froze data for 12 days. 512 cpu / 2048 memory is a valid Fargate combo.
+  cpu    = 512
+  memory = 2048
 
   execution_role_arn = aws_iam_role.ecs_task_execution.arn
   task_role_arn      = aws_iam_role.ecs_scheduler_task.arn
