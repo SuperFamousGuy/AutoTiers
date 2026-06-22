@@ -9,8 +9,10 @@ the per-source tooltip with a permanent error.
 This fetcher is therefore NOT invoked by the orchestrator (app/data/fetcher.py),
 and `cbs` is listed in that module's RETIRED_SOURCES so any lingering status row
 is purged on refresh. The class is preserved in place — mirroring EspnFetcher —
-so re-enabling is a one-line orchestrator change once a real data-extraction
-path is found (an underlying XHR JSON endpoint, or a headless render).
+so once a real data-extraction path is found (an underlying XHR JSON endpoint, or
+a headless render), re-enabling takes two small edits in app/data/fetcher.py:
+wire this fetcher back into refresh_all, AND drop `cbs` from RETIRED_SOURCES (so
+its freshly-written status row is no longer purged on every refresh).
 """
 from __future__ import annotations
 
