@@ -19,7 +19,8 @@
 #   S3_BUCKET           — S3 bucket name for the compiled frontend assets
 #   CF_DIST_ID          — CloudFront distribution ID
 #   VITE_API_URL        — backend API origin, e.g. https://api.auto-tiers.com
-#   VITE_ADS_ENABLED        — "true" to turn on ad units (master switch; ads hidden otherwise)
+#   VITE_ADS_ENABLED        — set to the exact value true (no quotes) to turn on ad units;
+#                             any other value (or unset) hides all ads. Master switch.
 #   VITE_ADSENSE_CLIENT_ID  — AdSense publisher id, e.g. ca-pub-XXXXXXXXXXXXXXXX
 #   VITE_ADSENSE_FOOTER_SLOT — AdSense footer ad-unit slot id (numeric)
 #
