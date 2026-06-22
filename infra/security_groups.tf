@@ -2,13 +2,12 @@
 # ALB Security Group — accepts HTTP (80) and HTTPS (443) from the internet.
 ###############################################################################
 resource "aws_security_group" "alb" {
-  # An SG `description` is IMMUTABLE in AWS, so any wording change (the live SG
-  # still reads "Allow HTTP inbound..." while this file reads "...HTTP and HTTPS
-  # inbound...") forces Terraform to REPLACE this security group. The ALB sits on
-  # the live api path, so the default destroy-before-create ordering would briefly
-  # strip the production ALB's security group. The create_before_destroy lifecycle
-  # below stands the replacement on its head — the new SG is created and attached
-  # before the old one is detached and destroyed.
+  # An SG `description` is IMMUTABLE in AWS: Terraform cannot edit it in place, so
+  # any change to the wording below forces Terraform to REPLACE this security
+  # group. The ALB sits on the live api path, so the default destroy-before-create
+  # ordering would briefly strip the production ALB's security group. The
+  # create_before_destroy lifecycle below stands the replacement on its head — the
+  # new SG is created and attached before the old one is detached and destroyed.
   #
   # create_before_destroy on a security group only works with name_prefix, not a
   # static name: SG names must be unique within a VPC, so a fixed name would make

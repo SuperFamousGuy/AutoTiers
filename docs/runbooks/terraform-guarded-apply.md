@@ -68,12 +68,16 @@ the ECS SG ingress rule should update **in place** to point at the new SG.
 ## (b) Task-definition revision drift
 
 The local Terraform config is ahead of the deployed services on task-def
-revisions:
+revisions. The exact numbers move with every deploy/apply, so the table below is
+**an example snapshot from the issue #396 investigation**, not a current reading —
+derive the live numbers yourself (e.g. `aws ecs describe-services` for the
+running revision vs. the `terraform plan` / `aws ecs describe-task-definition`
+for the registered one):
 
-| Service     | Registered in AWS | Service runs |
-|-------------|-------------------|--------------|
-| `backend`   | `:5`              | `:4`         |
-| `scheduler` | `:4`              | `:1`         |
+| Service     | Registered in AWS | Service runs     |
+|-------------|-------------------|------------------|
+| `backend`   | `:5` *(example)*  | `:4` *(example)* |
+| `scheduler` | `:4` *(example)*  | `:1` *(example)* |
 
 This is **expected steady-state**, not a bug: both services set
 `ignore_changes` on `task_definition` (`aws_ecs_service.backend` also ignores
