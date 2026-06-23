@@ -108,4 +108,50 @@ describe("NflConnectForm", () => {
     expect(screen.queryByLabelText(/email/i)).not.toBeInTheDocument();
     expect(screen.getByText(/No NFL.com login needed/i)).toBeInTheDocument();
   });
+
+  it("Refresh calls refreshLink then onRefresh in the connected state", async () => {
+    const { refreshLink } = await import("@/api/linkedLeague");
+    (refreshLink as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
+    const onRefresh = vi.fn().mockResolvedValue(undefined);
+    render(<NflConnectForm profile={nflLinkedProfile} onLinked={vi.fn()} onRefresh={onRefresh} />);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /^refresh$/i }));
+    await waitFor(() => expect(refreshLink).toHaveBeenCalledWith("p1"));
+    expect(onRefresh).toHaveBeenCalled();
+  });
+
+  it("Refresh surfaces the backend ApiError message verbatim", async () => {
+    const { refreshLink } = await import("@/api/linkedLeague");
+    (refreshLink as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ApiError(502, "NFL.com is unreachable right now."),
+    );
+    render(<NflConnectForm profile={nflLinkedProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /^refresh$/i }));
+    await waitFor(() =>
+      expect(screen.getByText("NFL.com is unreachable right now.")).toBeInTheDocument(),
+    );
+  });
+
+  it("Disconnect calls disconnectLink then onRefresh in the connected state", async () => {
+    const { disconnectLink } = await import("@/api/linkedLeague");
+    (disconnectLink as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
+    const onRefresh = vi.fn().mockResolvedValue(undefined);
+    render(<NflConnectForm profile={nflLinkedProfile} onLinked={vi.fn()} onRefresh={onRefresh} />);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /disconnect nfl/i }));
+    await waitFor(() => expect(disconnectLink).toHaveBeenCalledWith("p1"));
+    expect(onRefresh).toHaveBeenCalled();
+  });
+
+  it("Disconnect shows a generic message on a non-ApiError failure", async () => {
+    const { disconnectLink } = await import("@/api/linkedLeague");
+    (disconnectLink as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("boom"));
+    render(<NflConnectForm profile={nflLinkedProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /disconnect nfl/i }));
+    await waitFor(() =>
+      expect(screen.getByText("Disconnect failed.")).toBeInTheDocument(),
+    );
+  });
 });
