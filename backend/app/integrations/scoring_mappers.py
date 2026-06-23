@@ -139,3 +139,35 @@ def cbs_to_settings(raw_scoring: dict, league_size: int) -> dict:
         "bonus_100yd_receiving": False,
         "bonus_first_downs": False,
     }
+
+
+def nfl_to_settings(raw_scoring: dict, league_size: int) -> dict:
+    """Map NFL.com league data to AutoTiers settings fields.
+
+    NFL.com's scoring settings live behind /v2/league/settings, which is
+    gated by an NFL appKey AutoTiers does not hold (confirmed live:
+    INPUT_INVALID_APP_KEY without one). So nfl.fetch_league does NOT fetch
+    scoring — raw_scoring arrives as {}.
+
+    CRITICAL (caught in QA): this mapper's result is fed to _apply_settings,
+    which does `settings_json.update(mapped)`. If we emitted placeholder
+    scoring keys (scoring_format="standard", qb_td_points=4.0, ...), linking
+    NFL would SILENTLY OVERWRITE a user's existing PPR / 6pt-TD scoring with
+    standard defaults — a real regression (bug-class #1). So when NFL gives us
+    no scoring (the only case in this deliverable), we return ONLY league_size
+    and emit NOTHING for the scoring keys, leaving the user's prior scoring
+    untouched.
+
+    The scoring path is still wired for the future appKey case: if raw_scoring
+    ever carries real data, we honor it via the same _classify_ppr path the
+    other mappers use. Wiring scoring in later is a one-line change in
+    fetch_league, not a mapper rewrite.
+    """
+    out: dict = {"league_size": league_size}
+    if isinstance(raw_scoring, dict) and raw_scoring:
+        out["scoring_format"] = _classify_ppr(float(raw_scoring.get("rec", 0.0)))
+        out["qb_td_points"] = float(raw_scoring.get("pass_td", 4.0))
+        out["bonus_100yd_rushing"] = False
+        out["bonus_100yd_receiving"] = False
+        out["bonus_first_downs"] = False
+    return out

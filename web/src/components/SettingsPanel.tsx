@@ -39,7 +39,7 @@ export interface SettingsState {
 interface SettingsPanelProps {
   value: SettingsState;
   onChange: (next: SettingsState) => void;
-  linkedLeague?: { provider: "sleeper" | "espn" | "yahoo" | "cbs"; leagueName: string } | null;
+  linkedLeague?: { provider: "sleeper" | "espn" | "yahoo" | "cbs" | "nfl"; leagueName: string } | null;
   profileId?: string | null;
   onRefreshLink?: () => Promise<void> | void;
 }

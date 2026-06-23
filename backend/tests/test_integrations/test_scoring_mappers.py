@@ -1,5 +1,5 @@
 import pytest
-from app.integrations.scoring_mappers import sleeper_to_settings, espn_to_settings, cbs_to_settings
+from app.integrations.scoring_mappers import sleeper_to_settings, espn_to_settings, cbs_to_settings, nfl_to_settings
 
 
 def test_sleeper_full_ppr_with_4_qb_td_no_bonuses():
@@ -118,3 +118,28 @@ def test_cbs_tries_alternate_key_casings():
     s = cbs_to_settings(raw, league_size=12)
     assert s["scoring_format"] == "ppr"
     assert s["qb_td_points"] == 6.0
+
+
+def test_nfl_empty_scoring_emits_only_league_size():
+    """NFL scoring is appKey-gated and not fetched (raw_scoring={}). The mapper
+    must emit ONLY league_size and NO scoring keys, so _apply_settings' merge
+    does not clobber the user's existing scoring (QA blocker fix)."""
+    s = nfl_to_settings({}, league_size=14)
+    assert s == {"league_size": 14}
+    assert "scoring_format" not in s
+    assert "qb_td_points" not in s
+
+
+def test_nfl_honors_scoring_if_ever_populated():
+    """If a future appKey-gated fetch populates raw_scoring, the same
+    _classify_ppr path the other mappers use should honor it — proving wiring
+    scoring in later is a fetch_league change, not a mapper rewrite."""
+    s = nfl_to_settings({"rec": 1.0, "pass_td": 6}, league_size=10)
+    assert s["scoring_format"] == "ppr"
+    assert s["qb_td_points"] == 6.0
+
+
+def test_nfl_tolerates_non_dict_raw_scoring():
+    """Defensive: a non-dict raw_scoring degrades to league_size only, never raises."""
+    s = nfl_to_settings(None, league_size=12)  # type: ignore[arg-type]
+    assert s == {"league_size": 12}

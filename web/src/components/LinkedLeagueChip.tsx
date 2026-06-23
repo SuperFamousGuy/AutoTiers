@@ -4,7 +4,7 @@ import { refreshLink } from "@/api/linkedLeague";
 
 interface Props {
   profileId: string;
-  provider: "sleeper" | "espn" | "yahoo" | "cbs";
+  provider: "sleeper" | "espn" | "yahoo" | "cbs" | "nfl";
   leagueName: string;
   onRefreshed: () => Promise<void> | void;
 }
@@ -14,6 +14,7 @@ const PROVIDER_LABELS: Record<Props["provider"], string> = {
   espn: "ESPN",
   yahoo: "Yahoo",
   cbs: "CBS",
+  nfl: "NFL Fantasy",
 };
 
 export function LinkedLeagueChip({ profileId, provider, leagueName, onRefreshed }: Props) {
