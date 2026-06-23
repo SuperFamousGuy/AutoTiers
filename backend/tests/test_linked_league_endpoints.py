@@ -289,18 +289,27 @@ async def test_get_sleeper_leagues_502_on_network_error(async_client, test_db):
 
 @pytest.mark.asyncio
 async def test_post_sleeper_502_on_generic_exception(async_client, test_db):
-    """A non-httpx exception during connect still surfaces as a structured 502."""
+    """A non-httpx exception during connect still surfaces as a structured 502
+    with user-safe copy — the raw exception type/text must NOT leak to the client."""
     u, p = await _make_user_and_profile(test_db)
     await _login(async_client)
     with respx.mock() as router:
-        # respx will raise a non-httpx exception here.
-        router.get("https://api.sleeper.app/v1/league/L1").mock(side_effect=RuntimeError("boom"))
+        # respx will raise a non-httpx exception here. The secret marker text and
+        # the exception class name must never appear in the client-facing body.
+        router.get("https://api.sleeper.app/v1/league/L1").mock(
+            side_effect=RuntimeError("super-secret-internal-detail-boom")
+        )
         r = await async_client.post(
             f"/api/profiles/{p.id}/link/sleeper",
             json={"username": "alice", "league_id": "L1", "season": 2026},
         )
     assert r.status_code == 502
-    assert "unexpected" in r.json()["detail"].lower() or "sleeper" in r.json()["detail"].lower()
+    detail = r.json()["detail"]
+    # User-safe copy still names the provider so the user knows what failed.
+    assert "sleeper" in detail.lower()
+    # The generic branch must not echo the raw exception text or its type.
+    assert "super-secret-internal-detail-boom" not in detail
+    assert "RuntimeError" not in detail
 
 
 @pytest.mark.asyncio
