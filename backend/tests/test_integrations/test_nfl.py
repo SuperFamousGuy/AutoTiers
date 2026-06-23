@@ -1,7 +1,13 @@
 import pytest
 import respx
 from httpx import Response
-from app.integrations.nfl import fetch_league, NflLeagueNotFound, _first_league, _has_league_error
+from app.integrations.nfl import (
+    fetch_league,
+    NflLeagueNotFound,
+    NflApiError,
+    _first_league,
+    _has_league_error,
+)
 
 
 _STANDINGS_URL = "https://api.fantasy.nfl.com/v2/league/standings"
@@ -64,6 +70,19 @@ async def test_fetch_league_raises_on_embedded_errors_array_in_200():
         router.get(_STANDINGS_URL).mock(return_value=Response(200, json=err))
         with pytest.raises(NflLeagueNotFound):
             await fetch_league("999999999", 2025)
+
+
+@pytest.mark.asyncio
+async def test_fetch_league_propagates_unknown_embedded_error_as_provider_error():
+    """A 200-body errors array whose id is NOT the not-found signal (e.g. a
+    rate limit) must surface as NflApiError, not be misclassified as a missing
+    league (which would become a misleading 404)."""
+    err = {"errors": [{"id": "rateLimited", "messageStringId": "RATE_LIMITED",
+                       "message": "Too many requests."}]}
+    with respx.mock() as router:
+        router.get(_STANDINGS_URL).mock(return_value=Response(200, json=err))
+        with pytest.raises(NflApiError):
+            await fetch_league("1", 2025)
 
 
 @pytest.mark.asyncio
@@ -132,6 +151,10 @@ def test_first_league_returns_empty_on_malformed_shapes():
 
 def test_has_league_error():
     assert _has_league_error({"errors": [{"messageStringId": "LEAGUE_INVALID"}]}) is True
+    # matched case-insensitively / underscore-insensitively
+    assert _has_league_error({"errors": [{"id": "leagueInvalid"}]}) is True
     assert _has_league_error({"errors": []}) is False
     assert _has_league_error({}) is False
     assert _has_league_error({"errors": "nope"}) is False
+    # an unknown error id is NOT a not-found signal
+    assert _has_league_error({"errors": [{"messageStringId": "RATE_LIMITED"}]}) is False

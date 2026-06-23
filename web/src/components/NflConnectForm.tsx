@@ -128,7 +128,7 @@ export function NflConnectForm({ profile, onLinked, onRefresh }: Props) {
       {error && <p className="text-xs text-red-600">{error}</p>}
 
       <p className="text-xs text-muted-foreground">
-        We read your NFL.com league's public info — name, size, and teams. No NFL.com login needed.
+        We read your NFL.com league's public info — its name and size. No NFL.com login needed.
       </p>
 
       <label className="block text-sm">

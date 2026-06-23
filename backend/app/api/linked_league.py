@@ -150,19 +150,23 @@ def _upsert_linked_league(profile: Profile, db: AsyncSession) -> LinkedLeague:
     return profile.linked_league
 
 
-def _provider_http_error(provider: str, e: Exception) -> HTTPException:
+def _provider_http_error(provider: str, e: Exception, uses_credentials: bool = True) -> HTTPException:
     """Convert a provider-side error into a structured HTTPException.
 
     Without this, an unhandled exception from httpx (timeout, HTTP error from the
     provider, JSON decode error, etc.) becomes a FastAPI 500 whose response often
     skips CORS headers — the browser blocks it, the frontend sees a network error
     instead of a useful message, and we lose any signal about what went wrong.
+
+    Set ``uses_credentials=False`` for anonymous-read providers (e.g. NFL.com) so
+    the HTTP-error copy doesn't tell the user to check credentials they never gave.
     """
     logger.exception("%s provider error", provider)
     if isinstance(e, httpx.HTTPStatusError):
+        hint = "Verify the league id and your credentials." if uses_credentials else "Verify the League ID and season."
         return HTTPException(
             status_code=502,
-            detail=f"{provider} returned HTTP {e.response.status_code}. Verify the league id and your credentials.",
+            detail=f"{provider} returned HTTP {e.response.status_code}. {hint}",
         )
     if isinstance(e, (httpx.TimeoutException, asyncio.TimeoutError)):
         return HTTPException(
@@ -439,7 +443,7 @@ async def post_nfl(
             detail=f"NFL.com couldn't find league {league_id} for {body.season}. Check the League ID and season.",
         )
     except Exception as e:
-        raise _provider_http_error("NFL.com", e)
+        raise _provider_http_error("NFL.com", e, uses_credentials=False)
 
     mapped = nfl_to_settings(data.raw_scoring, league_size=data.league_size)
     ll = _upsert_linked_league(profile, db)
@@ -523,10 +527,10 @@ async def refresh(
         except NflLeagueNotFound:
             raise HTTPException(
                 status_code=404,
-                detail="NFL.com couldn't find this league anymore — it may have been deleted or made private.",
+                detail="NFL.com couldn't find this league anymore — it may have been deleted, or the League ID/season is no longer valid.",
             )
         except Exception as e:
-            raise _provider_http_error("NFL.com", e)
+            raise _provider_http_error("NFL.com", e, uses_credentials=False)
         mapped = nfl_to_settings(data.raw_scoring, league_size=data.league_size)
     else:
         raise HTTPException(status_code=400, detail=f"Unknown provider '{ll.provider}'")

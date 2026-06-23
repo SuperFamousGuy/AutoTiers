@@ -35,6 +35,19 @@ class NflLeagueNotFound(Exception):
     id or season, or the league was deleted/made unreadable."""
 
 
+class NflApiError(Exception):
+    """NFL.com returned a 200 body carrying errors that are NOT the
+    league-not-found signal (rate limit, upstream validation, etc.). These
+    must surface as a provider error, never as a misleading 404."""
+
+
+# messageStringId / id values NFL.com uses for a missing-or-invalid league.
+# Compared after normalizing case and underscores so both "LEAGUE_INVALID"
+# and "leagueInvalid" match. Any error id NOT in this set is a real provider
+# failure and is deliberately excluded so it does not masquerade as not-found.
+_NOT_FOUND_SIGNALS = {"leagueinvalid", "leaguenotfound"}
+
+
 _BASE_URL = "https://api.fantasy.nfl.com/v2/league"
 
 # NFL's edge may reject the default httpx UA ("python-httpx/x.y.z") as
@@ -75,11 +88,31 @@ def _first_league(payload: dict) -> dict:
     return {}
 
 
-def _has_league_error(payload: dict) -> bool:
-    """True when NFL returned an errors array in a 200 body (the not-found
-    signal). NFL does NOT 404 a bad league id — see module docstring."""
+def _error_ids(payload: dict) -> list[str]:
+    """Collect the messageStringId/id strings from a 200-body errors array.
+    Returns [] when there is no well-formed errors array."""
     errors = payload.get("errors")
-    return isinstance(errors, list) and len(errors) > 0
+    if not isinstance(errors, list):
+        return []
+    ids: list[str] = []
+    for e in errors:
+        if isinstance(e, dict):
+            mid = e.get("messageStringId") or e.get("id")
+            if isinstance(mid, str) and mid:
+                ids.append(mid)
+    return ids
+
+
+def _normalize(s: str) -> str:
+    return s.replace("_", "").lower()
+
+
+def _has_league_error(payload: dict) -> bool:
+    """True only when NFL's 200 body carries a *known* not-found signal
+    (LEAGUE_INVALID / leagueInvalid). Other error ids are intentionally
+    excluded so they propagate as provider errors instead of a 404 — see
+    module docstring. NFL does NOT 404 a bad league id."""
+    return any(_normalize(mid) in _NOT_FOUND_SIGNALS for mid in _error_ids(payload))
 
 
 async def fetch_league(league_id: str, season: int) -> LeagueData:
@@ -105,6 +138,15 @@ async def fetch_league(league_id: str, season: int) -> LeagueData:
     if _has_league_error(payload):
         raise NflLeagueNotFound(
             f"NFL.com reports league {league_id} does not exist for season {season}"
+        )
+
+    # An errors array carrying ids we don't recognize as not-found (rate limit,
+    # upstream validation, etc.) is a real provider failure — surface it rather
+    # than misclassifying it as a missing league.
+    other_errors = _error_ids(payload)
+    if other_errors:
+        raise NflApiError(
+            f"NFL.com returned errors for league {league_id}, season {season}: {other_errors}"
         )
 
     league = _first_league(payload)
