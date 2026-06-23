@@ -1,5 +1,23 @@
 ###############################################################################
 # ALB Security Group — accepts HTTP (80) and HTTPS (443) from the internet.
+#
+# Zero-downtime replacement (issue #411): this SG is internet-facing and is
+# referenced by aws_lb.main and by aws_security_group.ecs's ingress rule, so a
+# destroy-before-create replacement drops/disrupts prod traffic while the new SG
+# is built. Two coupled settings make any replacement safe:
+#
+#   - create_before_destroy = true — Terraform creates the new SG, repoints the
+#     ALB and the ECS ingress at it, and only then destroys the old one. Traffic
+#     is never without a SG.
+#   - name_prefix instead of name — create_before_destroy is impossible with a
+#     fixed `name`: AWS rejects the second SG with InvalidGroup.Duplicate before
+#     the old one is gone. name_prefix lets AWS mint a unique GroupName for the
+#     replacement so the old and new can coexist during the swap. The stable,
+#     human-readable identifier lives in the Name tag (unchanged), so the console
+#     and any tag-based lookups are unaffected.
+#
+# See docs/runbooks/terraform-state-reconcile.md for the maintenance-window
+# procedure this enables.
 ###############################################################################
 resource "aws_security_group" "alb" {
   # An SG `description` is IMMUTABLE in AWS: Terraform cannot edit it in place, so
