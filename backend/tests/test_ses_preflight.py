@@ -22,6 +22,10 @@ from contextlib import redirect_stdout
 import pytest
 
 from scripts.ses_preflight import (
+    REVIEW_DENIED,
+    REVIEW_GRANTED,
+    REVIEW_NONE,
+    REVIEW_PENDING,
     STATUS_FAKE_SENDER,
     STATUS_PRODUCTION_READY,
     STATUS_SANDBOXED_BLOCKED,
@@ -159,6 +163,125 @@ def test_duplicate_identities_are_deduped():
     assert v.verified_identities == ["a@x.com"]
 
 
+# --- Production-access review state (issue #273, 2026-06-22: case DENIED) ----
+
+def test_default_verdicts_carry_no_review_state():
+    """When no review info is supplied the field is the neutral REVIEW_NONE."""
+    v = evaluate_ses_readiness(enable_ses=True, production_access_enabled=False)
+    assert v.review_status == REVIEW_NONE
+    assert v.review_case_id is None
+    # And the original generic 'request production access' lead is used.
+    # Check the stable intent case-insensitively rather than an exact-case
+    # substring, so wording/casing tweaks to the lead don't break the test.
+    assert any("request ses production access" in r.lower() for r in v.remediation)
+
+
+def test_denied_review_leads_with_console_reply_action():
+    """The current real state: request DENIED — API resubmit is blocked, reply
+    in the console. The lead remediation must say exactly that, with the case."""
+    v = evaluate_ses_readiness(
+        enable_ses=True,
+        production_access_enabled=False,
+        review_status=REVIEW_DENIED,
+        review_case_id="178154208400595",
+    )
+    assert v.status == STATUS_SANDBOXED_BLOCKED
+    assert v.safe is False
+    assert v.review_status == REVIEW_DENIED
+    assert v.review_case_id == "178154208400595"
+    lead = v.remediation[0]
+    assert "DENIED" in lead
+    assert "178154208400595" in lead
+    assert "ConflictException" in lead  # names the API-resubmit trap
+    assert "console" in lead.lower()
+    assert "DENIED" in v.detail
+
+
+def test_pending_review_says_wait_do_not_resubmit():
+    v = evaluate_ses_readiness(
+        enable_ses=True,
+        production_access_enabled=False,
+        review_status="PENDING",  # raw AWS casing is accepted
+        review_case_id="999",
+    )
+    assert v.review_status == REVIEW_PENDING
+    lead = v.remediation[0]
+    assert "PENDING" in lead
+    assert "999" in lead
+    assert "PENDING" in v.detail
+
+
+def test_review_state_threaded_into_recipient_verified_branch():
+    v = evaluate_ses_readiness(
+        enable_ses=True,
+        production_access_enabled=False,
+        verified_identities=["smoke@test.com"],
+        recipient="smoke@test.com",
+        review_status=REVIEW_DENIED,
+        review_case_id="abc",
+    )
+    assert v.status == STATUS_SANDBOXED_RECIPIENT_VERIFIED
+    assert v.review_status == REVIEW_DENIED
+    assert v.remediation[0].startswith("LOAD-BEARING FIX: your SES")
+
+
+def test_review_state_ignored_when_production_ready():
+    """Out of the sandbox, the review state is moot but still echoed."""
+    v = evaluate_ses_readiness(
+        enable_ses=True,
+        production_access_enabled=True,
+        review_status=REVIEW_GRANTED,
+    )
+    assert v.status == STATUS_PRODUCTION_READY
+    assert v.review_status == REVIEW_GRANTED
+    assert v.remediation == []
+
+
+def test_normalize_review_status_mapping():
+    from scripts.ses_preflight import _normalize_review_status
+
+    assert _normalize_review_status("PENDING") == REVIEW_PENDING
+    assert _normalize_review_status("granted") == REVIEW_GRANTED
+    assert _normalize_review_status("Denied") == REVIEW_DENIED
+    # FAILED folds into DENIED — both mean "needs operator action".
+    assert _normalize_review_status("FAILED") == REVIEW_DENIED
+    # Missing / unknown values fail soft to NONE (this field never flips safety).
+    assert _normalize_review_status(None) == REVIEW_NONE
+    assert _normalize_review_status("") == REVIEW_NONE
+    assert _normalize_review_status("WEIRD") == REVIEW_NONE
+
+
+def test_account_parses_review_details_nested():
+    from scripts.ses_preflight import _account_from_get_account
+
+    acct = _account_from_get_account(
+        {
+            "ProductionAccessEnabled": False,
+            "Details": {"ReviewDetails": {"Status": "DENIED", "CaseId": "123"}},
+        }
+    )
+    assert acct["review_status"] == REVIEW_DENIED
+    assert acct["review_case_id"] == "123"
+
+
+def test_account_parses_review_details_flattened():
+    from scripts.ses_preflight import _account_from_get_account
+
+    acct = _account_from_get_account(
+        {"ProductionAccessEnabled": False, "ReviewDetails": {"Status": "PENDING"}}
+    )
+    assert acct["review_status"] == REVIEW_PENDING
+    assert acct["review_case_id"] is None
+
+
+def test_account_absent_review_details_is_none():
+    from scripts.ses_preflight import _account_from_get_account
+
+    acct = _account_from_get_account({"ProductionAccessEnabled": False})
+    assert acct["review_status"] == REVIEW_NONE
+    assert acct["review_case_id"] is None
+
+
 # --- CLI ---------------------------------------------------------------------
 
 def test_main_safe_config_exits_zero():
@@ -245,6 +368,63 @@ def test_main_ingests_list_identities_json(tmp_path):
     payload = json.loads(buf.getvalue())
     assert payload["status"] == STATUS_SANDBOXED_RECIPIENT_VERIFIED
     assert payload["recipient_deliverable"] is True
+
+
+def test_main_ingests_review_details_from_get_account(tmp_path):
+    """The full triage shape from #273's 2026-06-22 status: sandboxed + DENIED."""
+    acct = tmp_path / "acct.json"
+    acct.write_text(
+        json.dumps(
+            {
+                "ProductionAccessEnabled": False,
+                "SendQuota": {"Max24HourSend": 200, "MaxSendRate": 1.0},
+                "Details": {
+                    "ReviewDetails": {
+                        "Status": "DENIED",
+                        "CaseId": "178154208400595",
+                    }
+                },
+            }
+        )
+    )
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = main(["--enable-ses", "--get-account-json", str(acct)])
+    assert rc == 1
+    payload = json.loads(buf.getvalue())
+    assert payload["status"] == STATUS_SANDBOXED_BLOCKED
+    assert payload["review_status"] == REVIEW_DENIED
+    assert payload["review_case_id"] == "178154208400595"
+    assert "178154208400595" in payload["remediation"][0]
+
+
+def test_main_review_status_flag_overrides_json(tmp_path):
+    acct = tmp_path / "acct.json"
+    acct.write_text(
+        json.dumps(
+            {
+                "ProductionAccessEnabled": False,
+                "Details": {"ReviewDetails": {"Status": "DENIED", "CaseId": "x"}},
+            }
+        )
+    )
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = main(
+            [
+                "--enable-ses",
+                "--get-account-json",
+                str(acct),
+                "--review-status",
+                "PENDING",
+                "--review-case-id",
+                "override-case",
+            ]
+        )
+    assert rc == 1
+    payload = json.loads(buf.getvalue())
+    assert payload["review_status"] == REVIEW_PENDING
+    assert payload["review_case_id"] == "override-case"
 
 
 def test_main_explicit_flag_combines_with_json_identities(tmp_path):

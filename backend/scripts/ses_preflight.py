@@ -78,6 +78,12 @@ class SesReadinessVerdict:
     max_24h_send: Optional[float]
     max_send_rate: Optional[float]
     detail: str
+    # Production-access review case state (from `get-account` Details.ReviewDetails):
+    # one of the REVIEW_* constants. Surfaces WHY the account is still sandboxed
+    # — never requested vs. pending vs. denied — so the remediation can name the
+    # exact next action (see issue #273's 2026-06-22 status: case DENIED).
+    review_status: str = "none"
+    review_case_id: Optional[str] = None
     remediation: List[str] = field(default_factory=list)
 
 
@@ -87,6 +93,37 @@ STATUS_FAKE_SENDER = "fake_sender"  # enable_ses = false; on the fake sender.
 STATUS_PRODUCTION_READY = "production_ready"  # out of sandbox, real sends OK.
 STATUS_SANDBOXED_RECIPIENT_VERIFIED = "sandboxed_recipient_verified"
 STATUS_SANDBOXED_BLOCKED = "sandboxed_blocked"  # the bug state.
+
+
+# Production-access review states. AWS `get-account` reports the review case as
+# Details.ReviewDetails.Status, one of PENDING | GRANTED | DENIED | FAILED. We
+# canonicalise to these four so the guard can tell an operator the precise next
+# move: a fresh request, waiting on a pending one, or replying to a denied case.
+REVIEW_NONE = "none"  # no review case on record — production access never requested.
+REVIEW_PENDING = "pending"  # a request is in flight; don't resubmit.
+REVIEW_GRANTED = "granted"  # review passed (ProductionAccessEnabled should be true).
+REVIEW_DENIED = "denied"  # request DENIED/FAILED — reply in console to reopen.
+
+
+def _normalize_review_status(value: object) -> str:
+    """Canonicalise an SES ReviewDetails.Status into a REVIEW_* constant.
+
+    AWS uses PENDING | GRANTED | DENIED | FAILED. We fold FAILED into DENIED
+    (both mean "the request did not succeed and needs operator action") and map
+    a missing/empty/unknown value to REVIEW_NONE — fail-soft, since this field
+    only enriches the remediation text and never flips the safety verdict on
+    its own (ProductionAccessEnabled does that).
+    """
+    if value is None:
+        return REVIEW_NONE
+    text = str(value).strip().upper()
+    if text == "PENDING":
+        return REVIEW_PENDING
+    if text == "GRANTED":
+        return REVIEW_GRANTED
+    if text in ("DENIED", "FAILED"):
+        return REVIEW_DENIED
+    return REVIEW_NONE
 
 
 def _normalize_identities(identities: Optional[Sequence[str]]) -> List[str]:
@@ -115,6 +152,8 @@ def evaluate_ses_readiness(
     recipient: Optional[str] = None,
     max_24h_send: Optional[float] = None,
     max_send_rate: Optional[float] = None,
+    review_status: str = REVIEW_NONE,
+    review_case_id: Optional[str] = None,
 ) -> SesReadinessVerdict:
     """Decide whether the SES configuration will reliably reach real users.
 
@@ -135,6 +174,12 @@ def evaluate_ses_readiness(
         max_24h_send / max_send_rate: ``Max24HourSend`` / ``MaxSendRate`` from
             ``get-account``, echoed into the verdict for visibility (sandbox
             quotas are 200 / 1.0).
+        review_status: Canonical production-access review state (a REVIEW_*
+            constant) from ``get-account`` Details.ReviewDetails.Status. Used
+            only to sharpen the remediation while sandboxed — it does not change
+            the safety verdict.
+        review_case_id: The AWS support case id for that review, if any, so the
+            remediation can point the operator straight at the case to reply to.
 
     Returns:
         A SesReadinessVerdict. ``safe`` is True when the configuration will not
@@ -142,6 +187,8 @@ def evaluate_ses_readiness(
     """
     normalized = _normalize_identities(verified_identities)
     sandbox = not production_access_enabled
+    review = _normalize_review_status(review_status)
+    case = str(review_case_id).strip() if review_case_id else None
     recipient_norm = recipient.strip().lower() if recipient else None
     recipient_deliverable: Optional[bool] = None
 
@@ -159,6 +206,8 @@ def evaluate_ses_readiness(
             verified_identities=normalized,
             max_24h_send=max_24h_send,
             max_send_rate=max_send_rate,
+            review_status=review,
+            review_case_id=case,
             detail=(
                 "enable_ses is false: the backend runs on the in-process fake "
                 "sender and never calls SES. No mail reaches real users, but "
@@ -189,6 +238,8 @@ def evaluate_ses_readiness(
             verified_identities=normalized,
             max_24h_send=max_24h_send,
             max_send_rate=max_send_rate,
+            review_status=review,
+            review_case_id=case,
             detail=(
                 "Production access is enabled and enable_ses is true: SES "
                 "delivers to any recipient. Verification and password-reset "
@@ -199,10 +250,38 @@ def evaluate_ses_readiness(
 
     # Sandboxed AND enable_ses is true — the trap. Every send to an unverified
     # recipient is rejected (MessageRejected) while the UI reports success.
+    #
+    # The load-bearing fix is always "get production access", but the precise
+    # next action depends on where the review case stands (issue #273's
+    # 2026-06-22 status: the request was DENIED, case 178154208400595, and the
+    # API refuses a resubmit while that case is open — ConflictException). Lead
+    # with the action that actually matches the current review state.
+    case_suffix = f" (case {case})" if case else ""
+    if review == REVIEW_DENIED:
+        lead = (
+            "LOAD-BEARING FIX: your SES production-access request was DENIED"
+            f"{case_suffix}. Re-requesting via the API (`aws sesv2 "
+            "put-account-details`) fails with ConflictException while the "
+            "denied case is open — reply to the case in the AWS Console "
+            "(SES -> Account dashboard, or Support Center) with strengthened "
+            "justification to get it reconsidered. "
+            "See docs/runbooks/ses-email-provisioning.md."
+        )
+    elif review == REVIEW_PENDING:
+        lead = (
+            "A SES production-access request is already PENDING"
+            f"{case_suffix} — wait for the decision; do NOT resubmit (the API "
+            "rejects a duplicate with ConflictException). "
+            "See docs/runbooks/ses-email-provisioning.md."
+        )
+    else:
+        lead = (
+            "LOAD-BEARING FIX: request SES production access for the region "
+            "(Console -> SES -> Account dashboard -> Request production access). "
+            "Terraform cannot do this. See docs/runbooks/ses-email-provisioning.md."
+        )
     remediation = [
-        "LOAD-BEARING FIX: request SES production access for the region "
-        "(Console -> SES -> Account dashboard -> Request production access). "
-        "Terraform cannot do this. See docs/runbooks/ses-email-provisioning.md.",
+        lead,
         "OR set enable_ses = false to fall back to the fake sender until "
         "production access is granted (no silent rejections).",
         "INTERIM per-recipient unblock while sandboxed: "
@@ -225,6 +304,8 @@ def evaluate_ses_readiness(
             verified_identities=normalized,
             max_24h_send=max_24h_send,
             max_send_rate=max_send_rate,
+            review_status=review,
+            review_case_id=case,
             detail=(
                 f"SES is sandboxed but {recipient!r} is individually verified, "
                 "so that recipient receives mail (the interim per-recipient "
@@ -246,6 +327,16 @@ def evaluate_ses_readiness(
     )
     if recipient_norm is not None:
         detail += f" Recipient {recipient!r} is NOT verified and would be rejected."
+    if review == REVIEW_DENIED:
+        detail += (
+            f" Production-access review was DENIED{case_suffix}; reply to the "
+            "case in the console to reopen it."
+        )
+    elif review == REVIEW_PENDING:
+        detail += (
+            f" A production-access review is PENDING{case_suffix}; mail stays "
+            "blocked until it is granted."
+        )
     return SesReadinessVerdict(
         status=STATUS_SANDBOXED_BLOCKED,
         safe=False,
@@ -257,6 +348,8 @@ def evaluate_ses_readiness(
         verified_identities=normalized,
         max_24h_send=max_24h_send,
         max_send_rate=max_send_rate,
+        review_status=review,
+        review_case_id=case,
         detail=detail,
         remediation=remediation,
     )
@@ -311,10 +404,24 @@ def _account_from_get_account(payload: dict) -> dict:
     quota = payload.get("SendQuota") or {}
     max_24h = payload.get("Max24HourSend", quota.get("Max24HourSend"))
     max_rate = payload.get("MaxSendRate", quota.get("MaxSendRate"))
+    # ReviewDetails lives under Details in the documented shape; tolerate a
+    # flattened top-level ReviewDetails too. Absent => no review on record.
+    # This is fail-soft enrichment: any non-dict shape (drift or operator JSON)
+    # is treated as absent rather than crashing the safety verdict.
+    details = payload.get("Details")
+    if not isinstance(details, dict):
+        details = {}
+    review_details = details.get("ReviewDetails")
+    if not isinstance(review_details, dict):
+        review_details = payload.get("ReviewDetails")
+    if not isinstance(review_details, dict):
+        review_details = {}
     return {
         "production_access_enabled": production,
         "max_24h_send": float(max_24h) if max_24h is not None else None,
         "max_send_rate": float(max_rate) if max_rate is not None else None,
+        "review_status": _normalize_review_status(review_details.get("Status")),
+        "review_case_id": review_details.get("CaseId"),
     }
 
 
@@ -361,6 +468,21 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--recipient",
         help="Optional specific recipient to evaluate (e.g. a smoke-test addr).",
     )
+    parser.add_argument(
+        "--review-status",
+        default=None,
+        metavar="STATUS",
+        help="Production-access review state (PENDING|GRANTED|DENIED|FAILED). "
+        "Read from --get-account-json Details.ReviewDetails when present; an "
+        "explicit flag still wins. Sharpens the remediation while sandboxed.",
+    )
+    parser.add_argument(
+        "--review-case-id",
+        default=None,
+        metavar="ID",
+        help="AWS support case id for the production-access review, so the "
+        "remediation can point at the exact case to reply to.",
+    )
     parser.add_argument("--max-24h-send", type=float, default=None)
     parser.add_argument("--max-send-rate", type=float, default=None)
     args = parser.parse_args(argv)
@@ -368,12 +490,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     production_access = args.production_access
     max_24h = args.max_24h_send
     max_rate = args.max_send_rate
+    review_status = args.review_status
+    review_case_id = args.review_case_id
     if args.get_account_json:
         account = _account_from_get_account(_load_json(args.get_account_json))
         production_access = account["production_access_enabled"]
         # Explicit --max-* flags still win if the operator passed them.
         max_24h = max_24h if max_24h is not None else account["max_24h_send"]
         max_rate = max_rate if max_rate is not None else account["max_send_rate"]
+        # Explicit --review-* flags still win over what get-account reports.
+        review_status = review_status if review_status is not None else account["review_status"]
+        review_case_id = (
+            review_case_id if review_case_id is not None else account["review_case_id"]
+        )
 
     identities = list(args.verified_identity)
     if args.verified_identities_json:
@@ -388,6 +517,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         recipient=args.recipient,
         max_24h_send=max_24h,
         max_send_rate=max_rate,
+        review_status=review_status if review_status is not None else REVIEW_NONE,
+        review_case_id=review_case_id,
     )
     json.dump(asdict(verdict), sys.stdout, indent=2)
     sys.stdout.write("\n")

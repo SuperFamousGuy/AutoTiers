@@ -142,6 +142,43 @@ python3 backend/scripts/ses_preflight.py --enable-ses --get-account-json /tmp/ac
 # Wait for status "production_ready" (exit 0) before Step 4.
 ```
 
+The preflight now reads `Details.ReviewDetails` from that same `get-account`
+JSON, so its remediation names the exact next action for the review case —
+`none` (never requested), `pending` (wait, don't resubmit), or `denied` (reply
+in the console). The `review_status` / `review_case_id` fields are echoed in the
+output.
+
+#### 2a. If the request was DENIED (current state — case `178154208400595`)
+
+The first production-access request for this account was **denied**
+(`aws sesv2 get-account` → `Details.ReviewDetails.Status: DENIED`). Getting it
+reconsidered is **console-only** — two API paths are dead ends:
+
+- `aws sesv2 put-account-details …` (resubmit) → **`ConflictException`**: the
+  denied case is still open, so the API refuses a fresh request.
+- AWS Support API (reply to the case) → **`SubscriptionRequiredException`**: it
+  needs a paid Support plan this account doesn't have.
+
+So: **Console → SES → Account dashboard** (or **Support Center → case
+`178154208400595`**) → reply with strengthened justification. Use case template
+(transactional-only, prepared and ready to paste):
+
+> AutoTiers sends **only** transactional auth email — email-verification and
+> password-reset — triggered by an explicit user action (signup or a
+> reset request). No marketing, newsletters, or bulk sends.
+> **Consent is double-opt-in by construction**: the verification email *is* the
+> opt-in, and an account cannot be used until its link is clicked.
+> **Bounce/complaint handling** is wired to an SNS topic
+> (`terraform output ses_notifications_topic_arn`) with SES account-level
+> suppression enabled, so hard bounces and complaints are auto-suppressed.
+> **Volume is low** (well under the requested cap; on-demand, not scheduled).
+> Sender is authenticated with **DKIM** and a **custom MAIL FROM** domain
+> (`bounce.auto-tiers.com`) with SPF.
+
+After replying, watch `Details.ReviewDetails.Status` flip `DENIED → PENDING →
+GRANTED`; only `GRANTED` (with `ProductionAccessEnabled: true`) clears the
+preflight.
+
 ### 3. Subscribe to bounce/complaint alerts *(optional but recommended)*
 
 Set `ses_ops_email = "ops@…"` in `terraform.tfvars` and `apply`, then click the
