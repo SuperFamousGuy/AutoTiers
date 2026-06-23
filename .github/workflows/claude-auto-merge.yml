@@ -75,8 +75,9 @@ permissions:
   statuses: read # read commit statuses (rollup)
 
 env:
-  # Report-only by default. Flip to "false" to arm the merge after previewing.
-  DRY_RUN: "true"
+  # ARMED (2026-06-23): predicate previewed correct ELIGIBLE verdicts on real
+  # PRs before arming. Set back to "true" to return to report-only.
+  DRY_RUN: "false"
   # Criterion 5 threshold (hours of inactivity required before merge).
   QUIET_HOURS: "24"
   # Criterion 3 keys off this reviewer login. NOTE: the predicate reads the login
