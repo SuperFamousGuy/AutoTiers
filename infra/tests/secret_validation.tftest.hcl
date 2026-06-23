@@ -52,6 +52,13 @@ override_data {
   }
 }
 
+override_data {
+  target = data.aws_iam_policy_document.ops_alerts
+  values = {
+    json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}"
+  }
+}
+
 # A real Fernet key: 32 bytes base64url-encoded -> 44 chars ending in '='.
 variables {
   jwt_secret    = "a-sufficiently-long-jwt-signing-secret-value"
