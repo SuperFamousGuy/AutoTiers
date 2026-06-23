@@ -31,8 +31,13 @@ from app.integrations.cbs import (
     fetch_league as fetch_cbs_league,
     CbsAuthRequired,
 )
+from app.integrations.nfl import (
+    fetch_league as fetch_nfl_league,
+    NflLeagueNotFound,
+)
 from app.integrations.scoring_mappers import (
     sleeper_to_settings, espn_to_settings, yahoo_to_settings, cbs_to_settings,
+    nfl_to_settings,
 )
 from app.security.fernet import encrypt, decrypt
 from app.schemas.linked_league import LinkedLeagueOut
@@ -91,6 +96,15 @@ class CbsConnectBody(BaseModel):
     league_id: str
 
 
+class NflConnectBody(BaseModel):
+    # NFL.com's read API is anonymous (no credentials) but requires a
+    # league_id + season in the path for every call, so both are required —
+    # there is no "pre-link account without a league" state (like CBS, unlike
+    # ESPN). No password/cookie/token field: NFL collects no credentials.
+    league_id: str
+    season: int
+
+
 async def _check_ownership(
     profile_id: uuid.UUID,
     user: User,
@@ -136,19 +150,23 @@ def _upsert_linked_league(profile: Profile, db: AsyncSession) -> LinkedLeague:
     return profile.linked_league
 
 
-def _provider_http_error(provider: str, e: Exception) -> HTTPException:
+def _provider_http_error(provider: str, e: Exception, uses_credentials: bool = True) -> HTTPException:
     """Convert a provider-side error into a structured HTTPException.
 
     Without this, an unhandled exception from httpx (timeout, HTTP error from the
     provider, JSON decode error, etc.) becomes a FastAPI 500 whose response often
     skips CORS headers — the browser blocks it, the frontend sees a network error
     instead of a useful message, and we lose any signal about what went wrong.
+
+    Set ``uses_credentials=False`` for anonymous-read providers (e.g. NFL.com) so
+    the HTTP-error copy doesn't tell the user to check credentials they never gave.
     """
     logger.exception("%s provider error", provider)
     if isinstance(e, httpx.HTTPStatusError):
+        hint = "Verify the league id and your credentials." if uses_credentials else "Verify the League ID and season."
         return HTTPException(
             status_code=502,
-            detail=f"{provider} returned HTTP {e.response.status_code}. Verify the league id and your credentials.",
+            detail=f"{provider} returned HTTP {e.response.status_code}. {hint}",
         )
     if isinstance(e, (httpx.TimeoutException, asyncio.TimeoutError)):
         return HTTPException(
@@ -401,6 +419,53 @@ async def post_cbs(
     return _build_response(ll, profile)
 
 
+@router.post("/nfl", response_model=LinkedLeagueResponse)
+async def post_nfl(
+    profile_id: uuid.UUID,
+    body: NflConnectBody,
+    user: User = require_user,
+    db: AsyncSession = Depends(get_db),
+) -> LinkedLeagueResponse:
+    league_id = body.league_id.strip()
+    # NFL seasons are 4-digit years; reject anything outside a sane window so
+    # a typo (e.g. 20245) fails fast with a clear message rather than a 502
+    # from a malformed upstream request (bug-class #2).
+    if not league_id or not (1990 <= body.season <= 2100):
+        raise HTTPException(
+            status_code=400,
+            detail="Provide your NFL.com League ID and a valid season. Nothing to link without both.",
+        )
+
+    profile = await _resolve_profile(profile_id, user, db)
+
+    try:
+        data = await fetch_nfl_league(league_id, body.season)
+    except NflLeagueNotFound:
+        raise HTTPException(
+            status_code=404,
+            detail=f"NFL.com couldn't find league {league_id} for {body.season}. Check the League ID and season.",
+        )
+    except Exception as e:
+        raise _provider_http_error("NFL.com", e, uses_credentials=False)
+
+    mapped = nfl_to_settings(data.raw_scoring, league_size=data.league_size)
+    ll = _upsert_linked_league(profile, db)
+    ll.provider = "nfl"
+    # NFL collects no credentials — store nothing, exactly like Sleeper.
+    ll.username_or_swid = ""
+    ll.credentials_encrypted = None
+    ll.league_id = data.league_id
+    ll.league_metadata_json = {"name": data.name, "season": data.season}
+    ll.keepers_json = data.keepers
+    ll.adp_json = data.adp_json
+    ll.last_synced_at = datetime.now(timezone.utc)
+    _apply_settings(profile, mapped)
+
+    await db.commit()
+    await db.refresh(profile, attribute_names=["linked_league"])
+    return _build_response(ll, profile)
+
+
 @router.post("/refresh", response_model=LinkedLeagueResponse)
 async def refresh(
     profile_id: uuid.UUID,
@@ -459,6 +524,17 @@ async def refresh(
         except Exception as e:
             raise _provider_http_error("CBS", e)
         mapped = cbs_to_settings(data.raw_scoring, league_size=data.league_size)
+    elif ll.provider == "nfl":
+        try:
+            data = await fetch_nfl_league(ll.league_id, stored_season)
+        except NflLeagueNotFound:
+            raise HTTPException(
+                status_code=404,
+                detail="NFL.com couldn't find this league anymore — it may have been deleted, or the League ID/season is no longer valid.",
+            )
+        except Exception as e:
+            raise _provider_http_error("NFL.com", e, uses_credentials=False)
+        mapped = nfl_to_settings(data.raw_scoring, league_size=data.league_size)
     else:
         raise HTTPException(status_code=400, detail=f"Unknown provider '{ll.provider}'")
 

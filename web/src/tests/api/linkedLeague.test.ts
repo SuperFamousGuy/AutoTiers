@@ -162,4 +162,35 @@ describe("CBS Sports API client", () => {
       connectCbs(PID, { email: "fan@example.com", password: "wrong", league_id: "999999" }),
     ).rejects.toBeInstanceOf(ApiError);
   });
+
+  it("connectNfl POSTs league_id and season to /api/profiles/{id}/link/nfl", async () => {
+    const { connectNfl } = await import("@/api/linkedLeague");
+    const spy = vi.spyOn(global, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          linked_league: { profile_id: PID, provider: "nfl", league_id: "55555",
+            league_metadata_json: { name: "NFL Champs", season: 2025 },
+            keepers_json: [], adp_json: null, last_synced_at: "2026-01-01T00:00:00Z" },
+          profile: { id: PID, name: "My", settings_json: {}, rules_json: {}, linked_league: null },
+        }),
+        { status: 200 },
+      ),
+    );
+    const out = await connectNfl(PID, { league_id: "55555", season: 2025 });
+    expect(String(spy.mock.calls[0][0])).toContain(`/api/profiles/${PID}/link/nfl`);
+    expect(spy.mock.calls[0][1]?.method).toBe("POST");
+    const body = JSON.parse(spy.mock.calls[0][1]?.body as string);
+    expect(body).toEqual({ league_id: "55555", season: 2025 });
+    expect(out.linked_league.provider).toBe("nfl");
+  });
+
+  it("connectNfl throws ApiError on a non-ok response (e.g. league not found)", async () => {
+    const { connectNfl } = await import("@/api/linkedLeague");
+    vi.spyOn(global, "fetch").mockResolvedValueOnce(
+      new Response("NFL.com couldn't find league 999999999 for 2025.", { status: 404 }),
+    );
+    await expect(
+      connectNfl(PID, { league_id: "999999999", season: 2025 }),
+    ).rejects.toBeInstanceOf(ApiError);
+  });
 });

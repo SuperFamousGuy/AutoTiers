@@ -833,3 +833,142 @@ async def test_refresh_cbs_missing_token_returns_400(async_client, test_db):
     r = await async_client.post(f"/api/profiles/{p.id}/link/refresh")
     assert r.status_code == 400
     assert "reconnect" in r.json()["detail"].lower()
+
+
+_NFL_STANDINGS = "https://api.fantasy.nfl.com/v2/league/standings"
+
+
+def _nfl_body(name="NFL Champs", num_teams=12, league_id="55555"):
+    return {
+        "games": {
+            "102025": {
+                "leagues": {
+                    league_id: {
+                        "leagueId": league_id,
+                        "name": name,
+                        "leagueType": "private",
+                        "numTeams": num_teams,
+                    }
+                }
+            }
+        }
+    }
+
+
+def _mock_nfl_league_success(router, **kw):
+    router.get(_NFL_STANDINGS).mock(return_value=Response(200, json=_nfl_body(**kw)))
+
+
+@pytest.mark.asyncio
+async def test_post_nfl_links_and_persists_no_credentials(async_client, test_db):
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    with respx.mock() as router:
+        _mock_nfl_league_success(router, num_teams=12)
+        r = await async_client.post(
+            f"/api/profiles/{p.id}/link/nfl",
+            json={"league_id": "55555", "season": 2025},
+        )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["linked_league"]["provider"] == "nfl"
+    assert body["linked_league"]["league_id"] == "55555"
+    assert body["linked_league"]["league_metadata_json"] == {"name": "NFL Champs", "season": 2025}
+    # league_size imported; scoring keys are NOT emitted by NFL (appKey-gated),
+    # so a profile that started with empty settings has only league_size set.
+    assert body["profile"]["settings_json"]["league_size"] == 12
+    assert "scoring_format" not in body["profile"]["settings_json"]
+    assert "qb_td_points" not in body["profile"]["settings_json"]
+
+    rows = (await test_db.scalars(select(LinkedLeague))).all()
+    assert len(rows) == 1
+    row = rows[0]
+    # NFL collects no credentials — both fields must be empty/None, like Sleeper.
+    assert row.username_or_swid == ""
+    assert row.credentials_encrypted is None
+    assert row.keepers_json == []
+    assert row.adp_json is None
+
+
+@pytest.mark.asyncio
+async def test_post_nfl_preserves_existing_user_scoring(async_client, test_db):
+    """Because NFL contributes no scoring, _apply_settings must leave a user's
+    pre-existing scoring untouched (only league_size changes)."""
+    u = User(email="pre@example.com", password_hash=hash_password("password-long-enough"))
+    test_db.add(u); await test_db.commit(); await test_db.refresh(u)
+    p = Profile(user_id=u.id, name="My",
+                settings_json={"scoring_format": "ppr", "qb_td_points": 6.0}, rules_json={})
+    test_db.add(p); await test_db.commit(); await test_db.refresh(p)
+    await _login(async_client, email="pre@example.com")
+    with respx.mock() as router:
+        _mock_nfl_league_success(router, num_teams=10)
+        r = await async_client.post(
+            f"/api/profiles/{p.id}/link/nfl", json={"league_id": "55555", "season": 2025},
+        )
+    assert r.status_code == 200, r.text
+    settings = r.json()["profile"]["settings_json"]
+    # NFL contributes ONLY league_size; the user's pre-existing PPR / 6pt-TD
+    # scoring must survive linking untouched (QA blocker fix — would FAIL if
+    # nfl_to_settings re-emitted placeholder defaults).
+    assert settings["league_size"] == 10
+    assert settings["scoring_format"] == "ppr"
+    assert settings["qb_td_points"] == 6.0
+
+
+@pytest.mark.asyncio
+async def test_post_nfl_missing_league_returns_404_from_200_errors_body(async_client, test_db):
+    """NFL returns HTTP 200 with an errors array for a missing league; the
+    endpoint must surface a 404 with actionable copy, not a 200 'linked'."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    err = {"errors": [{"messageStringId": "LEAGUE_INVALID", "message": "League does not exist."}]}
+    with respx.mock() as router:
+        router.get(_NFL_STANDINGS).mock(return_value=Response(200, json=err))
+        r = await async_client.post(
+            f"/api/profiles/{p.id}/link/nfl", json={"league_id": "999999999", "season": 2025},
+        )
+    assert r.status_code == 404, r.text
+    assert "couldn't find" in r.json()["detail"].lower()
+    # Nothing should have been persisted.
+    rows = (await test_db.scalars(select(LinkedLeague))).all()
+    assert len(rows) == 0
+
+
+@pytest.mark.asyncio
+async def test_post_nfl_rejects_blank_league_id(async_client, test_db):
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    r = await async_client.post(
+        f"/api/profiles/{p.id}/link/nfl", json={"league_id": "   ", "season": 2025},
+    )
+    assert r.status_code == 400
+    assert (await test_db.scalars(select(LinkedLeague))).all() == []
+
+
+@pytest.mark.asyncio
+async def test_post_nfl_rejects_implausible_season(async_client, test_db):
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    r = await async_client.post(
+        f"/api/profiles/{p.id}/link/nfl", json={"league_id": "55555", "season": 20245},
+    )
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_refresh_nfl_refetches_by_stored_season(async_client, test_db):
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    # First link.
+    with respx.mock() as router:
+        _mock_nfl_league_success(router, num_teams=12)
+        r = await async_client.post(
+            f"/api/profiles/{p.id}/link/nfl", json={"league_id": "55555", "season": 2025},
+        )
+    assert r.status_code == 200, r.text
+    # Now refresh — league grew to 14 teams.
+    with respx.mock() as router:
+        _mock_nfl_league_success(router, num_teams=14)
+        r = await async_client.post(f"/api/profiles/{p.id}/link/refresh")
+    assert r.status_code == 200, r.text
+    assert r.json()["profile"]["settings_json"]["league_size"] == 14

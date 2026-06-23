@@ -258,11 +258,31 @@ describe("LinkedAccountsDialog", () => {
     expect(await screen.findByText(/select a profile/i)).toBeInTheDocument();
   });
 
-  it("NFL Fantasy tab remains disabled and shows 'Coming Soon' — CBS's launch must not affect it", () => {
+  it("NFL Fantasy tab is enabled (no longer 'Coming Soon') and shows the connect form", async () => {
     render(
       <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
         onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
     );
-    expect(screen.getByRole("button", { name: /^nfl fantasy$/i })).toBeDisabled();
+    const u = userEvent.setup();
+    const nflTab = screen.getByRole("button", { name: /^nfl fantasy$/i });
+    expect(nflTab).toBeEnabled();
+    await u.click(nflTab);
+    expect(screen.queryByText(/nfl fantasy.*coming soon/i)).not.toBeInTheDocument();
+    expect(await screen.findByLabelText("League ID")).toBeInTheDocument();
+    expect(screen.getByLabelText("Season")).toBeInTheDocument();
+    // No credential field — NFL linking collects no login (the connect form
+    // exposes only League ID + Season). The "no password field" assertion is
+    // covered precisely in NflConnectForm.test.tsx; here we just confirm the
+    // form replaced the Coming Soon stub.
+  });
+
+  it("NFL tab shows 'Select a profile' when no activeProfile is provided", async () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} />,
+    );
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /^nfl fantasy$/i }));
+    expect(await screen.findByText(/select a profile/i)).toBeInTheDocument();
   });
 });

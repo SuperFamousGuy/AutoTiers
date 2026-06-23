@@ -86,3 +86,13 @@ export function connectCbs(
     { method: "POST", body: JSON.stringify(body) },
   );
 }
+
+export function connectNfl(
+  profileId: string,
+  body: { league_id: string; season: number },
+): Promise<LinkedLeagueResponse> {
+  return apiFetch<LinkedLeagueResponse>(
+    `/api/profiles/${profileId}/link/nfl`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}

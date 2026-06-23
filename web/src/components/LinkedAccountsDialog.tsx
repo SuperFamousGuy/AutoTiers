@@ -7,6 +7,7 @@ import { SleeperConnectForm } from "@/components/SleeperConnectForm";
 import { EspnConnectForm } from "@/components/EspnConnectForm";
 import { YahooConnectForm } from "@/components/YahooConnectForm";
 import { CbsConnectForm } from "@/components/CbsConnectForm";
+import { NflConnectForm } from "@/components/NflConnectForm";
 import { PasswordManagementSection } from "@/components/PasswordManagementSection";
 import {
   GoogleIcon,
@@ -39,7 +40,7 @@ const TABS: {
   { id: "sleeper", label: "Sleeper", Icon: SleeperIcon },
   { id: "espn", label: "ESPN", Icon: EspnIcon },
   { id: "yahoo", label: "Yahoo", Icon: YahooIcon },
-  { id: "nfl", label: "NFL Fantasy", Icon: NflFantasyIcon, comingSoon: true },
+  { id: "nfl", label: "NFL Fantasy", Icon: NflFantasyIcon },
   { id: "cbs", label: "CBS", Icon: CbsIcon },
 ];
 
@@ -139,13 +140,19 @@ export function LinkedAccountsDialog({
           />
         );
       case "nfl":
-        return (
-          <div className="space-y-1 py-6 text-center">
-            <p className="text-sm font-medium">NFL Fantasy — Coming Soon</p>
-            <p className="text-xs text-muted-foreground">
-              We're working on it. Check back next season.
+        if (!activeProfile) {
+          return (
+            <p className="py-4 text-center text-xs text-muted-foreground">
+              Select a profile above to connect a fantasy league.
             </p>
-          </div>
+          );
+        }
+        return (
+          <NflConnectForm
+            profile={activeProfile}
+            onLinked={() => onRefresh()}
+            onRefresh={onRefresh}
+          />
         );
     }
   }
