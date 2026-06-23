@@ -148,11 +148,25 @@ jobs:
 
       # Force new deployments so both services pull the freshly-pushed :latest
       # image even if the task definition revision has not changed.
+      #
+      # We pin --task-definition to the Terraform-managed family (latest ACTIVE
+      # revision) on every deploy. Both services declare
+      # lifecycle.ignore_changes = [task_definition] (infra/ecs.tf), so a
+      # `terraform apply` that changes env vars — e.g. adding RUN_MIGRATIONS=false
+      # — registers a NEW revision but never rolls the running service onto it.
+      # A bare --force-new-deployment reuses the service's CURRENT (stale)
+      # revision, so the committed env change never reaches the container and the
+      # scheduler keeps running `alembic upgrade head` on boot (issue #405).
+      # Passing the family name (no revision) reconciles the service to the
+      # latest Terraform-committed task definition, eliminating that env drift.
+      # Family names follow the `<cluster>-<role>` convention (see the migrate
+      # task above and infra/ecs.tf).
       - name: Force redeploy backend service
         run: |
           aws ecs update-service \
             --cluster ${{ vars.ECS_CLUSTER }} \
             --service ${{ vars.BACKEND_SERVICE }} \
+            --task-definition ${{ vars.ECS_CLUSTER }}-backend \
             --force-new-deployment \
             --no-cli-pager
 
@@ -161,6 +175,7 @@ jobs:
           aws ecs update-service \
             --cluster ${{ vars.ECS_CLUSTER }} \
             --service ${{ vars.SCHEDULER_SERVICE }} \
+            --task-definition ${{ vars.ECS_CLUSTER }}-scheduler \
             --force-new-deployment \
             --no-cli-pager
 

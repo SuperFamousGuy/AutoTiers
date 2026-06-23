@@ -450,6 +450,37 @@ class TestDeployWorkflow:
         redeploy_idx = self.TEXT.index("Force redeploy backend service")
         assert migrate_idx < redeploy_idx
 
+    def test_redeploy_pins_committed_task_definition(self):
+        """Drift fix (issue #405): both services declare
+        lifecycle.ignore_changes = [task_definition], so `terraform apply`
+        registers a new revision when env vars change (e.g. RUN_MIGRATIONS=false)
+        but never rolls the running service onto it. A bare
+        --force-new-deployment reuses the service's CURRENT (stale) revision, so
+        the committed env change never reaches the container and the scheduler
+        keeps migrating on boot. Each redeploy must pin --task-definition to the
+        Terraform-managed family so the deploy reconciles the service to the
+        committed task definition."""
+        assert "--task-definition ${{ vars.ECS_CLUSTER }}-backend" in self.TEXT
+        assert "--task-definition ${{ vars.ECS_CLUSTER }}-scheduler" in self.TEXT
+
+    def test_both_services_are_pinned_on_redeploy(self):
+        """Neither service may be force-redeployed without an explicit
+        --task-definition — that is the exact bare-redeploy path that let the
+        stale revision survive (issue #405)."""
+        import re
+
+        # Each `aws ecs update-service ... --force-new-deployment` invocation
+        # must also carry a --task-definition flag. Scan the actual command
+        # bodies (not prose) so a bare redeploy can never sneak back in.
+        cmds = re.findall(
+            r"aws ecs update-service.*?--force-new-deployment",
+            self.TEXT,
+            re.DOTALL,
+        )
+        assert len(cmds) == 2, f"expected 2 redeploy commands, found {len(cmds)}"
+        for cmd in cmds:
+            assert "--task-definition" in cmd
+
     def test_registers_migrate_taskdef_before_running(self):
         """The workflow must (re-)register the migrate task def from source
         BEFORE running migrations (issue #395), never the other way around."""
