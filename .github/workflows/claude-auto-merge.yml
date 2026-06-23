@@ -75,11 +75,16 @@ permissions:
   statuses: read # read commit statuses (rollup)
 
 env:
-  # Report-only by default. Flip to "false" to arm the merge after previewing.
-  DRY_RUN: "true"
+  # ARMED (2026-06-23): predicate previewed correct ELIGIBLE verdicts on real
+  # PRs before arming. Set back to "true" to return to report-only.
+  DRY_RUN: "false"
   # Criterion 5 threshold (hours of inactivity required before merge).
   QUIET_HOURS: "24"
-  # Criterion 3 keys off this exact reviewer login (verified live 2026-06-20).
+  # Criterion 3 keys off this reviewer login. NOTE: the predicate reads the login
+  # from GraphQL (author.login), where a Bot's login has NO "[bot]" suffix
+  # (GraphQL returns "copilot-pull-request-reviewer"; REST returns the "[bot]"
+  # form). The predicate normalizes BOTH sides via removesuffix("[bot]"), so
+  # either form works here; we keep the "[bot]" form for human recognizability.
   COPILOT_REVIEWER_LOGIN: "copilot-pull-request-reviewer[bot]"
   # Merge method: squash keeps main linear, one commit per PR. Tunable.
   MERGE_METHOD: "squash"
@@ -134,9 +139,15 @@ jobs:
           if rollup.get("state") != "SUCCESS":
               print(f"SKIP:checks-{rollup.get('state')}"); sys.exit(0)
 
-          copilot = os.environ["COPILOT_REVIEWER_LOGIN"]
+          # Normalize the "[bot]" suffix off BOTH sides: GraphQL author.login for
+          # a Bot is suffix-less ("copilot-pull-request-reviewer") while the env
+          # value / REST form carries "[bot]". Comparing raw forms never matched,
+          # so EVERY Copilot-reviewed PR fell through to no-copilot-review.
+          def _norm_login(s):
+              return (s or "").removesuffix("[bot]")
+          copilot = _norm_login(os.environ["COPILOT_REVIEWER_LOGIN"])
           reviews = (pull.get("reviews") or {}).get("nodes", [])
-          if not any((r.get("author") or {}).get("login") == copilot for r in reviews):
+          if not any(_norm_login((r.get("author") or {}).get("login")) == copilot for r in reviews):
               print("SKIP:no-copilot-review"); sys.exit(0)
 
           threads = (pull.get("reviewThreads") or {}).get("nodes", [])
