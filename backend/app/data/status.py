@@ -4,10 +4,16 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import DataSourceStatus
+
+
+# Sources we no longer fetch. Stale status rows left over from prior
+# deployments are purged on refresh so they don't linger as perpetual
+# errors/noise in API and UI responses (see issue #402, spotrac).
+RETIRED_SOURCES = ("spotrac",)
 
 
 async def upsert_status(
@@ -28,6 +34,15 @@ async def upsert_status(
     if success:
         existing.last_updated = last_attempted
         existing.rows_upserted = rows_upserted
+
+
+async def purge_retired_status(db: AsyncSession) -> None:
+    """Delete status rows for sources we no longer fetch (issue #402).
+
+    Caller is responsible for committing; refresh_all() flushes this alongside
+    the freshly-upserted status rows.
+    """
+    await db.execute(delete(DataSourceStatus).where(DataSourceStatus.source.in_(RETIRED_SOURCES)))
 
 
 async def get_all_status(db: AsyncSession) -> dict[str, dict]:
