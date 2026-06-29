@@ -81,6 +81,30 @@ fi
 
 NETWORK_CONFIG="awsvpcConfiguration={subnets=[${SUBNETS}],securityGroups=[${SECURITY_GROUPS}],assignPublicIp=DISABLED}"
 
+# Preflight: confirm the task-definition family resolves to an ACTIVE revision
+# before calling run-task. When the family was never registered, `aws ecs
+# run-task` fails with an opaque "ClientException ... TaskDefinition not found"
+# that gives no hint at the real cause: infra/migrations.tf has been merged to
+# the repo but not yet `terraform apply`-ed to this account/region. That exact
+# gap silently failed the deploy workflow's migrations step on every release
+# from v3.8 through v3.11 until the task def was applied out-of-band. Catch it
+# here and print the remediation instead of the bare AWS error.
+echo "[migrate] verifying task definition '${TASK_DEFINITION}' is registered..."
+if ! DESCRIBE_ERR=$(aws ecs describe-task-definition \
+  --task-definition "${TASK_DEFINITION}" --region "${REGION}" \
+  --query 'taskDefinition.taskDefinitionArn' --output text 2>&1); then
+  # Surface the underlying AWS error so a non-"not found" failure (e.g. an IAM
+  # AccessDenied or a throttle) isn't masked as a missing task definition.
+  echo "[migrate] ERROR: could not resolve task definition '${TASK_DEFINITION}' in ${REGION}." >&2
+  [ -n "${DESCRIBE_ERR}" ] && echo "[migrate]   aws said: ${DESCRIBE_ERR}" >&2
+  echo "[migrate]   If this is 'TaskDefinition not found', the family is defined in" >&2
+  echo "[migrate]   infra/migrations.tf but has not been applied to AWS. From the repo root:" >&2
+  echo "[migrate]     (cd infra && terraform apply)" >&2
+  echo "[migrate]   then confirm it resolves:" >&2
+  echo "[migrate]     aws ecs describe-task-definition --task-definition ${TASK_DEFINITION} --region ${REGION}" >&2
+  exit 1
+fi
+
 echo "[migrate] running task ${TASK_DEFINITION} on cluster ${CLUSTER} (${REGION})..."
 # Capture the full response rather than projecting out taskArn with --query: the
 # failures[] array (which explains why a task didn't start) lives alongside
