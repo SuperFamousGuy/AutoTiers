@@ -81,27 +81,46 @@ fi
 
 NETWORK_CONFIG="awsvpcConfiguration={subnets=[${SUBNETS}],securityGroups=[${SECURITY_GROUPS}],assignPublicIp=DISABLED}"
 
-# Preflight: confirm the task-definition family resolves to an ACTIVE revision
-# before calling run-task. When the family was never registered, `aws ecs
-# run-task` fails with an opaque "ClientException ... TaskDefinition not found"
-# that gives no hint at the real cause: infra/migrations.tf has been merged to
-# the repo but not yet `terraform apply`-ed to this account/region. That exact
-# gap silently failed the deploy workflow's migrations step on every release
-# from v3.8 through v3.11 until the task def was applied out-of-band. Catch it
-# here and print the remediation instead of the bare AWS error.
-echo "[migrate] verifying task definition '${TASK_DEFINITION}' is registered..."
-if ! DESCRIBE_ERR=$(aws ecs describe-task-definition \
+# Preflight: confirm the task-definition resolves to an ACTIVE revision before
+# calling run-task. When the family was never registered, `aws ecs run-task`
+# fails with an opaque "ClientException ... TaskDefinition not found" that gives
+# no hint at the real cause: infra/migrations.tf has been merged to the repo but
+# not yet `terraform apply`-ed to this account/region. That exact gap silently
+# failed the deploy workflow's migrations step on every release from v3.8
+# through v3.11 until the task def was applied out-of-band.
+#
+# We query status as well as the ARN: a family-only lookup always returns the
+# latest ACTIVE revision, but if TASK_DEFINITION pins an explicit revision
+# (family:N) describe-task-definition will happily return an INACTIVE one — and
+# run-task cannot launch an INACTIVE revision. So "describe succeeded" is not
+# sufficient; the status must actually be ACTIVE.
+echo "[migrate] verifying task definition '${TASK_DEFINITION}' is registered and ACTIVE..."
+if ! DESCRIBE_OUT=$(aws ecs describe-task-definition \
   --task-definition "${TASK_DEFINITION}" --region "${REGION}" \
-  --query 'taskDefinition.taskDefinitionArn' --output text 2>&1); then
-  # Surface the underlying AWS error so a non-"not found" failure (e.g. an IAM
-  # AccessDenied or a throttle) isn't masked as a missing task definition.
+  --query 'taskDefinition.[taskDefinitionArn,status]' --output text 2>&1); then
   echo "[migrate] ERROR: could not resolve task definition '${TASK_DEFINITION}' in ${REGION}." >&2
-  [ -n "${DESCRIBE_ERR}" ] && echo "[migrate]   aws said: ${DESCRIBE_ERR}" >&2
-  echo "[migrate]   If this is 'TaskDefinition not found', the family is defined in" >&2
-  echo "[migrate]   infra/migrations.tf but has not been applied to AWS. From the repo root:" >&2
-  echo "[migrate]     (cd infra && terraform apply)" >&2
-  echo "[migrate]   then confirm it resolves:" >&2
-  echo "[migrate]     aws ecs describe-task-definition --task-definition ${TASK_DEFINITION} --region ${REGION}" >&2
+  echo "[migrate]   aws said: ${DESCRIBE_OUT}" >&2
+  # Only point at `terraform apply` when the error is genuinely a missing task
+  # definition; a non-"not found" failure (IAM AccessDenied, throttle, bad
+  # region) needs different remediation and would be misleading here.
+  case "${DESCRIBE_OUT}" in
+    *"not found"*|*"Unable to describe task definition"*)
+      echo "[migrate]   This family is defined in infra/migrations.tf but has not been" >&2
+      echo "[migrate]   applied to AWS. From the repo root:" >&2
+      echo "[migrate]     (cd infra && terraform apply)" >&2
+      echo "[migrate]   then confirm it resolves:" >&2
+      echo "[migrate]     aws ecs describe-task-definition --task-definition ${TASK_DEFINITION} --region ${REGION}" >&2
+      ;;
+  esac
+  exit 1
+fi
+
+# describe-task-definition printed "<arn>\t<status>"; reject a resolved-but-
+# INACTIVE revision before run-task does so with a less obvious error.
+TD_STATUS=$(printf '%s\n' "${DESCRIBE_OUT}" | awk 'NF {print $NF; exit}')
+if [ "${TD_STATUS}" != "ACTIVE" ]; then
+  echo "[migrate] ERROR: task definition '${TASK_DEFINITION}' resolved but its status is '${TD_STATUS}', not ACTIVE." >&2
+  echo "[migrate]   An INACTIVE revision cannot be run. Register a new ACTIVE revision (cd infra && terraform apply)." >&2
   exit 1
 fi
 
