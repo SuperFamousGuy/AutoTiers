@@ -223,6 +223,15 @@ args="$*"
 case "$args" in
   *"wait tasks-stopped"*) exit 0 ;;
   *"run-task"*) printf '{"tasks":[{"taskArn":"%s"}],"failures":[]}\n' "${FAKE_TASK_ARN:-arn:aws:ecs:us-east-1:1:task/abc}"; exit 0 ;;
+  *"describe-task-definition"*)
+    # Preflight: the runner resolves "<arn>\t<status>" and requires ACTIVE.
+    # FAKE_TASKDEF_RC lets a test simulate a missing/denied describe; an empty
+    # FAKE_TASKDEF_STATUS still prints a status so the happy path stays green.
+    if [ "${FAKE_TASKDEF_RC:-0}" != "0" ]; then
+      echo "${FAKE_TASKDEF_ERR:-An error occurred (ClientException) ... Unable to describe task definition.}" >&2
+      exit "${FAKE_TASKDEF_RC}"
+    fi
+    printf 'arn:aws:ecs:us-east-1:1:task-definition/c-migrate:1\t%s\n' "${FAKE_TASKDEF_STATUS:-ACTIVE}"; exit 0 ;;
   *"describe-services"*"securityGroups"*) printf '%s\n' "${FAKE_SGS:-sg-123}"; exit 0 ;;
   *"describe-services"*"subnets"*) printf 'subnet-a\tsubnet-b\n'; exit 0 ;;
   *"describe-tasks"*"exitCode"*) printf '%s\n' "${FAKE_EXIT_CODE:-0}"; exit 0 ;;
@@ -231,7 +240,8 @@ case "$args" in
 esac
 """
 
-    def _run(self, tmp_path, extra_args, *, exit_code="0", task_arn=None):
+    def _run(self, tmp_path, extra_args, *, exit_code="0", task_arn=None,
+             taskdef_status=None, taskdef_rc=None, taskdef_err=None):
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir()
         aws = bin_dir / "aws"
@@ -243,6 +253,12 @@ esac
         env["FAKE_EXIT_CODE"] = exit_code
         if task_arn is not None:
             env["FAKE_TASK_ARN"] = task_arn
+        if taskdef_status is not None:
+            env["FAKE_TASKDEF_STATUS"] = taskdef_status
+        if taskdef_rc is not None:
+            env["FAKE_TASKDEF_RC"] = taskdef_rc
+        if taskdef_err is not None:
+            env["FAKE_TASKDEF_ERR"] = taskdef_err
 
         return subprocess.run(
             ["bash", str(RUN_MIGRATIONS_SH),
@@ -275,6 +291,41 @@ esac
         """With --from-service (no explicit subnets), it resolves them and runs."""
         proc = self._run(tmp_path, ["--from-service", "c-backend"])
         assert proc.returncode == 0, proc.stderr
+
+    def test_missing_task_definition_points_at_terraform(self, tmp_path):
+        """A not-found describe must block the deploy, name the remediation, and
+        still surface the underlying AWS error so the cause isn't opaque."""
+        proc = self._run(
+            tmp_path, ["--subnets", "s-a,s-b", "--security-groups", "sg-1"],
+            taskdef_rc="254",
+            taskdef_err="An error occurred (ClientException) ... TaskDefinition not found.",
+        )
+        assert proc.returncode != 0
+        assert "terraform apply" in proc.stderr
+        # The real AWS failure must be echoed, not swallowed behind the hint.
+        assert "TaskDefinition not found" in proc.stderr
+
+    def test_describe_access_denied_omits_terraform_remediation(self, tmp_path):
+        """A non-'not found' failure must surface the AWS error, not the
+        (misleading) terraform-apply hint."""
+        proc = self._run(
+            tmp_path, ["--subnets", "s-a,s-b", "--security-groups", "sg-1"],
+            taskdef_rc="254",
+            taskdef_err="An error occurred (AccessDeniedException) when calling DescribeTaskDefinition",
+        )
+        assert proc.returncode != 0
+        assert "AccessDenied" in proc.stderr
+        assert "terraform apply" not in proc.stderr
+
+    def test_inactive_revision_is_rejected(self, tmp_path):
+        """An INACTIVE revision describes successfully but cannot be run, so the
+        preflight must reject it before run-task."""
+        proc = self._run(
+            tmp_path, ["--subnets", "s-a,s-b", "--security-groups", "sg-1"],
+            taskdef_status="INACTIVE",
+        )
+        assert proc.returncode != 0
+        assert "INACTIVE" in proc.stderr
 
     def test_missing_required_args_exits_nonzero(self, tmp_path):
         bin_dir = tmp_path / "bin"
