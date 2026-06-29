@@ -30,6 +30,11 @@ name: claude-auto-merge
 #  3. Copilot reviewed: a review exists from copilot-pull-request-reviewer[bot] in
 #                       ANY state. !! NOT state==APPROVED — Copilot reviews come
 #                       back COMMENTED, so gating on APPROVED never fires. !!
+#                       WAIVED for Bot authors (predicate 6): GitHub's automatic
+#                       Copilot review only fires for PRs whose author holds a
+#                       Copilot license, so it NEVER reviews Dependabot/bot PRs
+#                       (community #185376) and this predicate is permanently
+#                       unsatisfiable for them. Bots stay gated by 1/2/4/5.
 #  4. No open threads : zero reviewThreads with isResolved==false, AND no human's
 #                       latest review is CHANGES_REQUESTED.
 #  5. Quiet 24h       : now - max(last commit, comments, review comments, reviews)
@@ -139,6 +144,17 @@ jobs:
           if rollup.get("state") != "SUCCESS":
               print(f"SKIP:checks-{rollup.get('state')}"); sys.exit(0)
 
+          # Author bot-ness, computed here so predicate 3 can waive the Copilot
+          # review for bots. GitHub's automatic Copilot review only fires for PRs
+          # authored by a Copilot-licensed identity, so it NEVER reviews
+          # Dependabot/bot PRs (community #185376) -> predicate 3 is permanently
+          # unsatisfiable for them. We waive it and rely on CI-green + mergeable +
+          # quiet-24h (the meaningful gates for a dependency bump). Non-bot PRs
+          # still require a Copilot review. Reused by predicate 6 below.
+          author = pull.get("author") or {}
+          author_login = author.get("login", "")
+          is_bot = author.get("__typename") == "Bot" or author_login.endswith("[bot]")
+
           # Normalize the "[bot]" suffix off BOTH sides: GraphQL author.login for
           # a Bot is suffix-less ("copilot-pull-request-reviewer") while the env
           # value / REST form carries "[bot]". Comparing raw forms never matched,
@@ -147,7 +163,7 @@ jobs:
               return (s or "").removesuffix("[bot]")
           copilot = _norm_login(os.environ["COPILOT_REVIEWER_LOGIN"])
           reviews = (pull.get("reviews") or {}).get("nodes", [])
-          if not any(_norm_login((r.get("author") or {}).get("login")) == copilot for r in reviews):
+          if not is_bot and not any(_norm_login((r.get("author") or {}).get("login")) == copilot for r in reviews):
               print("SKIP:no-copilot-review"); sys.exit(0)
 
           threads = (pull.get("reviewThreads") or {}).get("nodes", [])
@@ -183,12 +199,10 @@ jobs:
           if age_h < quiet:
               print(f"SKIP:active-{age_h:.1f}h-ago"); sys.exit(0)
 
-          author = pull.get("author") or {}
-          login = author.get("login", "")
-          if author.get("__typename") == "Bot" or login.endswith("[bot]"):
+          if is_bot:
               print("ELIGIBLE"); sys.exit(0)
 
-          print(f"NEEDS_COLLAB:{login}"); sys.exit(0)
+          print(f"NEEDS_COLLAB:{author_login}"); sys.exit(0)
           PY
           echo "predicate written:"; head -3 /tmp/predicate.py
 

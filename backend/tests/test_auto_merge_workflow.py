@@ -19,7 +19,9 @@ These tests do two things:
      the test fails if the actual shipped logic regresses -- not a copy of it.
 """
 
+import json
 import subprocess
+import sys
 from pathlib import Path
 
 WORKFLOW = (
@@ -128,3 +130,99 @@ def test_uppercase_false_still_arms():
 def test_garbage_disarms():
     """Any unrecognized value fails safe to report-only."""
     assert _armed_for("maybe") == "false"
+
+
+# --- Behavioural test of the REAL predicate (Copilot waiver for bots) ------
+#
+# GitHub's automatic Copilot review never fires on bot-authored PRs (it requires
+# a Copilot-licensed author), so predicate 3 is permanently unsatisfiable for
+# Dependabot. The waiver skips predicate 3 for Bot authors while still enforcing
+# it for humans. These tests extract and run the SHIPPED predicate.py, so they
+# fail if the waiver logic regresses -- not a copy of it.
+
+PRED_START = "sed 's/^          //' > /tmp/predicate.py <<'PY'"
+PRED_END = "\n          PY\n"
+
+
+def _extract_predicate() -> str:
+    """Pull the predicate.py heredoc body, de-indented for python."""
+    start = TEXT.index(PRED_START) + len(PRED_START)
+    end = TEXT.index(PRED_END, start)
+    body = TEXT[start:end]
+    # The heredoc body is indented 10 spaces under the YAML scalar (sed strips
+    # it at runtime); strip the same common indent here.
+    lines = [line[10:] if line.startswith(" " * 10) else line for line in body.splitlines()]
+    return "\n".join(lines).strip("\n") + "\n"
+
+
+def _verdict(pull: dict) -> str:
+    """Run the extracted predicate against a GraphQL `pullRequest` payload."""
+    payload = json.dumps({"data": {"repository": {"pullRequest": pull}}})
+    result = subprocess.run(
+        [sys.executable, "-c", _extract_predicate()],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env={
+            "QUIET_HOURS": "24",
+            "COPILOT_REVIEWER_LOGIN": "copilot-pull-request-reviewer[bot]",
+            "HOLD_LABELS": "do-not-merge,hold",
+            "PATH": "/usr/bin:/bin",
+        },
+        check=True,
+    )
+    return result.stdout.strip()
+
+
+def _clean_pull(**overrides) -> dict:
+    """A PR that passes predicates 1,2,4,5 (and 6 collab); caller sets author
+    and reviews. committedDate is far in the past so quiet-24h passes."""
+    pull = {
+        "isDraft": False,
+        "mergeable": "MERGEABLE",
+        "labels": {"nodes": []},
+        "commits": {
+            "nodes": [
+                {
+                    "commit": {
+                        "committedDate": "2020-01-01T00:00:00Z",
+                        "statusCheckRollup": {"state": "SUCCESS"},
+                    }
+                }
+            ]
+        },
+        "comments": {"nodes": []},
+        "reviews": {"nodes": []},
+        "reviewThreads": {"nodes": []},
+        "author": {"__typename": "User", "login": "someone"},
+    }
+    pull.update(overrides)
+    return pull
+
+
+def test_bot_author_waives_copilot_review():
+    """A Dependabot PR with NO Copilot review is ELIGIBLE (predicate 3 waived)."""
+    pull = _clean_pull(author={"__typename": "Bot", "login": "dependabot"})
+    assert _verdict(pull) == "ELIGIBLE"
+
+
+def test_bot_suffix_login_waives_copilot_review():
+    """A "[bot]"-suffixed login is treated as a bot even if __typename is off."""
+    pull = _clean_pull(author={"__typename": "User", "login": "dependabot[bot]"})
+    assert _verdict(pull) == "ELIGIBLE"
+
+
+def test_human_author_still_requires_copilot_review():
+    """A human PR with NO Copilot review is NOT eligible -- waiver is bot-only."""
+    pull = _clean_pull(author={"__typename": "User", "login": "alice"})
+    assert _verdict(pull) == "SKIP:no-copilot-review"
+
+
+def test_human_with_copilot_review_reaches_collab_check():
+    """A human PR WITH a Copilot review passes predicate 3 and falls through to
+    the collaborator check (proving the waiver did not break the human path)."""
+    pull = _clean_pull(
+        author={"__typename": "User", "login": "alice"},
+        reviews={"nodes": [{"author": {"login": "copilot-pull-request-reviewer"}, "state": "COMMENTED", "submittedAt": "2020-01-01T00:00:00Z"}]},
+    )
+    assert _verdict(pull) == "NEEDS_COLLAB:alice"
