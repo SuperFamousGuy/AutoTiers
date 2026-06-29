@@ -88,7 +88,10 @@ class TestInfraWorkflow:
         assert "plan" in jobs and "apply" in jobs
 
     def test_plan_only_on_pull_request(self):
-        assert self.DOC["jobs"]["plan"]["if"] == "github.event_name == 'pull_request'"
+        cond = self.DOC["jobs"]["plan"]["if"]
+        assert "github.event_name == 'pull_request'" in cond
+        # Same-repo gate: prod TF_VAR_* secrets must never reach forked-PR code.
+        assert "head.repo.full_name == github.repository" in cond
 
     def test_apply_only_on_push(self):
         assert self.DOC["jobs"]["apply"]["if"] == "github.event_name == 'push'"

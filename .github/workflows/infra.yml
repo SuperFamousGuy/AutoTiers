@@ -69,15 +69,21 @@ jobs:
   # ---------------------------------------------------------------------------
   plan:
     name: terraform plan (PR review)
-    if: github.event_name == 'pull_request'
+    # Same-repo PRs only. Forked PRs cannot read repository secrets/vars, so the
+    # AWS/TF_VAR-dependent steps would fail anyway; gating here also keeps the prod
+    # TF_VAR_* secrets from ever being exposed to untrusted fork code during plan
+    # (e.g. a `data "external"` exfil), shrinking the blast radius of a hostile PR.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
       run:
         working-directory: infra
-    # Cancel a superseded plan when new commits land on the same PR.
+    # Cancel a superseded plan when new commits land on the same PR. Group name
+    # includes github.workflow for consistency with tests.yml/coverage.yml and to
+    # avoid collisions with other workflows that key concurrency on github.ref.
     concurrency:
-      group: terraform-plan-${{ github.ref }}
+      group: terraform-plan-${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
@@ -86,16 +92,11 @@ jobs:
         with:
           terraform_version: "1.9.8"
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.AWS_REGION }}
-
       # Offline checks first: no backend, no credentials needed. `terraform test`
       # uses mock_provider (infra/tests/*.tftest.hcl) so it must run WITHOUT a
-      # configured backend — otherwise init would try to reach S3.
+      # configured backend — otherwise init would try to reach S3. AWS credentials
+      # are deliberately configured AFTER these steps, just before the real backend
+      # init/plan, so the offline checks genuinely run credential-free.
       - name: Terraform init (offline, no backend)
         run: terraform init -backend=false -input=false
 
@@ -107,6 +108,13 @@ jobs:
 
       - name: Terraform test
         run: terraform test
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
 
       # Now wire the real S3 backend and plan against live state.
       - name: Terraform init (S3 backend)

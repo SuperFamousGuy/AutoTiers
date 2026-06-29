@@ -90,7 +90,8 @@ terraform init -backend-config=backend.hcl -migrate-state
 After migration, confirm a clean read and that nothing surprising is pending:
 
 ```bash
-terraform plan -backend-config=backend.hcl   # (already inited) read the plan
+terraform plan   # (already inited above) read the plan — backend config was
+                 # supplied to `init`; `terraform plan` takes no -backend-config
 ```
 
 Mind the drift traps documented in `docs/runbooks/terraform-guarded-apply.md`
