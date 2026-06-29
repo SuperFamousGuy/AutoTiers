@@ -22,11 +22,13 @@ This runbook makes that apply a deliberate act.
 ## Preconditions
 
 - Run from a host with **AWS credentials + DNS reachability** to the account.
-- Terraform state is the **local backend** (`infra/terraform.tfstate`), not S3 —
-  the `backend "s3"` block in `infra/main.tf` is commented out. Whoever applies
-  owns that state file; do not apply from two checkouts. Migrating to the S3
-  backend (uncomment + `terraform init -migrate-state`) is worth pairing with
-  this apply but is **out of scope** here — it is tracked separately.
+- Terraform state is the **S3 remote backend** declared in `infra/main.tf`
+  (partial block; values in `infra/backend.hcl`), with a DynamoDB lock table
+  (issue #452). Init with `terraform init -backend-config=backend.hcl`; the lock
+  makes "do not apply from two checkouts" enforced rather than a convention. If
+  the bucket/table/state have not been bootstrapped yet, do that first — see
+  `docs/runbooks/terraform-ci-apply.md`. (Historically this was a local
+  `infra/terraform.tfstate`; that migration is now done.)
 - Pull `main` so you have the ALB SG `create_before_destroy` fix (issue #396);
   applying an older checkout reintroduces trap (1).
 
@@ -105,7 +107,7 @@ knows the revision numbers were a conscious decision.
 
 ```bash
 cd infra
-terraform init                 # local backend; re-run if providers changed
+terraform init -backend-config=backend.hcl   # S3 backend; re-run if providers changed
 terraform validate
 terraform plan -out=tfplan      # READ IT — see the checklist below
 # ... human review ...
@@ -132,5 +134,8 @@ stable `Name` tag so a future cleanup cannot silently revert the SG to a static
 needed:
 
 ```bash
-cd infra && terraform test     # requires Terraform >= 1.7
+cd infra && terraform init -backend=false && terraform test   # requires Terraform >= 1.7
 ```
+
+(`-backend=false` keeps the test init offline now that `infra/main.tf` declares
+the S3 backend — see `docs/runbooks/terraform-ci-apply.md`.)

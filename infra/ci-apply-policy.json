@@ -1,0 +1,80 @@
+{
+  "_comment": "IAM policy for the principal the infra.yml `apply` job authenticates as (issue #452). SCOPING DECISION: a full `terraform apply` of this config touches VPC/EC2, ECS, RDS/Aurora, IAM (it creates roles), Secrets Manager, ECR, ELB, CloudFront, Route 53, SES, SNS, CloudWatch Logs, plus the S3 state bucket and DynamoDB lock table. The simplest correct path is to reuse the existing autotiers-admin user (the deploy IAM user named in issue #452) — it already has the breadth an apply needs. This file documents a DEDICATED-user alternative: a single autotiers-terraform user carrying this policy, kept separate from the narrow autotiers-ci deploy policy in ci-policy.json. Note that because this config manages IAM roles, the apply principal needs iam:* on those roles, which is inherently privileged — a dedicated user does not meaningfully reduce blast radius below admin for the IAM portion. Region us-east-1, account 400360841089. Re-scope ARNs here if resource names change.",
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "TerraformStateBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::autotiers-prod-tfstate-400360841089",
+        "arn:aws:s3:::autotiers-prod-tfstate-400360841089/*"
+      ]
+    },
+    {
+      "Sid": "TerraformStateLock",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:DeleteItem"
+      ],
+      "Resource": "arn:aws:dynamodb:us-east-1:400360841089:table/autotiers-terraform-locks"
+    },
+    {
+      "Sid": "InfraManagedServices",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:*",
+        "ecs:*",
+        "rds:*",
+        "elasticloadbalancing:*",
+        "ecr:*",
+        "secretsmanager:*",
+        "cloudfront:*",
+        "route53:*",
+        "ses:*",
+        "sns:*",
+        "logs:*",
+        "cloudwatch:*",
+        "application-autoscaling:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IamRolesManagedByThisConfig",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:UpdateRole",
+        "iam:GetRolePolicy",
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:ListInstanceProfilesForRole",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:PassRole"
+      ],
+      "Resource": "arn:aws:iam::400360841089:role/autotiers-prod-*"
+    },
+    {
+      "Sid": "IamServiceLinkedRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateServiceLinkedRole"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

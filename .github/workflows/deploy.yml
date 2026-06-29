@@ -9,6 +9,13 @@
 # Non-sensitive configuration lives in GitHub Actions variables (vars.*).
 # Credentials live in GitHub Actions secrets (secrets.*).
 #
+# INFRA ORDERING (issue #452): this workflow does NOT run `terraform apply` — the
+# `infra` workflow (.github/workflows/infra.yml) applies infra/ on merge to main,
+# so a release cut from already-merged main references infra that is already live.
+# Required ordering: infra change → merge to main → infra apply completes → cut
+# the release. Do not publish a release while the `infra` workflow is still
+# running for the merge it depends on. See docs/runbooks/terraform-ci-apply.md.
+#
 # Required repository variables (Settings → Secrets and variables → Variables):
 #   AWS_REGION          — e.g. us-east-1
 #   ECR_REPO            — full ECR repository URI, e.g.

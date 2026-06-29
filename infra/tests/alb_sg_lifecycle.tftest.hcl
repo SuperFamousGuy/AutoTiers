@@ -13,8 +13,10 @@
 # queryable resource attribute, so name_prefix (its hard prerequisite) is the
 # observable proxy the test pins.
 #
-# Run with:  cd infra && terraform test
+# Run with:  cd infra && terraform init -backend=false && terraform test
 # Requires Terraform >= 1.7 (uses mock_provider so no AWS credentials are needed).
+# -backend=false skips the S3 backend infra/main.tf now declares (issue #452) so
+# these mock tests stay offline.
 
 mock_provider "aws" {}
 mock_provider "random" {}

@@ -1,0 +1,211 @@
+# infra.yml — keeps the live AWS state in sync with infra/ so a release can
+# never reference a resource that was merged but never `terraform apply`-ed
+# (issue #452 — the root cause of the v3.8–v3.11 stuck-deploy incident, where
+# infra/migrations.tf was on main but the autotiers-prod-migrate task family
+# did not exist in AWS until someone applied it by hand).
+#
+# Two jobs, split by event:
+#   plan   — on PRs touching infra/**: fmt-check + validate + `terraform test`
+#            (mock_provider, offline) + `terraform plan`, then posts the plan as
+#            a sticky PR comment for human review BEFORE merge.
+#   apply  — on push to main touching infra/**: `terraform apply -auto-approve`
+#            against the live account, so main and AWS are reconciled the moment
+#            an infra change lands — ahead of any release that depends on it.
+#
+# Remote state + locking (issue #452 acceptance criterion 4): the S3 backend in
+# infra/main.tf (partial; concrete values in infra/backend.hcl) means CI shares
+# one authoritative state with every operator, and the DynamoDB lock table plus
+# the apply concurrency group below serialize applies so two never corrupt state.
+#
+# ONE-TIME BOOTSTRAP REQUIRED before the apply job can succeed: the state bucket,
+# the lock table, and the migrated local state must exist, and the TF_VAR_*
+# secrets below must be set. See docs/runbooks/terraform-ci-apply.md. Until then
+# this workflow fails loudly on init/validate — which is the safe direction.
+#
+# Required repository variables (Settings → Secrets and variables → Variables):
+#   AWS_REGION          — e.g. us-east-1
+# Required repository secrets:
+#   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY — credentials able to apply the
+#     whole config (the autotiers-admin deploy user works; infra/ci-apply-policy.json
+#     documents a narrower dedicated-user option — see the runbook).
+#   TF_VAR_JWT_SECRET / TF_VAR_SECRET_KEY / TF_VAR_ADMIN_API_KEY — the live prod
+#     values (must match what is already in Secrets Manager or apply will rewrite
+#     the secret versions). The OAuth client id/secret pairs are optional.
+
+name: infra
+
+on:
+  pull_request:
+    paths:
+      - "infra/**"
+      - ".github/workflows/infra.yml"
+  push:
+    branches: [main]
+    paths:
+      - "infra/**"
+      - ".github/workflows/infra.yml"
+
+# Least privilege for GITHUB_TOKEN. AWS calls use explicit IAM credentials.
+# The plan job needs pull-requests: write to post its sticky comment.
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  # Non-secret backend config feeds `-backend-config`; secret tfvars feed the
+  # provider via TF_VAR_*. Empty optional OAuth vars are fine (the variables
+  # default to ""); jwt/secret/admin keys are validated and fail loudly if unset.
+  TF_VAR_jwt_secret: ${{ secrets.TF_VAR_JWT_SECRET }}
+  TF_VAR_secret_key: ${{ secrets.TF_VAR_SECRET_KEY }}
+  TF_VAR_admin_api_key: ${{ secrets.TF_VAR_ADMIN_API_KEY }}
+  TF_VAR_yahoo_client_id: ${{ secrets.TF_VAR_YAHOO_CLIENT_ID }}
+  TF_VAR_yahoo_client_secret: ${{ secrets.TF_VAR_YAHOO_CLIENT_SECRET }}
+  TF_VAR_google_client_id: ${{ secrets.TF_VAR_GOOGLE_CLIENT_ID }}
+  TF_VAR_google_client_secret: ${{ secrets.TF_VAR_GOOGLE_CLIENT_SECRET }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # PR plan: validate + test offline, then plan against live state and post it.
+  # ---------------------------------------------------------------------------
+  plan:
+    name: terraform plan (PR review)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: infra
+    # Cancel a superseded plan when new commits land on the same PR.
+    concurrency:
+      group: terraform-plan-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # Offline checks first: no backend, no credentials needed. `terraform test`
+      # uses mock_provider (infra/tests/*.tftest.hcl) so it must run WITHOUT a
+      # configured backend — otherwise init would try to reach S3.
+      - name: Terraform init (offline, no backend)
+        run: terraform init -backend=false -input=false
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform test
+        run: terraform test
+
+      # Now wire the real S3 backend and plan against live state.
+      - name: Terraform init (S3 backend)
+        run: terraform init -reconfigure -input=false -backend-config=backend.hcl
+
+      - name: Terraform plan
+        id: plan
+        # -detailed-exitcode: 0 = no changes, 2 = changes present, 1 = error.
+        # We tolerate 2 here (changes are expected on an infra PR) but fail on 1.
+        run: |
+          set +e
+          terraform plan -no-color -input=false -lock-timeout=120s -detailed-exitcode -out=tfplan
+          code=$?
+          set -e
+          # -detailed-exitcode: 1 = error (fail the job); 0/2 = success (no
+          # changes / changes present) — both fine, we still want to post the plan.
+          if [ "$code" -eq 1 ]; then exit 1; fi
+          terraform show -no-color tfplan > plan.txt
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+
+      - name: Post plan as PR comment
+        if: always() && github.event.pull_request.number != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- terraform-plan-comment -->';
+            let plan = '';
+            try { plan = fs.readFileSync('infra/plan.txt', 'utf8'); }
+            catch (e) { plan = '`terraform plan` did not produce output — the plan step failed before a plan was generated. Check the job logs.'; }
+            // GitHub comment bodies cap at 65536 chars; leave room for the wrapper.
+            const LIMIT = 60000;
+            let truncated = false;
+            if (plan.length > LIMIT) { plan = plan.slice(0, LIMIT); truncated = true; }
+            const body = [
+              marker,
+              '### Terraform plan',
+              '',
+              '<details><summary>Show plan</summary>',
+              '',
+              '```hcl',
+              plan,
+              '```',
+              '',
+              truncated ? '> ⚠️ Plan output truncated — see the full plan in the workflow logs.' : '',
+              '</details>',
+              '',
+              '_Review the plan above. On merge to `main` the `apply` job runs `terraform apply -auto-approve`._',
+            ].join('\n');
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const comments = await github.rest.issues.listComments({ owner, repo, issue_number });
+            const existing = comments.data.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+  # ---------------------------------------------------------------------------
+  # Merge apply: reconcile live AWS with main as soon as an infra change lands.
+  # ---------------------------------------------------------------------------
+  apply:
+    name: terraform apply (merge to main)
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: infra
+    # Serialize applies on top of the DynamoDB state lock. cancel-in-progress:
+    # false so a second infra merge queues behind the first rather than aborting
+    # a half-finished apply.
+    concurrency:
+      group: terraform-apply-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Terraform init (S3 backend)
+        run: terraform init -input=false -backend-config=backend.hcl
+
+      - name: Terraform validate
+        run: terraform validate
+
+      # -auto-approve: the human review happened on the PR plan. run_migrations_on_apply
+      # stays at its default (true), so an apply that changes the image tag or a
+      # migration file runs `alembic upgrade head` via local-exec and blocks on it
+      # before returning (infra/migrations.tf) — semantics preserved per issue #452.
+      - name: Terraform apply
+        run: terraform apply -auto-approve -input=false -lock-timeout=120s

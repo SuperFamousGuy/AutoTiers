@@ -5,7 +5,9 @@
 # email subscription when an address is supplied, and reject a non-positive
 # evaluation-period count.
 #
-# Run with:  cd infra && terraform test
+# Run with:  cd infra && terraform init -backend=false && terraform test
+# (-backend=false skips the S3 backend infra/main.tf now declares (issue #452),
+#  keeping these mock_provider tests offline / credential-free.)
 # Only `terraform test` requires Terraform >= 1.7 (this file uses mock_provider,
 # introduced in 1.7, so no AWS credentials are needed). The module itself still
 # targets >= 1.6 (see infra/main.tf required_version) — the higher floor applies
