@@ -293,7 +293,8 @@ esac
         assert proc.returncode == 0, proc.stderr
 
     def test_missing_task_definition_points_at_terraform(self, tmp_path):
-        """A not-found describe must block the deploy and name the remediation."""
+        """A not-found describe must block the deploy, name the remediation, and
+        still surface the underlying AWS error so the cause isn't opaque."""
         proc = self._run(
             tmp_path, ["--subnets", "s-a,s-b", "--security-groups", "sg-1"],
             taskdef_rc="254",
@@ -301,6 +302,8 @@ esac
         )
         assert proc.returncode != 0
         assert "terraform apply" in proc.stderr
+        # The real AWS failure must be echoed, not swallowed behind the hint.
+        assert "TaskDefinition not found" in proc.stderr
 
     def test_describe_access_denied_omits_terraform_remediation(self, tmp_path):
         """A non-'not found' failure must surface the AWS error, not the

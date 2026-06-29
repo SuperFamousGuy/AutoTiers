@@ -120,7 +120,12 @@ fi
 TD_STATUS=$(printf '%s\n' "${DESCRIBE_OUT}" | awk 'NF {print $NF; exit}')
 if [ "${TD_STATUS}" != "ACTIVE" ]; then
   echo "[migrate] ERROR: task definition '${TASK_DEFINITION}' resolved but its status is '${TD_STATUS}', not ACTIVE." >&2
-  echo "[migrate]   An INACTIVE revision cannot be run. Register a new ACTIVE revision (cd infra && terraform apply)." >&2
+  echo "[migrate]   An INACTIVE revision cannot be run. This usually means a pinned" >&2
+  echo "[migrate]   'family:revision' points at a deregistered revision. To fix, either:" >&2
+  echo "[migrate]     - pass the family name without a ':revision' suffix to use the latest" >&2
+  echo "[migrate]       ACTIVE revision, or" >&2
+  echo "[migrate]     - register a fresh ACTIVE revision (infra/scripts/register_migrate_task_def.sh," >&2
+  echo "[migrate]       or 'cd infra && terraform apply' if the task def changed)." >&2
   exit 1
 fi
 
