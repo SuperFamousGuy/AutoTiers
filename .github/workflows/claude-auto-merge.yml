@@ -30,11 +30,14 @@ name: claude-auto-merge
 #  3. Copilot reviewed: a review exists from copilot-pull-request-reviewer[bot] in
 #                       ANY state. !! NOT state==APPROVED — Copilot reviews come
 #                       back COMMENTED, so gating on APPROVED never fires. !!
-#                       WAIVED for Bot authors (predicate 6): GitHub's automatic
-#                       Copilot review only fires for PRs whose author holds a
-#                       Copilot license, so it NEVER reviews Dependabot/bot PRs
-#                       (community #185376) and this predicate is permanently
-#                       unsatisfiable for them. Bots stay gated by 1/2/4/5.
+#                       Predicate 3 (THIS one) is WAIVED for Bot authors; the
+#                       "Bot author" test is defined under predicate 6 and reused
+#                       here — predicate 6 itself is NOT waived. GitHub's
+#                       automatic Copilot review only fires for PRs whose author
+#                       holds a Copilot license, so it NEVER reviews
+#                       Dependabot/bot PRs (community #185376) and this predicate
+#                       is permanently unsatisfiable for them. Bots stay gated by
+#                       1/2/4/5.
 #  4. No open threads : zero reviewThreads with isResolved==false, AND no human's
 #                       latest review is CHANGES_REQUESTED.
 #  5. Quiet 24h       : now - max(last commit, comments, review comments, reviews)
