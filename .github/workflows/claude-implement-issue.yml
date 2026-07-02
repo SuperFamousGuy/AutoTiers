@@ -101,12 +101,15 @@ jobs:
             2>/dev/null || true
 
           # Human open/reopen resets the sweeper's retry budget; a dispatch does not.
+          # This reset is best-effort housekeeping: a transient `gh issue view`
+          # error must NOT abort the (quota-expensive) implement run before it
+          # starts, so the whole pipeline is `|| true` under `set -o pipefail`.
           if [ "$EVENT_NAME" != "workflow_dispatch" ]; then
             gh issue view "$num" --repo "$REPO" --json labels \
               --jq '.labels[].name | select(startswith("implement-attempt-"))' \
               | while read -r lbl; do
                   [ -n "$lbl" ] && gh issue edit "$num" --repo "$REPO" --remove-label "$lbl" 2>/dev/null || true
-                done
+                done || true
           fi
 
       - uses: actions/checkout@v4

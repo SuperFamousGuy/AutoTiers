@@ -80,6 +80,18 @@ def test_in_progress_is_skipped():
     assert {"number": 13, "reason": "in_progress"} in plan["skip"]
 
 
+def test_in_progress_with_attempt_label_skips_without_touching_counter():
+    # An issue actively being (re-)implemented is skipped as in_progress, and its
+    # attempt counter is left untouched (no dispatch, no clear) so the currently
+    # running attempt is not miscounted or double-dispatched.
+    plan = plan_sweep(
+        _world(_issue(23, in_progress=True, labels=["implement-attempt-1"]))
+    )
+    assert plan["dispatch"] == []
+    assert plan["clear"] == []
+    assert {"number": 23, "reason": "in_progress"} in plan["skip"]
+
+
 def test_open_pr_is_skipped():
     plan = plan_sweep(_world(_issue(14, has_linked_pr=True)))
     assert plan["dispatch"] == []
