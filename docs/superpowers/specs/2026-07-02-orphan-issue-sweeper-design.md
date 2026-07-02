@@ -1,7 +1,7 @@
 # Orphan-issue sweeper — Design
 
 **Date:** 2026-07-02
-**Status:** Approved (design) — pending user sign-off before implementation
+**Status:** Implemented in PR #469 (2026-07-02). The sweeper ships `DRY_RUN: "true"` (report-only); it is NOT yet live — arming is a one-line post-merge flip after verifying `plan.json` against real issues (see Autonomy / safety posture).
 **Siblings / prior art:**
 - `docs/superpowers/specs/2026-06-16-auto-implement-issues-design.md` — the auto-implement flow this sweeper backstops.
 - `.github/workflows/claude-implement-issue.yml` — the workflow being extended with a `workflow_dispatch` re-entry point.

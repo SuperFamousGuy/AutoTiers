@@ -114,6 +114,26 @@ def test_untrusted_author_is_skipped():
     assert {"number": 16, "reason": "untrusted_author"} in plan["skip"]
 
 
+def test_untrusted_author_never_mutates_labels():
+    # Safety: an untrusted issue must be a pure skip with ZERO label writes,
+    # even if it somehow carries attempt labels AND a linked PR (which would
+    # otherwise route to `clear`). Trust is checked before any mutation.
+    plan = plan_sweep(
+        _world(
+            _issue(
+                24,
+                author_association="NONE",
+                has_linked_pr=True,
+                labels=["implement-attempt-2"],
+            )
+        )
+    )
+    assert plan["dispatch"] == []
+    assert plan["clear"] == []
+    assert plan["alarm"] == []
+    assert {"number": 24, "reason": "untrusted_author"} in plan["skip"]
+
+
 def test_existing_branch_is_skipped():
     plan = plan_sweep(_world(_issue(17, has_branch=True)))
     assert plan["dispatch"] == []

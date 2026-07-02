@@ -76,6 +76,11 @@ jobs:
               OWNER|MEMBER|COLLABORATOR) : ;;
               *)
                 echo "::error::Issue #$num author association '$assoc' is not trusted; refusing to implement." >&2
+                # Mark the refusal so the failure-label step below skips it — a
+                # security refusal must NOT stamp `implement-failed` (nor label
+                # an empty issue number). $GITHUB_ENV is processed after the step
+                # even though it exits non-zero, so the flag reaches later steps.
+                echo "DISPATCH_REFUSED=true" >> "$GITHUB_ENV"
                 exit 1 ;;
             esac
           else
@@ -263,8 +268,11 @@ jobs:
       # action error) before producing a PR. Mark the issue so a human browsing
       # issues sees it; the orphan sweeper re-dispatches it regardless of this
       # label (it keys on "no PR + no branch + not blocked").
+      # Guarded so it never fires for a security refusal (DISPATCH_REFUSED) or
+      # when the job failed before the shim resolved an issue number (empty
+      # ISSUE_NUMBER) — in both cases there is no legitimate issue to mark.
       - name: Label silent failure
-        if: failure()
+        if: failure() && env.DISPATCH_REFUSED != 'true' && env.ISSUE_NUMBER != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}

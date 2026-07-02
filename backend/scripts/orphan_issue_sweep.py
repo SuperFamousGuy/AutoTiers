@@ -92,6 +92,17 @@ def plan_sweep(world: dict) -> dict:
         labels = issue.get("labels", [])
         count, attempt_labels = _attempt_labels(labels, prefix)
 
+        # Trust FIRST, before anything that could mutate the issue. An untrusted
+        # author's issue must always be a pure skip with zero label writes — even
+        # the `clear` housekeeping below is a mutation, so the trust gate has to
+        # precede it to honor "never touch a stranger's issue". (In practice an
+        # untrusted issue never carries attempt labels, since the sweeper only
+        # ever adds them to trusted issues — but ordering makes the safety
+        # property hold by construction rather than by that incidental fact.)
+        if issue.get("author_association") not in trusted:
+            skip.append({"number": number, "reason": "untrusted_author"})
+            continue
+
         # A linked (open or merged) PR means the issue is in flight or done:
         # never an orphan. Housekeep any leftover attempt labels so a future
         # reopen starts from a fresh retry budget.
@@ -102,9 +113,6 @@ def plan_sweep(world: dict) -> dict:
                 skip.append({"number": number, "reason": "has_linked_pr"})
             continue
 
-        if issue.get("author_association") not in trusted:
-            skip.append({"number": number, "reason": "untrusted_author"})
-            continue
         if issue.get("has_branch"):
             skip.append({"number": number, "reason": "has_branch"})
             continue

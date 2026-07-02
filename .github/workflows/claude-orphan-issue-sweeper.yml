@@ -93,9 +93,16 @@ jobs:
             > issues_raw.json
 
           # Numbers of issues that have a `claude/issue-N` branch on the remote.
-          # matching-refs returns [] (200) when none match.
-          gh api "repos/$REPO/git/matching-refs/heads/claude/issue-" \
-            --jq '[.[].ref | capture("refs/heads/claude/issue-(?<n>[0-9]+)$") | .n | tonumber]' \
+          # matching-refs returns [] (200) when none match. `--paginate --slurp`
+          # collects ALL pages into one array of page-arrays (a bare --paginate
+          # would concatenate multiple JSON arrays into invalid output, and
+          # without pagination the sweeper would miss branches past the first
+          # page and wrongly re-dispatch those issues). `.[][]` flattens the
+          # page-arrays; the trailing `?` on `capture` drops any ref whose
+          # suffix isn't purely numeric (e.g. a stray `claude/issue-foo` branch)
+          # rather than erroring the whole jq.
+          gh api --paginate --slurp "repos/$REPO/git/matching-refs/heads/claude/issue-" \
+            --jq '[.[][] | .ref | capture("refs/heads/claude/issue-(?<n>[0-9]+)$")? | .n | tonumber]' \
             > branch_nums.json || echo '[]' > branch_nums.json
 
           # Numbers of issues with an OPEN or MERGED PR whose head is their
