@@ -123,6 +123,16 @@ env:
   # other sweepers' labels so the three alarms never collide).
   AUTO_MERGE_STALE_LABEL: auto-merge-sweeper-stale
 
+  # --- orphan-issue sweeper (claude-orphan-issue-sweeper.yml) ---
+  # Single job; run-level conclusion is the health signal (like auto-merge). Its
+  # configured cadence is hourly (`40 * * * *`). Same ~4h grace window as the
+  # copilot/fix-checks watchers: 60 * (3 + 1) = 240 min. A genuine >4h outage or
+  # the 60-day auto-disable trips it; throttled hourly delivery does not.
+  ORPHAN_SWEEPER_WORKFLOW: claude-orphan-issue-sweeper.yml
+  ORPHAN_INTERVAL_MINUTES: "60"
+  ORPHAN_MAX_MISSED_TICKS: "3"
+  ORPHAN_SWEEPER_STALE_LABEL: orphan-sweeper-stale
+
 jobs:
   copilot-health:
     name: check sweeper freshness
@@ -451,4 +461,90 @@ jobs:
           else
             # no_runs: sweeper not live on the default branch yet. Do nothing.
             echo "No auto-merge sweeper run history yet; not alarming. $detail"
+          fi
+
+  orphan-sweeper-health:
+    name: check orphan-issue sweeper freshness
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Evaluate orphan sweeper health and alarm if needed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # last_run = newest run of any conclusion (still ticking?);
+          # last_success = newest run that concluded `success` (scan logic still
+          # working?). A run that dispatched nothing but scanned cleanly still
+          # concludes success = healthy idle. A non-zero gh exit fails loudly
+          # rather than masquerading as a benign empty result.
+          if ! runs_json="$(gh run list \
+            --repo "$REPO" \
+            --workflow "$ORPHAN_SWEEPER_WORKFLOW" \
+            --limit 30 \
+            --json databaseId,createdAt,conclusion,status)"; then
+            echo "::error::Failed to query run history for $ORPHAN_SWEEPER_WORKFLOW; cannot evaluate orphan sweeper health." >&2
+            exit 1
+          fi
+
+          last_run="$(echo "$runs_json" | jq -r '.[0].createdAt // ""')"
+          echo "Orphan sweeper last run: '${last_run:-<none>}'"
+
+          last_success="$(echo "$runs_json" | jq -r \
+            '[.[] | select(.status == "completed" and .conclusion == "success")][0].createdAt // ""')"
+          echo "Orphan sweeper last successful run: '${last_success:-<none>}'"
+
+          now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          verdict="$(python3 backend/scripts/sweeper_health.py \
+            --mode scan \
+            --last-run "$last_run" \
+            --last-success "$last_success" \
+            --now "$now" \
+            --interval-minutes "$ORPHAN_INTERVAL_MINUTES" \
+            --max-missed-ticks "$ORPHAN_MAX_MISSED_TICKS")"
+          echo "Verdict: $verdict"
+
+          status="$(echo "$verdict" | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])')"
+          detail="$(echo "$verdict" | python3 -c 'import json,sys; print(json.load(sys.stdin)["detail"])')"
+
+          existing="$(gh issue list --repo "$REPO" \
+            --label "$ORPHAN_SWEEPER_STALE_LABEL" --state open --limit 1 \
+            --json number --jq '.[0].number // ""')"
+
+          if [ "$status" = "stale" ] || [ "$status" = "broken" ]; then
+            body="$(printf '## Orphan-issue sweeper appears %s\n\n%s\n\nRaw verdict:\n\n```json\n%s\n```\n\n**What to check**\n- If STALE (not ticking): is `%s` disabled? (Actions tab, or after 60 days of repo inactivity — re-enable with `gh workflow enable %s`, or push any commit to reset the 60-day clock.) Are scheduled workflows being throttled/skipped for this repo right now?\n- If BROKEN (run failing): open the latest `%s` run and read the `scan and re-dispatch orphaned issues` job log. A healthy tick concludes `success` whether or not it re-dispatched anything; a failing run means the scan/plan logic itself is erroring.\n\nThis issue auto-closes once the sweeper runs successfully within the expected window again.\n\n_Filed by `claude-sweeper-health.yml`._' "$status" "$detail" "$verdict" "$ORPHAN_SWEEPER_WORKFLOW" "$ORPHAN_SWEEPER_WORKFLOW" "$ORPHAN_SWEEPER_WORKFLOW")"
+            if [ -n "$existing" ]; then
+              echo "Alarm already open (#$existing); adding a status comment."
+              gh issue comment "$existing" --repo "$REPO" --body "$body"
+            else
+              echo "Opening new orphan-sweeper alarm issue (status=$status)."
+              gh label create "$ORPHAN_SWEEPER_STALE_LABEL" --repo "$REPO" \
+                --color b60205 --description "orphan-issue sweeper is stale or its run is failing" \
+                2>/dev/null || true
+              gh issue create --repo "$REPO" \
+                --title "alarm: orphan-issue sweeper is $status" \
+                --label "$ORPHAN_SWEEPER_STALE_LABEL" \
+                --body "$body"
+            fi
+          elif [ "$status" = "healthy" ]; then
+            if [ -n "$existing" ]; then
+              echo "Orphan sweeper recovered; closing alarm #$existing."
+              gh issue comment "$existing" --repo "$REPO" --body \
+                "Orphan-issue sweeper is running successfully on schedule again. $detail Auto-closing."
+              gh issue close "$existing" --repo "$REPO" --reason completed
+            else
+              echo "Orphan sweeper healthy; no alarm open. Nothing to do."
+            fi
+          else
+            # no_runs: sweeper not live on the default branch yet. Do nothing.
+            echo "No orphan sweeper run history yet; not alarming. $detail"
           fi
