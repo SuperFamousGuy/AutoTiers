@@ -192,6 +192,12 @@ jobs:
             body="$(echo "$row" | jq -r .body)"
             area="$(echo "$row" | jq -r .area)"
             echo "recommendation [$area]: $title"
+            # Defense-in-depth: the selector already drops empty-title/body
+            # candidates, so an empty field here means malformed selector output
+            # — skip rather than file a titleless/bodyless issue.
+            if [ -z "$title" ] || [ -z "$body" ]; then
+              echo "skip: empty title or body"; continue
+            fi
             if [ "$dry_run" = "true" ]; then
               echo "(dry-run) would file issue."
               continue
