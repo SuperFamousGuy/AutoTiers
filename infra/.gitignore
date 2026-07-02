@@ -9,6 +9,12 @@ terraform.tfstate.backup
 *.tfvars
 *.tfvars.json
 
+# Exception: prod.auto.tfvars holds ONLY non-secret prod config (issue #452) —
+# manage_dns / domain_name / acm_certificate_arn. Committed (like backend.hcl) so
+# CI and every operator plan/apply against the SAME values. Secrets stay in
+# Secrets Manager, injected via TF_VAR_* — never put a secret in this file.
+!prod.auto.tfvars
+
 # Override files are local-only
 override.tf
 override.tf.json
