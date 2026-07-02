@@ -92,3 +92,32 @@ def test_main_tolerates_garbage_file(tmp_path):
         rc = main(["--candidates", str(cand), "--max", "5"])
     assert rc == 0
     assert json.loads(buf.getvalue()) == []
+
+
+def test_is_duplicate_at_jaccard_boundary():
+    cand = "a b c d e f g h"
+    assert _is_duplicate(cand, ["a b c d e f g i j"])        # 7/10 == 0.7 -> dup
+    assert not _is_duplicate(cand, ["a b c d e f i j"])      # 6/10 == 0.6 -> distinct
+
+
+def test_null_and_nonnumeric_score_do_not_crash():
+    out = select({"max_issues": 5, "existing": [], "candidates": [
+        {"title": "stringy score", "area": "x", "body": "b", "score": "high"},
+        {"title": "ok", "area": "x", "body": "b", "score": 3}]})
+    # Neither crashes; the numeric-scored one sorts above the coerced-to-0 one.
+    assert [c["title"] for c in out] == ["ok", "stringy score"]
+
+
+def test_null_title_or_body_dropped_not_stringified():
+    out = select({"max_issues": 5, "existing": [], "candidates": [
+        {"title": None, "area": "x", "body": "b", "score": 9},
+        {"title": "ok", "area": None, "body": None, "score": 8},
+        {"title": "valid", "area": "internals", "body": "do the thing", "score": 1}]})
+    titles = [c["title"] for c in out]
+    assert "None" not in titles
+    assert titles == ["valid"]
+
+
+def test_zero_max_issues_returns_empty():
+    assert select({"max_issues": 0, "existing": [],
+                   "candidates": [{"title": "x", "area": "x", "body": "b", "score": 9}]}) == []

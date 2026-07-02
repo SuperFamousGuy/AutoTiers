@@ -36,6 +36,21 @@ from typing import Optional
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
 
+def _score(c: dict) -> float:
+    """Candidate score as a float; 0.0 for missing/None/non-numeric (an LLM
+    may emit a string like "high" — that must never crash selection)."""
+    try:
+        return float(c.get("score") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _text(v) -> str:
+    """Stripped string form of a field; empty string for None (so a null
+    title/body is dropped as malformed, never stringified to "None")."""
+    return "" if v is None else str(v).strip()
+
+
 def _tokens(title: str) -> set[str]:
     """Lowercased alphanumeric word tokens of a title, for fuzzy comparison."""
     return set(_WORD_RE.findall(title.lower()))
@@ -60,6 +75,8 @@ def _is_duplicate(cand_title: str, existing_titles: list[str], threshold: float 
 
 def select(world: dict) -> list[dict]:
     max_issues = int(world.get("max_issues", 5))
+    if max_issues < 1:
+        return []
     existing = world.get("existing") or []
     candidates = world.get("candidates")
     if not isinstance(candidates, list):
@@ -71,16 +88,16 @@ def select(world: dict) -> list[dict]:
     # Highest score first; stable tiebreak on title so output is deterministic.
     ordered = sorted(
         (c for c in candidates if isinstance(c, dict)),
-        key=lambda c: (-float(c.get("score", 0) or 0), str(c.get("title", ""))),
+        key=lambda c: (-_score(c), str(c.get("title", ""))),
     )
     for c in ordered:
-        title = str(c.get("title", "")).strip()
-        body = str(c.get("body", "")).strip()
+        title = _text(c.get("title"))
+        body = _text(c.get("body"))
         if not title or not body:
             continue  # malformed candidate — needs both a title and a spec body
         if _is_duplicate(title, seen_titles):
             continue  # duplicates an existing issue OR an already-kept candidate
-        kept.append({"title": title, "area": str(c.get("area", "")), "body": body})
+        kept.append({"title": title, "area": _text(c.get("area")), "body": body})
         seen_titles.append(title)
         if len(kept) >= max_issues:
             break
