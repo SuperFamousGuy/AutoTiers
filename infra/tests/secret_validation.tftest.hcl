@@ -5,9 +5,11 @@
 # malformed), and must PASS when supplied with real values — so an insecure
 # default can never be applied to a deployment.
 #
-# Run with:  cd infra && terraform test
+# Run with:  cd infra && terraform init -backend=false && terraform test
 # Requires Terraform >= 1.7 (uses mock_provider so no AWS credentials are
-# needed). Not yet wired into CI — see the follow-up issue referenced in the PR.
+# needed). -backend=false is required because infra/main.tf now declares an S3
+# backend (issue #452); it skips reaching S3 so these mock tests stay offline.
+# Wired into CI by the `infra` workflow's plan job (.github/workflows/infra.yml).
 
 mock_provider "aws" {}
 mock_provider "random" {}

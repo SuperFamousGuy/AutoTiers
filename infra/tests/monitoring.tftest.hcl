@@ -5,7 +5,9 @@
 # email subscription when an address is supplied, and reject a non-positive
 # evaluation-period count.
 #
-# Run with:  cd infra && terraform test
+# Run with:  cd infra && terraform init -backend=false && terraform test
+# (-backend=false skips the S3 backend infra/main.tf now declares (issue #452),
+#  keeping these mock_provider tests offline / credential-free.)
 # Only `terraform test` requires Terraform >= 1.7 (this file uses mock_provider,
 # introduced in 1.7, so no AWS credentials are needed). The module itself still
 # targets >= 1.6 (see infra/main.tf required_version) — the higher floor applies
@@ -76,8 +78,18 @@ run "scheduler_alarm_configured" {
     condition     = aws_cloudwatch_metric_alarm.scheduler_no_running_tasks.treat_missing_data == "breaching"
     error_message = "Missing data (a task that never reports) must be treated as breaching."
   }
+  # The alarm wires exactly one action and the module defines exactly one SNS
+  # topic (ops_alerts), so these two assertions together prove the alarm
+  # notifies the ops-alerts topic. We can't compare the ARN directly here: it
+  # is computed and unknown under `command = plan`, which raises "Unknown
+  # condition value" (and `override_during = plan` isn't available on the
+  # Terraform 1.9.8 pinned in CI).
   assert {
-    condition     = contains(aws_cloudwatch_metric_alarm.scheduler_no_running_tasks.alarm_actions, aws_sns_topic.ops_alerts.arn)
+    condition     = length(aws_cloudwatch_metric_alarm.scheduler_no_running_tasks.alarm_actions) == 1
+    error_message = "Alarm must wire exactly one notification action."
+  }
+  assert {
+    condition     = aws_sns_topic.ops_alerts.name == "autotiers-prod-ops-alerts"
     error_message = "Alarm must notify the ops-alerts SNS topic."
   }
 }
