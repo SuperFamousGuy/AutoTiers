@@ -95,19 +95,20 @@ def test_auto_merge_alarms_on_both_stale_and_broken():
 
 def test_auto_merge_label_is_distinct():
     """A distinct dedup label so an auto-merge alarm never collides with the
-    copilot-review or fix-checks alarm issues (or vice versa)."""
+    copilot-review, fix-checks, or orphan-sweeper alarm issues (or vice versa)."""
     assert "AUTO_MERGE_STALE_LABEL: auto-merge-sweeper-stale" in TEXT
-    # All three sweepers' label assignments are present and distinct, so no two
+    # All four sweepers' label assignments are present and distinct, so no two
     # alarms dedup against the same issue.
     assert "STALE_LABEL: sweeper-stale" in TEXT  # copilot
     assert "FIX_CHECKS_STALE_LABEL: fix-checks-sweeper-stale" in TEXT  # fix-checks
+    assert "ORPHAN_SWEEPER_STALE_LABEL: orphan-sweeper-stale" in TEXT  # orphan
     # Pull the ACTUAL label values out of the workflow (every `*STALE_LABEL:`
     # env assignment) and assert they are genuinely distinct. A hard-coded set
     # would pass even if two sweepers accidentally shared a label value; this
     # reads what the workflow really declares.
     values = re.findall(r"STALE_LABEL: (\S+)", TEXT)
-    assert len(values) == 3, f"expected 3 STALE_LABEL definitions, got {values}"
-    assert len(set(values)) == 3, f"label values not distinct: {values}"
+    assert len(values) == 4, f"expected 4 STALE_LABEL definitions, got {values}"
+    assert len(set(values)) == 4, f"label values not distinct: {values}"
 
 
 def test_auto_merge_no_runs_is_not_an_alarm():
