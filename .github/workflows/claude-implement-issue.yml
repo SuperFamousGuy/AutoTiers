@@ -18,9 +18,15 @@ name: claude-implement-issue
 on:
   issues:
     types: [opened, reopened]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number to (re-)implement end-to-end."
+        required: true
+        type: string
 
 concurrency:
-  group: claude-issue-${{ github.event.issue.number }}
+  group: claude-issue-${{ github.event.issue.number || github.event.inputs.issue_number }}
   cancel-in-progress: false
 
 permissions:
@@ -37,8 +43,80 @@ jobs:
     # SAFETY GATE: public repo. Only run for trusted authors so a stranger's
     # issue body cannot drive Claude with the repo's API key + write token.
     # github-actions[bot] resolves to NONE, so the action cannot recurse.
-    if: contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association)
     steps:
+      # Resolve the issue's number/title/author from EITHER the webhook payload
+      # (opened/reopened) OR the workflow_dispatch input, into $GITHUB_ENV so
+      # every later step reads one canonical source. Also: (a) fail closed if a
+      # dispatched issue's author is not trusted (workflow_dispatch itself is
+      # already write-access-gated by GitHub, but this is defense-in-depth so
+      # neither a write-access human nor the sweeper can drive Claude on a
+      # stranger's issue body); (b) clear stale terminal-state labels so they
+      # always reflect THIS run; (c) on a human open/reopen only, reset the
+      # sweeper's retry counter (a dispatch is the sweeper's own retry and must
+      # keep the counter it just set).
+      - name: Resolve issue context
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ISSUE_NUMBER: ${{ github.event.issue.number }}
+          EVENT_ISSUE_TITLE: ${{ github.event.issue.title }}
+          EVENT_ISSUE_ASSOC: ${{ github.event.issue.author_association }}
+          INPUT_ISSUE_NUMBER: ${{ github.event.inputs.issue_number }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            num="$INPUT_ISSUE_NUMBER"
+            title="$(gh issue view "$num" --repo "$REPO" --json title --jq .title)"
+            assoc="$(gh issue view "$num" --repo "$REPO" --json authorAssociation --jq .authorAssociation)"
+            case "$assoc" in
+              OWNER|MEMBER|COLLABORATOR) : ;;
+              *)
+                echo "::error::Issue #$num author association '$assoc' is not trusted; refusing to implement." >&2
+                # Mark the refusal so the failure-label step below skips it — a
+                # security refusal must NOT stamp `implement-failed` (nor label
+                # an empty issue number). $GITHUB_ENV is processed after the step
+                # even though it exits non-zero, so the flag reaches later steps.
+                echo "DISPATCH_REFUSED=true" >> "$GITHUB_ENV"
+                exit 1 ;;
+            esac
+          else
+            num="$EVENT_ISSUE_NUMBER"
+            title="$EVENT_ISSUE_TITLE"
+            assoc="$EVENT_ISSUE_ASSOC"
+          fi
+
+          # Export for later steps. Use the delimiter form for the title so a
+          # quote or special char in it cannot break the env file.
+          {
+            echo "ISSUE_NUMBER=$num"
+            echo "ISSUE_ASSOC=$assoc"
+            echo "ISSUE_TITLE<<__EOT__"
+            echo "$title"
+            echo "__EOT__"
+          } >> "$GITHUB_ENV"
+
+          # Clear stale terminal-state labels so they reflect THIS run only.
+          # `--remove-label` errors if the label isn't on the issue -> tolerate.
+          gh issue edit "$num" --repo "$REPO" \
+            --remove-label implement-failed --remove-label implement-blocked \
+            2>/dev/null || true
+
+          # Human open/reopen resets the sweeper's retry budget; a dispatch does not.
+          # This reset is best-effort housekeeping: a transient `gh issue view`
+          # error must NOT abort the (quota-expensive) implement run before it
+          # starts, so the whole pipeline is `|| true` under `set -o pipefail`.
+          if [ "$EVENT_NAME" != "workflow_dispatch" ]; then
+            gh issue view "$num" --repo "$REPO" --json labels \
+              --jq '.labels[].name | select(startswith("implement-attempt-"))' \
+              | while read -r lbl; do
+                  [ -n "$lbl" ] && gh issue edit "$num" --repo "$REPO" --remove-label "$lbl" 2>/dev/null || true
+                done || true
+          fi
+
       - uses: actions/checkout@v4
         with:
           # Persist a PAT (not the default App OIDC token) as git's credential.
@@ -84,13 +162,13 @@ jobs:
           # regenerate + update the secret if it expires.
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
-            You are implementing GitHub issue #${{ github.event.issue.number }} in
+            You are implementing GitHub issue #${{ env.ISSUE_NUMBER }} in
             this repository, end-to-end, with no further human input until a PR is
             open.
 
-            Issue title: ${{ github.event.issue.title }}
+            Issue title: ${{ env.ISSUE_TITLE }}
 
-            Read the full issue (title and body) for #${{ github.event.issue.number }}
+            Read the full issue (title and body) for #${{ env.ISSUE_NUMBER }}
             and treat it as the spec for the change.
 
             Process — follow the repo's own lifecycle:
@@ -107,9 +185,9 @@ jobs:
                  - web types: `cd web && npx tsc --noEmit`
             4. If tests do not pass, do NOT push a branch or write any PR files.
                Instead post a comment on issue
-               #${{ github.event.issue.number }} explaining the blocker, and stop.
+               #${{ env.ISSUE_NUMBER }} explaining the blocker, and stop.
             5. If tests pass, create a branch named
-               `claude/issue-${{ github.event.issue.number }}` and commit the
+               `claude/issue-${{ env.ISSUE_NUMBER }}` and commit the
                work onto it. Do NOT push, and do NOT open the pull request
                yourself. A later workflow step pushes the branch authenticated
                as a Copilot-licensed user (your own `git push` would use the
@@ -120,7 +198,7 @@ jobs:
                files at the repo root (do NOT commit them):
                  - `.pr-title.txt` — a concise one-line PR title.
                  - `.pr-body.md` — the PR body. It MUST start with
-                   `Closes #${{ github.event.issue.number }}` and summarize the
+                   `Closes #${{ env.ISSUE_NUMBER }}` and summarize the
                    change, your assumptions, and any known gaps.
 
             The repo's `.claude/skills/` and `.claude/agents/` are present in the
@@ -145,7 +223,7 @@ jobs:
         if: hashFiles('.pr-body.md') != ''
         env:
           PAT: ${{ secrets.PR_AUTHOR_PAT }}
-          BRANCH: claude/issue-${{ github.event.issue.number }}
+          BRANCH: claude/issue-${{ env.ISSUE_NUMBER }}
           REPO: ${{ github.repository }}
         run: |
           # `-c` is a git-level option and MUST precede the `push` subcommand —
@@ -166,7 +244,7 @@ jobs:
         if: hashFiles('.pr-body.md') != ''
         env:
           GH_TOKEN: ${{ secrets.PR_AUTHOR_PAT }}
-          BRANCH: claude/issue-${{ github.event.issue.number }}
+          BRANCH: claude/issue-${{ env.ISSUE_NUMBER }}
           BASE: ${{ github.event.repository.default_branch }}
         run: |
           # Only an *open* PR for this branch should block a new one. gh pr view
@@ -179,9 +257,43 @@ jobs:
           # Non-fatal read (step runs under bash -e) and collapse to one line so
           # --title never receives a missing file or embedded newline.
           title="$(head -n1 .pr-title.txt 2>/dev/null | tr -d '\r' || true)"
-          [ -n "$title" ] || title="Implement issue #${{ github.event.issue.number }}"
+          [ -n "$title" ] || title="Implement issue #${{ env.ISSUE_NUMBER }}"
           gh pr create \
             --base "$BASE" \
             --head "$BRANCH" \
             --title "$title" \
             --body-file .pr-body.md
+
+      # Silent death: the job failed (e.g. Claude quota exhausted, timeout,
+      # action error) before producing a PR. Mark the issue so a human browsing
+      # issues sees it; the orphan sweeper re-dispatches it regardless of this
+      # label (it keys on "no PR + no branch + not blocked").
+      # Guarded so it never fires for a security refusal (DISPATCH_REFUSED) or
+      # when the job failed before the shim resolved an issue number (empty
+      # ISSUE_NUMBER) — in both cases there is no legitimate issue to mark.
+      - name: Label silent failure
+        if: failure() && env.DISPATCH_REFUSED != 'true' && env.ISSUE_NUMBER != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh label create implement-failed --repo "$REPO" \
+            --color d93f0b --description "Auto-implement job failed (e.g. Claude quota out)" \
+            2>/dev/null || true
+          gh issue edit "${ISSUE_NUMBER}" --repo "$REPO" --add-label implement-failed || true
+
+      # Deliberate stop: the agent ran and SUCCEEDED at running, but wrote no
+      # .pr-body.md — meaning tests failed and it posted a blocker comment
+      # instead of opening a PR (the push/PR steps skipped on their hashFiles
+      # gate; skipped steps do not fail, so success() holds). Mark it
+      # `implement-blocked` so the orphan sweeper leaves it for a human.
+      - name: Label deliberate blocker stop
+        if: success() && hashFiles('.pr-body.md') == ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh label create implement-blocked --repo "$REPO" \
+            --color fbca04 --description "Auto-implement stopped on a test blocker; needs a human" \
+            2>/dev/null || true
+          gh issue edit "${ISSUE_NUMBER}" --repo "$REPO" --add-label implement-blocked || true

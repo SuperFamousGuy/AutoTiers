@@ -1,0 +1,218 @@
+name: claude-orphan-issue-sweeper
+
+# BACKSTOP for silently-dead auto-implement runs.
+#
+# `claude-implement-issue.yml` fires only on `issues: opened/reopened` (a
+# webhook, not a poll). When its Claude step dies before producing a PR — most
+# often because the day's Claude SUBSCRIPTION QUOTA is exhausted, also on
+# timeouts / transient action errors — the issue is left with no PR, no branch,
+# no comment, and never re-triggers: orphaned forever. (Design:
+# docs/superpowers/specs/2026-07-02-orphan-issue-sweeper-design.md.)
+#
+# This sweeper periodically re-scans open issues and re-dispatches the orphans
+# (bounded by a per-issue retry cap), alarming a human when an issue exhausts
+# its budget. It invokes NO Claude directly — detection is deterministic GitHub
+# reads. Claude re-enters only via the re-dispatched claude-implement-issue run.
+#
+# TOKEN SPLIT (correctness-critical): all detection reads and label/alarm writes
+# use the built-in GITHUB_TOKEN. The `gh workflow run` DISPATCH uses
+# PR_AUTHOR_PAT, because GitHub's recursion guard means an event triggered with
+# GITHUB_TOKEN does NOT start a new workflow run (this includes
+# workflow_dispatch) — a GITHUB_TOKEN dispatch would return success yet start
+# nothing, defeating the sweeper. (Same behavior noted in the auto-merge sweeper
+# and in the tfstate memory: "GITHUB_TOKEN merges suppress workflow runs".)
+#
+# Watched for staleness by claude-sweeper-health.yml (orphan-sweeper-health job).
+
+on:
+  schedule:
+    # Hourly at minute 40. Verified-free minute among the scheduled workflows
+    # (copilot-review=0, sweeper-health=17, fix-checks=30, resolve-conflicts=45,
+    # auto-merge=50) — a cron fires AT its minute field regardless of the
+    # hour/step field, so the minute is what must be unique. Hourly is ample:
+    # Claude quota resets on a daily cadence, so an orphan from a quota-out day
+    # just needs a retry within the day; GitHub throttles sub-hourly cron on
+    # this low-activity repo anyway.
+    - cron: "40 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Override DRY_RUN for a single manual run (true/false)."
+        required: false
+        type: string
+
+concurrency:
+  # Serialize ticks so two runs never both dispatch or double-label the same issue.
+  group: claude-orphan-issue-sweeper
+  cancel-in-progress: false
+
+permissions:
+  contents: read # actions/checkout; branch existence is read via the API below
+  issues: write # bump attempt labels, clear recovered labels, open/close alarm
+  pull-requests: read # detect linked PRs by head branch
+
+env:
+  # Ship SAFE: report-only until a human confirms the predicate against real
+  # orphans, then flip to "false" in a one-line commit to arm re-dispatch.
+  DRY_RUN: "true"
+  IMPLEMENT_WORKFLOW: claude-implement-issue.yml
+  MAX_ATTEMPTS: "3"
+  ATTEMPT_LABEL_PREFIX: "implement-attempt-"
+  BLOCKED_LABEL: "implement-blocked"
+  ORPHAN_STALE_LABEL: "orphan-issue-stale"
+
+jobs:
+  sweep:
+    name: scan and re-dispatch orphaned issues
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Scan, plan, and act
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_AUTHOR_PAT: ${{ secrets.PR_AUTHOR_PAT }}
+          REPO: ${{ github.repository }}
+          DRY_RUN_OVERRIDE: ${{ github.event.inputs.dry_run }}
+        run: |
+          set -euo pipefail
+
+          dry_run="${DRY_RUN_OVERRIDE:-$DRY_RUN}"
+          echo "DRY_RUN=$dry_run"
+
+          # --- Gather the world -------------------------------------------------
+          # Open issues WITH author_association + labels. The REST issues endpoint
+          # returns both (unlike `gh issue list --json`), and includes PRs — which
+          # we drop via `.pull_request == null`.
+          gh api --paginate "repos/$REPO/issues?state=open&per_page=100" \
+            > issues_raw.json
+
+          # Numbers of issues that have a `claude/issue-N` branch on the remote.
+          # matching-refs returns [] (200) when none match. `--paginate --slurp`
+          # collects ALL pages into one array of page-arrays (a bare --paginate
+          # would concatenate multiple JSON arrays into invalid output, and
+          # without pagination the sweeper would miss branches past the first
+          # page and wrongly re-dispatch those issues). `.[][]` flattens the
+          # page-arrays; the trailing `?` on `capture` drops any ref whose
+          # suffix isn't purely numeric (e.g. a stray `claude/issue-foo` branch)
+          # rather than erroring the whole jq.
+          gh api --paginate --slurp "repos/$REPO/git/matching-refs/heads/claude/issue-" \
+            --jq '[.[][] | .ref | capture("refs/heads/claude/issue-(?<n>[0-9]+)$")? | .n | tonumber]' \
+            > branch_nums.json || echo '[]' > branch_nums.json
+
+          # Numbers of issues with an OPEN or MERGED PR whose head is their
+          # `claude/issue-N` branch (our only PR-creation convention).
+          gh pr list --repo "$REPO" --state all --limit 300 \
+            --json number,headRefName,state \
+            --jq '[.[] | select((.state=="OPEN" or .state=="MERGED") and (.headRefName|test("^claude/issue-[0-9]+$"))) | (.headRefName|ltrimstr("claude/issue-")|tonumber)]' \
+            > pr_nums.json
+
+          # Titles of implement runs currently queued/in_progress (best-effort
+          # in-progress guard; run display title == the issue title).
+          gh run list --repo "$REPO" --workflow "$IMPLEMENT_WORKFLOW" \
+            --limit 40 --json displayTitle,status \
+            --jq '[.[] | select(.status=="in_progress" or .status=="queued") | .displayTitle]' \
+            > running_titles.json
+
+          # --- Assemble the world JSON the decision core consumes ---------------
+          jq -n \
+            --slurpfile branch_nums branch_nums.json \
+            --slurpfile pr_nums pr_nums.json \
+            --slurpfile running running_titles.json \
+            --argjson issues "$(jq '[.[] | select(.pull_request == null) | {number, title, author_association, labels: [.labels[].name]}]' issues_raw.json)" \
+            --arg max "$MAX_ATTEMPTS" \
+            --arg prefix "$ATTEMPT_LABEL_PREFIX" \
+            --arg blocked "$BLOCKED_LABEL" \
+            '{
+              max_attempts: ($max | tonumber),
+              attempt_label_prefix: $prefix,
+              blocked_label: $blocked,
+              trusted_associations: ["OWNER", "MEMBER", "COLLABORATOR"],
+              issues: [
+                $issues[] | . as $i | {
+                  number: $i.number,
+                  title: $i.title,
+                  author_association: $i.author_association,
+                  labels: $i.labels,
+                  has_branch: ($branch_nums[0] | any(. == $i.number)),
+                  has_linked_pr: ($pr_nums[0] | any(. == $i.number)),
+                  in_progress: ($running[0] | any(. == $i.title))
+                }
+              ]
+            }' > world.json
+
+          echo "::group::world.json"; cat world.json; echo "::endgroup::"
+
+          # --- Decide -----------------------------------------------------------
+          python3 backend/scripts/orphan_issue_sweep.py --world world.json > plan.json
+          echo "::group::plan.json"; cat plan.json; echo "::endgroup::"
+
+          # --- Act --------------------------------------------------------------
+          # DISPATCH: bump the attempt label (GITHUB_TOKEN) and re-run the
+          # implement workflow (PR_AUTHOR_PAT — a GITHUB_TOKEN dispatch no-ops).
+          jq -c '.dispatch[]' plan.json | while read -r row; do
+            n="$(echo "$row" | jq -r .number)"
+            add="$(echo "$row" | jq -r .add_label)"
+            attempt="$(echo "$row" | jq -r .attempt)"
+            echo "orphan #$n -> re-dispatch (attempt $attempt)"
+            if [ "$dry_run" = "true" ]; then continue; fi
+            gh label create "$add" --repo "$REPO" \
+              --color ededed --description "Auto-implement retry attempt" 2>/dev/null || true
+            echo "$row" | jq -r '.remove_labels[]?' | while read -r rl; do
+              [ -n "$rl" ] && gh issue edit "$n" --repo "$REPO" --remove-label "$rl" 2>/dev/null || true
+            done
+            gh issue edit "$n" --repo "$REPO" --add-label "$add"
+            GH_TOKEN="$PR_AUTHOR_PAT" gh workflow run "$IMPLEMENT_WORKFLOW" \
+              --repo "$REPO" -f issue_number="$n"
+          done
+
+          # CLEAR: recovered issues (now have a PR) — drop stale attempt labels.
+          jq -c '.clear[]' plan.json | while read -r row; do
+            n="$(echo "$row" | jq -r .number)"
+            echo "recovered #$n -> clearing stale attempt labels"
+            if [ "$dry_run" = "true" ]; then continue; fi
+            echo "$row" | jq -r '.remove_labels[]?' | while read -r rl; do
+              [ -n "$rl" ] && gh issue edit "$n" --repo "$REPO" --remove-label "$rl" 2>/dev/null || true
+            done
+          done
+
+          # SKIP: log only (visibility into why each open issue was left alone).
+          jq -r '.skip[] | "skip #\(.number): \(.reason)"' plan.json || true
+
+          # --- Alarm on cap-exhausted issues ------------------------------------
+          alarm_nums="$(jq -r '[.alarm[].number] | join(", ")' plan.json)"
+          existing="$(gh issue list --repo "$REPO" \
+            --label "$ORPHAN_STALE_LABEL" --state open --limit 1 \
+            --json number --jq '.[0].number // ""')"
+
+          if [ -n "$alarm_nums" ]; then
+            body="$(printf '## Auto-implement orphans exhausted their retry budget\n\nThese open issues have been re-dispatched %s times by the orphan sweeper without ever producing a PR, and will no longer be retried automatically:\n\n%s\n\n**What to check**\n- Open the issue and its latest `%s` run. Is it a persistent blocker (bad spec, un-passable tests) rather than a transient quota-out? If so, fix the spec and reopen the issue to reset the retry budget.\n- Was the day'"'"'s Claude subscription quota simply exhausted for a long stretch? Re-running `%s` manually (Actions -> Run workflow -> issue_number) will retry it.\n\nThis issue auto-closes once no open issue remains at the retry cap.\n\n_Filed by `claude-orphan-issue-sweeper.yml`._' \
+              "$MAX_ATTEMPTS" \
+              "$(jq -r '.alarm[] | "- #\(.number) (\(.attempts) attempts)"' plan.json)" \
+              "$IMPLEMENT_WORKFLOW" "$IMPLEMENT_WORKFLOW")"
+            echo "Cap-exhausted orphans: $alarm_nums"
+            if [ "$dry_run" = "true" ]; then
+              echo "(dry-run) would open/update alarm issue."
+            elif [ -n "$existing" ]; then
+              gh issue comment "$existing" --repo "$REPO" --body "$body"
+            else
+              gh label create "$ORPHAN_STALE_LABEL" --repo "$REPO" \
+                --color b60205 --description "Auto-implement orphan hit its retry cap" 2>/dev/null || true
+              gh issue create --repo "$REPO" \
+                --title "alarm: auto-implement orphan(s) exhausted retries" \
+                --label "$ORPHAN_STALE_LABEL" \
+                --body "$body"
+            fi
+          else
+            # No orphans at the cap: recover-close any open alarm.
+            if [ -n "$existing" ] && [ "$dry_run" != "true" ]; then
+              gh issue comment "$existing" --repo "$REPO" --body \
+                "No open issues remain at the retry cap. Auto-closing."
+              gh issue close "$existing" --repo "$REPO" --reason completed
+            fi
+          fi
