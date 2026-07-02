@@ -43,8 +43,8 @@ concurrency:
 
 permissions:
   contents: read # actions/checkout
-  issues: write # dedup reads + label bootstrap (creation itself uses the PAT)
-  pull-requests: read
+  issues: read # GITHUB_TOKEN only LISTS issues for dedup; creation + label
+  # bootstrap run on PR_AUTHOR_PAT, so the built-in token needs no issue write.
   id-token: write # claude-code-action mints its GitHub token via OIDC
 
 env:
@@ -63,9 +63,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # PAT so any git ops use a real-user credential; issue creation below
-          # re-asserts it explicitly via gh.
-          token: ${{ secrets.PR_AUTHOR_PAT }}
+          # Default GITHUB_TOKEN: this workflow only READS the checkout (the
+          # agents inspect the app) and never pushes a branch, so — unlike
+          # claude-implement-issue.yml — it must NOT persist the long-lived
+          # PR_AUTHOR_PAT into git's credential store, where the Bash-enabled
+          # claude-code-action step could reach it. Issue creation below uses
+          # the PAT explicitly via gh's GH_TOKEN env, not git's transport.
           fetch-depth: 0
 
       # Pre-provision the toolchain so the engineer/designer subagents can run

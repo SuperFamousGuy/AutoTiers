@@ -121,3 +121,12 @@ def test_null_title_or_body_dropped_not_stringified():
 def test_zero_max_issues_returns_empty():
     assert select({"max_issues": 0, "existing": [],
                    "candidates": [{"title": "x", "area": "x", "body": "b", "score": 9}]}) == []
+
+
+def test_garbage_max_issues_defaults_to_five():
+    cands = [{"title": f"rec {i}", "area": "x", "body": "b", "score": i} for i in range(8)]
+    # A non-numeric max_issues must not crash; it falls back to the default of 5.
+    out = select({"max_issues": "five", "existing": [], "candidates": cands})
+    assert len(out) == 5
+    # None likewise falls back to 5 rather than raising.
+    assert len(select({"max_issues": None, "existing": [], "candidates": cands})) == 5

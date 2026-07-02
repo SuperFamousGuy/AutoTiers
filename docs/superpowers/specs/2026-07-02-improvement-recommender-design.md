@@ -1,7 +1,7 @@
 # Daily improvement recommender — Design
 
 **Date:** 2026-07-02
-**Status:** Designed; not yet implemented. Will ship `DRY_RUN: "true"` (files no issues) so the recommendations can be watched for a few days before arming, then a one-line flip arms it.
+**Status:** Implemented in PR #470 (2026-07-02). Ships `DRY_RUN: "true"` (files no issues) so recommendations can be watched for a few days before arming; arming is a one-line post-merge flip of `DRY_RUN` to `"false"` (start `MAX_ISSUES` at 1, ramp to 5).
 **Siblings / prior art:**
 - `.github/workflows/claude-implement-issue.yml` — the Claude-invoking workflow this mirrors (`claude-code-action`, subscription oauth, `Task` subagents, PAT for the GitHub-side write). This is also the **downstream consumer**: the issues this job files are picked up by that workflow.
 - `.github/workflows/claude-orphan-issue-sweeper.yml` — the thin-shell + unit-tested-Python decision-core idiom the issue-selection step mirrors, and the source of the PAT-vs-`GITHUB_TOKEN` dispatch rule.

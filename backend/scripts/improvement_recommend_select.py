@@ -74,7 +74,12 @@ def _is_duplicate(cand_title: str, existing_titles: list[str], threshold: float 
 
 
 def select(world: dict) -> list[dict]:
-    max_issues = int(world.get("max_issues", 5))
+    # Defensive parse: like every other field, a malformed max_issues (e.g. an
+    # LLM-authored string "five", or None) must never crash the daily schedule.
+    try:
+        max_issues = int(world.get("max_issues", 5))
+    except (TypeError, ValueError):
+        max_issues = 5
     if max_issues < 1:
         return []
     existing = world.get("existing") or []
