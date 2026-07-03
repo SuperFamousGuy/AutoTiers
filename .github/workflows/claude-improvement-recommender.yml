@@ -178,19 +178,32 @@ jobs:
         run: |
           set -uo pipefail
 
-          # candidate count (missing/garbage file -> 0, never crash)
-          [ -f candidates.json ] || echo "[]" > candidates.json
+          # Record whether the generator actually wrote the file BEFORE creating
+          # any placeholder — a missing file (agent never emitted output) is a
+          # stronger no-op signal than an explicit empty array, and the
+          # placeholder would erase that distinction. The downstream Select step
+          # still creates its own `[]` fallback; this one is diagnostic only.
+          if [ -f candidates.json ]; then
+            cand_present="true"
+          else
+            cand_present="false"
+            echo "[]" > candidates.json
+          fi
           cand_count="$(jq 'if type=="array" then length else 0 end' candidates.json 2>/dev/null || echo 0)"
-          echo "::group::candidates.json"; cat candidates.json; echo; echo "::endgroup::"
+          echo "::group::candidates.json (present=$cand_present)"; cat candidates.json; echo; echo "::endgroup::"
 
           # agent self-reported metrics from claude-code-action's execution log.
-          # File is a stream: pick the terminal result object. Fall back to the
-          # action's known temp path if the output was not surfaced.
+          # Pick the TERMINAL result event. The file's exact shape isn't
+          # guaranteed — it may be a single JSON array, newline-delimited JSON,
+          # or a concatenated object stream — so slurp (-s) into one array and
+          # flatten (unwraps the single-array case to a flat event list without
+          # touching object values), then take the last result event. `last`
+          # over an empty set is null -> `// {}`.
           exec_file="$EXECUTION_FILE"
           [ -n "$exec_file" ] && [ -f "$exec_file" ] || exec_file="/home/runner/work/_temp/claude-execution-output.json"
           result='{}'
           if [ -f "$exec_file" ]; then
-            result="$(jq -c 'if type=="array" then (map(select(.type=="result")) | last) else . end // {}' "$exec_file" 2>/dev/null || echo '{}')"
+            result="$(jq -c -s 'flatten | map(select(type=="object" and .type=="result")) | last // {}' "$exec_file" 2>/dev/null || echo '{}')"
             # Stable copy so the artifact upload does not depend on the action's
             # output var resolving.
             cp "$exec_file" generation-execution.json 2>/dev/null || true
@@ -207,6 +220,7 @@ jobs:
             echo ""
             echo "| metric | value |"
             echo "|---|---|"
+            echo "| candidates.json written | $cand_present |"
             echo "| candidates written | $cand_count |"
             echo "| num_turns | $num_turns |"
             echo "| total_cost_usd | $cost |"
@@ -214,12 +228,15 @@ jobs:
             echo "| is_error | $is_error |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-          echo "candidates=$cand_count num_turns=$num_turns cost=$cost duration_ms=$duration_ms is_error=$is_error"
+          echo "candidates_present=$cand_present candidates=$cand_count num_turns=$num_turns cost=$cost duration_ms=$duration_ms is_error=$is_error"
 
           # No-op guard: empty candidate set, OR a plausibly-real turn count that
-          # is too low to have run the four-specialist fan-out.
-          if [ "$cand_count" = "0" ]; then
-            echo "::warning title=Recommender produced no candidates::candidates.json is empty — the run filed nothing. Distinguish a genuine 'nothing to improve' from an orchestrator that never dispatched the four specialists via the metrics above and the uploaded artifact."
+          # is too low to have run the four-specialist fan-out. A wholly ABSENT
+          # candidates.json is the strongest no-op tell — call it out distinctly.
+          if [ "$cand_present" != "true" ]; then
+            echo "::warning title=Recommender wrote no candidates.json::The generator never emitted candidates.json — the orchestrator returned without writing output at all. Almost certainly a no-op (specialists never dispatched), not a genuine 'nothing to improve'. See the metrics above and the uploaded artifact."
+          elif [ "$cand_count" = "0" ]; then
+            echo "::warning title=Recommender produced no candidates::candidates.json is an empty array — the run filed nothing. Distinguish a genuine 'nothing to improve' from an orchestrator that never dispatched the four specialists via the metrics above and the uploaded artifact."
           fi
           if [ "$num_turns" != "?" ] && [ "$num_turns" -lt "$LOW_TURN_THRESHOLD" ] 2>/dev/null; then
             echo "::warning title=Recommender turn count implausibly low::num_turns=$num_turns (< $LOW_TURN_THRESHOLD) — a real four-specialist fan-out runs far more turns. The parent likely returned success without dispatching the specialists."
