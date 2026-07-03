@@ -1,12 +1,13 @@
 # Daily improvement recommender — Design
 
 **Date:** 2026-07-02
-**Status:** Implemented in PR #470 (2026-07-02). Ships `DRY_RUN: "true"` (files no issues) so recommendations can be watched for a few days before arming; arming is a one-line post-merge flip of `DRY_RUN` to `"false"` (start `MAX_ISSUES` at 1, ramp to 5).
+**Status:** Implemented in PR #470 (2026-07-02). Ships `DRY_RUN: "true"` (files no issues) so recommendations can be watched for a few days before arming; arming is a one-line post-merge flip of `DRY_RUN` to `"false"` (start `MAX_ISSUES` at 1, ramp to 10).
+**Updated 2026-07-02:** added `autotiers-qa` as a 4th specialist lane; raised `MAX_ISSUES` operating cap 5 → 10. The selector's internal fallback default remains 5 (safety default for malformed CI input, a separate concern).
 **Siblings / prior art:**
 - `.github/workflows/claude-implement-issue.yml` — the Claude-invoking workflow this mirrors (`claude-code-action`, subscription oauth, `Task` subagents, PAT for the GitHub-side write). This is also the **downstream consumer**: the issues this job files are picked up by that workflow.
 - `.github/workflows/claude-orphan-issue-sweeper.yml` — the thin-shell + unit-tested-Python decision-core idiom the issue-selection step mirrors, and the source of the PAT-vs-`GITHUB_TOKEN` dispatch rule.
 - `backend/scripts/orphan_issue_sweep.py` — the decision-core idiom `improvement_recommend_select.py` mirrors.
-- `.claude/agents/autotiers-{researcher,designer,engineer}.md` — the three specialists this job orchestrates.
+- `.claude/agents/autotiers-{researcher,designer,engineer,qa}.md` — the four specialists this job orchestrates.
 
 ## Problem
 
@@ -14,23 +15,23 @@ AutoTiers improves only reactively: a human notices something, files an issue, a
 
 ## Goal
 
-A scheduled daily job in which three existing specialists — `autotiers-researcher`, `autotiers-designer`, `autotiers-engineer` — examine both the current app and newly-available external inputs, then file the highest-value improvement recommendations as GitHub issues. Those issues flow directly into the existing `claude-implement-issue` automation (the user's explicit choice: a full autonomous improvement loop), so a recommendation can become a merged PR with no human in the middle.
+A scheduled daily job in which four existing specialists — `autotiers-researcher`, `autotiers-designer`, `autotiers-engineer`, `autotiers-qa` — examine both the current app and newly-available external inputs, then file the highest-value improvement recommendations as GitHub issues. Those issues flow directly into the existing `claude-implement-issue` automation (the user's explicit choice: a full autonomous improvement loop), so a recommendation can become a merged PR with no human in the middle.
 
 ## Decisions (locked with the user)
 
 - **Automation coupling: full autonomous loop.** Filed issues are created so `claude-implement-issue` fires on them immediately — each recommendation can become a PR unsupervised. (See *Quota / autonomy posture* for why this ships behind `DRY_RUN`.)
-- **Volume: top 5 per run.** After dedup, at most the 5 highest value/effort recommendations are filed per daily run (`MAX_ISSUES`).
+- **Volume: top 10 per run.** After dedup, at most the 10 highest value/effort recommendations are filed per daily run (`MAX_ISSUES`).
 - **Scope: all four.** Every run covers (1) external FF rankings vs ours, (2) new tech/deps, (3) UX best practices, (4) app-internals audit.
 
 ## Approach
 
 One daily GitHub Actions workflow, structured exactly like the repo's Claude-invoking + PAT-write split:
 
-1. **`claude-code-action`** runs a top-level orchestrator prompt that dispatches the three specialists via `Task`, synthesizes their candidates, dedups against currently-open recommendations, ranks, selects the top 5, and writes `recommendations.json`. The agent creates **no** issues itself.
+1. **`claude-code-action`** runs a top-level orchestrator prompt that dispatches the four specialists via `Task`, synthesizes their candidates, dedups against currently-open recommendations, ranks, selects the top 10, and writes `recommendations.json`. The agent creates **no** issues itself.
 2. A **deterministic shell step, authenticated as `PR_AUTHOR_PAT`**, reads `recommendations.json` and files the issues.
 
 Rejected alternatives:
-- **Three workflows (one per agent), each filing its own issues** — 3× subscription-quota sessions per day, a dedup race across three independent runs, and noisier output. Rejected.
+- **A workflow per agent (one specialist each), each filing its own issues** — N× subscription-quota sessions per day, a dedup race across the independent runs, and noisier output. Rejected.
 - **`/schedule` cloud routine instead of a workflow** — lives off-repo, is unversioned, and breaks the "every automation is reviewable in git" convention every other sweeper follows. Rejected.
 
 ## Architecture
@@ -72,7 +73,7 @@ env:
 4. **`anthropics/claude-code-action@v1`**:
    - `claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}` (subscription quota, same as implement-issue).
    - `claude_args: --model claude-opus-4-8 --max-turns 120 --allowedTools Edit,Write,Read,Glob,Grep,Bash,Task,WebSearch,WebFetch`.
-   - Prompt (spec, not verbatim): *You are the AutoTiers improvement recommender. Dispatch three specialists via `Task` and give each its lane:*
+   - Prompt (spec, not verbatim): *You are the AutoTiers improvement recommender. Dispatch four specialists via `Task` and give each its lane:*
      - `autotiers-researcher` — compare our tier/ranking output against newly-available public rankings/ADP (FantasyPros, ESPN, etc.) and flag divergences worth acting on; also surface new tech/deps/techniques relevant to the stack.
      - `autotiers-designer` — audit the existing link→generate→export flow against current UX best practices and new patterns.
      - `autotiers-engineer` — audit app internals for correctness, performance, and maintainability improvements.
@@ -97,7 +98,7 @@ The whole point is that filed issues auto-implement. Two GitHub facts force the 
 
 ## Quota / autonomy posture
 
-Full loop + top-5/day means a single arming can, at steady state, add **up to 5 `claude-implement-issue` runs per day** — each spawning a PR, a Copilot review, and an auto-merge — *plus* this recommender's own multi-agent session. On subscription quota (`CLAUDE_CODE_OAUTH_TOKEN`, personal Pro/Max) that is heavy, and can starve the auto-implement queue — the precise failure the orphan sweeper exists to catch.
+Full loop + top-10/day means a single arming can, at steady state, add **up to 10 `claude-implement-issue` runs per day** — each spawning a PR, a Copilot review, and an auto-merge — *plus* this recommender's own now-four-specialist multi-agent session. On subscription quota (`CLAUDE_CODE_OAUTH_TOKEN`, personal Pro/Max) that is heavy, and can starve the auto-implement queue — the precise failure the orphan sweeper exists to catch. This is why arming must ramp `MAX_ISSUES` from 1 upward rather than jumping straight to the 10 cap.
 
 Mitigation, all in-design:
 - Ships `DRY_RUN: "true"`: the daily run produces `recommendations.json` and logs the plan but files nothing, so the *quality* of recommendations can be judged for several days before any issue is created.

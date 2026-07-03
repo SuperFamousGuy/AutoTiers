@@ -1,6 +1,6 @@
 """Tests for the improvement-recommender selection core.
 
-Three specialist agents emit candidate recommendations; this core turns that
+Four specialist agents emit candidate recommendations; this core turns that
 raw pile into the small, de-duplicated, best-first list the workflow actually
 files as issues. These tests lock the boundaries the untestable shell relies
 on: ordering by score, capping to MAX_ISSUES, suppressing anything that
@@ -31,6 +31,15 @@ def test_caps_at_max_issues():
     cands = [_cand(f"rec {i}", score=i) for i in range(10)]
     out = select({"max_issues": 3, "existing": [], "candidates": cands})
     assert [c["title"] for c in out] == ["rec 9", "rec 8", "rec 7"]
+
+
+def test_caps_at_ten_the_operating_max():
+    # The workflow's operating cap is MAX_ISSUES=10 (env -> --max -> select()).
+    # With more than ten distinct candidates, exactly the ten highest survive.
+    cands = [_cand(f"rec {i:02d}", score=i) for i in range(15)]
+    out = select({"max_issues": 10, "existing": [], "candidates": cands})
+    assert len(out) == 10
+    assert [c["title"] for c in out] == [f"rec {i:02d}" for i in range(14, 4, -1)]
 
 
 def test_suppresses_duplicate_of_existing_issue():

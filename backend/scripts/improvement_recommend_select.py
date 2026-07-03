@@ -1,7 +1,7 @@
 """Selection core for the daily improvement recommender
 (`.github/workflows/claude-improvement-recommender.yml`).
 
-Three specialist agents (researcher/designer/engineer) each emit candidate
+Four specialist agents (researcher/designer/engineer/qa) each emit candidate
 improvement recommendations into `candidates.json`. This module is the PURE,
 testable selection step: given all candidates plus the recommendations already
 tracked as open/recently-closed GitHub issues, it drops duplicates, orders by

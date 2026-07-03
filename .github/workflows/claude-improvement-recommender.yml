@@ -1,7 +1,7 @@
 name: claude-improvement-recommender
 
-# Daily proactive-improvement loop. Three specialist agents
-# (autotiers-researcher/designer/engineer) examine the app AND newly-available
+# Daily proactive-improvement loop. Four specialist agents
+# (autotiers-researcher/designer/engineer/qa) examine the app AND newly-available
 # external inputs — fantasy-football rankings we can benchmark our tiers
 # against, new tech/deps, UX best practices — and the highest-value
 # recommendations are filed as `recommendation` issues. Those issues feed
@@ -51,7 +51,7 @@ env:
   # Ship SAFE: produce recommendations, file nothing, until a human has watched
   # a few days of output. Flip to "false" (start with MAX_ISSUES=1) to arm.
   DRY_RUN: "true"
-  MAX_ISSUES: "5"
+  MAX_ISSUES: "10"
   REC_LABEL: "recommendation"
   LOOKBACK_DAYS: "30"
 
@@ -120,7 +120,7 @@ jobs:
             `candidates.json` at the repo root. You do NOT create GitHub issues —
             a later deterministic step selects and files them.
 
-            Dispatch these three specialists via the Task tool, each in its lane;
+            Dispatch these four specialists via the Task tool, each in its lane;
             run them and collect their findings:
               - autotiers-researcher: compare our tier/ranking output against
                 newly-available public fantasy-football rankings / ADP
@@ -131,6 +131,12 @@ jobs:
                 flow against current UX best practices and new patterns.
               - autotiers-engineer: audit app internals (backend/app, web/src)
                 for correctness, performance, and maintainability improvements.
+              - autotiers-qa: hunt latent breakage the way QA does on a diff —
+                untested code paths, likely regressions, validation gaps
+                (empty/whitespace/null/wrong-type/out-of-range inputs),
+                unverified third-party defaults (httpx UA, fetch creds,
+                timeouts), and tests that would still pass if the code they
+                guard were deleted; each finding becomes a spec to close the gap.
 
             `existing_recs.json` at the repo root lists recommendations already
             tracked as issues — do NOT re-propose anything substantially covered
@@ -139,7 +145,7 @@ jobs:
             Write `candidates.json`: a JSON array where each element is
               {
                 "title": "<one concise line>",
-                "area": "rankings" | "tech" | "ux" | "internals",
+                "area": "rankings" | "tech" | "ux" | "internals" | "qa",
                 "body": "<issue body: an auto-implement-ready spec with sections
                          Problem, Proposed change, Acceptance criteria,
                          Affected files>",
