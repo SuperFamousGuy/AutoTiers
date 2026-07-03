@@ -98,7 +98,11 @@ export default function App() {
     ? (history[activeProfileId]?.length ?? 0) >= 2
     : false;
 
-  const { data: fetchedRules } = useRules();
+  const {
+    data: fetchedRules,
+    isError: rulesError,
+    refetch: refetchRules,
+  } = useRules();
   const generate = useGenerateMutation();
 
   // Smart mobile default: switch to "tiers" tab on the FIRST generate result after
@@ -440,6 +444,8 @@ export default function App() {
             canonicalRules={canonicalRules}
             positionRules={positionRules}
             onChange={setPositionRules}
+            isError={rulesError}
+            onRetry={refetchRules}
           />
         </div>
         <div
