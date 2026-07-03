@@ -27,8 +27,9 @@ A scheduled daily job in which four existing specialists — `autotiers-research
 
 One daily GitHub Actions workflow, structured exactly like the repo's Claude-invoking + PAT-write split:
 
-1. **`claude-code-action`** runs a top-level orchestrator prompt that dispatches the four specialists via `Task`, synthesizes their candidates, dedups against currently-open recommendations, ranks, selects the top 10, and writes `recommendations.json`. The agent creates **no** issues itself.
-2. A **deterministic shell step, authenticated as `PR_AUTHOR_PAT`**, reads `recommendations.json` and files the issues.
+1. **`claude-code-action`** runs a top-level orchestrator prompt that dispatches the four specialists via `Task`, synthesizes their candidates, and writes them to `candidates.json`. The agent creates **no** issues itself.
+2. A **deterministic selection step** (`improvement_recommend_select.py`) dedups against currently-open recommendations, ranks by value/effort, caps at `MAX_ISSUES`, and writes the survivors to `recommendations.json` — see *Decision core* below.
+3. A **deterministic shell step, authenticated as `PR_AUTHOR_PAT`**, reads `recommendations.json` and files the issues.
 
 Rejected alternatives:
 - **A workflow per agent (one specialist each), each filing its own issues** — N× subscription-quota sessions per day, a dedup race across the independent runs, and noisier output. Rejected.
@@ -54,20 +55,20 @@ on:
 
 **Concurrency:** `group: claude-improvement-recommender`, `cancel-in-progress: false` — never let two ticks file overlapping issues.
 
-**Permissions:** `contents: read`, `issues: write` (dedup reads + the built-in-token label bootstrap), `id-token: write` (the action mints its OIDC token). The authoritative issue *creation* uses `PR_AUTHOR_PAT`, not the job's `GITHUB_TOKEN` — see below.
+**Permissions:** `contents: read`, `issues: read` (the built-in `GITHUB_TOKEN` only *lists* issues for dedup), `id-token: write` (the action mints its OIDC token). The authoritative issue *creation* uses `PR_AUTHOR_PAT`, not the job's `GITHUB_TOKEN` — see below.
 
 **Env (ship-safe defaults):**
 ```yaml
 env:
   DRY_RUN: "true"            # file nothing until a human has watched the output
-  MAX_ISSUES: "5"
+  MAX_ISSUES: "10"
   REC_LABEL: "recommendation"
   LOOKBACK_DAYS: "30"        # closed-issue window for dedup
 ```
 
 **Steps**
 
-1. `actions/checkout@v4` with `token: ${{ secrets.PR_AUTHOR_PAT }}`, `fetch-depth: 0`.
+1. `actions/checkout@v4` with the default `GITHUB_TOKEN` — the checkout is read-only (agents inspect the app; nothing is pushed), so no PAT is needed here. `PR_AUTHOR_PAT` is used only at the issue-filing step.
 2. `setup-python` + `setup-node` + install backend/web deps — so the `engineer`/`designer` subagents can run tests and inspect the live app, not merely read source. Mirrors `claude-implement-issue`'s toolchain pre-provisioning.
 3. **Dedup gather** (`GITHUB_TOKEN`): collect open issues plus issues closed within `LOOKBACK_DAYS` that carry `REC_LABEL`, into `existing_recs.json` (`[{number, title, body, state}]`). Handed to the agent so a standing recommendation is not re-proposed every day.
 4. **`anthropics/claude-code-action@v1`**:
@@ -77,7 +78,8 @@ env:
      - `autotiers-researcher` — compare our tier/ranking output against newly-available public rankings/ADP (FantasyPros, ESPN, etc.) and flag divergences worth acting on; also surface new tech/deps/techniques relevant to the stack.
      - `autotiers-designer` — audit the existing link→generate→export flow against current UX best practices and new patterns.
      - `autotiers-engineer` — audit app internals for correctness, performance, and maintainability improvements.
-   - *Collect every candidate. Read `existing_recs.json` and drop anything that duplicates an open or recently-closed recommendation. Rank by value/effort and select the top `MAX_ISSUES`. Write `recommendations.json` at repo root: `[{title, area, body}]`, where each `body` is an auto-implement-ready spec — problem, proposed change, acceptance criteria, affected files — and each `title` is one concise line. Do NOT create issues; a later step does that.*
+     - `autotiers-qa` — audit for latent regressions and untested/breakable paths in practice, and propose the guardrails or coverage that would catch them.
+   - *Collect every candidate and write `candidates.json` at repo root: `[{title, area, body}]`, where each `body` is an auto-implement-ready spec — problem, proposed change, acceptance criteria, affected files — and each `title` is one concise line. Dedup against `existing_recs.json`, ranking, and capping to `MAX_ISSUES` are done deterministically by `improvement_recommend_select.py` (which writes the final `recommendations.json`), not by the agent. Do NOT create issues; a later step does that.*
 5. **File issues** (`PR_AUTHOR_PAT`, gated so dry-run and empty/malformed JSON file nothing):
    - Validate `recommendations.json` parses to a list; else log and exit 0.
    - For up to `MAX_ISSUES` entries: `gh issue create --label "$REC_LABEL"` authenticated as `PR_AUTHOR_PAT`.
@@ -102,7 +104,7 @@ Full loop + top-10/day means a single arming can, at steady state, add **up to 1
 
 Mitigation, all in-design:
 - Ships `DRY_RUN: "true"`: the daily run produces `recommendations.json` and logs the plan but files nothing, so the *quality* of recommendations can be judged for several days before any issue is created.
-- Arm gradually: flip `DRY_RUN` to `"false"` first with `MAX_ISSUES: "1"`, watch a few days of the full loop, then ramp toward 5.
+- Arm gradually: flip `DRY_RUN` to `"false"` first with `MAX_ISSUES: "1"`, watch a few days of the full loop, then ramp toward 10.
 - Dedup + the `recommendation` label keep the tracker legible and let the orphan sweeper / health tooling reason about this job's output.
 
 ## Testing
