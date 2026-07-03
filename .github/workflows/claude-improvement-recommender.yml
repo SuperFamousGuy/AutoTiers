@@ -24,11 +24,19 @@ name: claude-improvement-recommender
 
 on:
   schedule:
-    # Daily 08:10 UTC. Minute 10 is free of every existing scheduled workflow
+    # Daily 06:10 UTC — deliberately OFF the 08:xx scheduled cluster
     # (copilot-review=0, sweeper-health=17, fix-checks=30, orphan-sweeper=40,
-    # resolve-conflicts=45, auto-merge=50) — a cron fires AT its minute field, so
-    # the minute is what must be unique.
-    - cron: "10 8 * * *"
+    # resolve-conflicts=45, auto-merge=50), several of which also spend the
+    # shared CLAUDE_CODE_OAUTH_TOKEN. This is a heavy job (one Opus parent + four
+    # nested Opus specialists) and it kept quota-dying at 08:10 because it landed
+    # right as that cluster saturated the rolling five-hour subscription window
+    # (see run 28667269189). 06:10 gives it the quietest possible lookback: the
+    # preceding five hours (01–06 UTC) are deep US night, when the event-driven
+    # Claude jobs (implement-issue, fix-pr-checks, resolve-conflicts,
+    # address-copilot-review) fire least. Minute 10 stays unique across the cron
+    # set (a cron fires AT its minute field, so the minute is what must not
+    # collide).
+    - cron: "10 6 * * *"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -146,6 +154,18 @@ jobs:
                 specialists — their results arrive as inline tool results, not
                 later.
 
+            QUOTA BUDGET — this job runs one Opus parent plus four nested Opus
+            specialists on a SHARED subscription token, and has quota-died when
+            the fan-out ran unbounded. Keep the whole run lean:
+              - In each specialist's Task prompt, cap the work explicitly: tell
+                it to time-box its investigation, look only where its lane's
+                highest-value findings live (do NOT crawl the whole repo), and
+                return its TOP 3–5 findings only, as terse specs — not an
+                exhaustive audit.
+              - Do the minimum inspection yourself before dispatching; let the
+                specialists do the digging, and don't re-do their work after.
+            Fewer, sharper candidates beat a thorough run that never finishes.
+
             Dispatch these four specialists via the Task tool, each in its lane;
             run them and collect their findings:
               - autotiers-researcher: compare our tier/ranking output against
@@ -245,6 +265,38 @@ jobs:
           # NB: `.is_error // "?"` is wrong here — jq's `//` treats `false` as
           # empty, so a healthy is_error=false would render "?". Test for null.
           is_error="$(echo "$result"    | jq -r 'if .is_error == null then "?" else .is_error end')"
+          # The result's `.result` text carries the terminal error message when
+          # the run was cut off (e.g. "You've hit your session limit"). And the
+          # execution stream records the true depth of the run: how many Task
+          # (a.k.a. `Agent`) sub-agents were actually dispatched, and whether any
+          # of them died mid-flight with an API/session-limit error. These are
+          # what tell a QUOTA death apart from a genuine no-op — num_turns alone
+          # does NOT (a session-limit interruption reports a tiny num_turns even
+          # though the parent really did fan out; that misread cost two commits).
+          result_text="$(echo "$result" | jq -r '.result // ""')"
+          agent_calls=0
+          agent_errors=0
+          if [ -f generation-execution.json ]; then
+            agent_calls="$(jq -s '[ .[] | .. | objects | select(.type=="tool_use" and (.name=="Task" or .name=="Agent")) ] | length' generation-execution.json 2>/dev/null || echo 0)"
+            # Match ONLY quota/session-limit stubs — not the generic "API error"
+            # phrase, which would count unrelated tool failures and inflate the
+            # "killed by quota" metric. The real session-limit stub reads
+            # "...terminated early due to an API error: You've hit your session
+            # limit", so "session limit" alone still catches it.
+            agent_errors="$(jq -s '[ .[] | .. | objects | select(.type=="tool_result") | .content? // [] | (if type=="array" then . else [] end) | .[] | .text? // "" | select(test("session limit|hit your.*limit|rate.?limit"; "i")) ] | length' generation-execution.json 2>/dev/null || echo 0)"
+          fi
+          # Derive quota_hit from QUOTA-SPECIFIC signals only — a session/rate
+          # limit message in the terminal result text, or sub-agents that
+          # returned session-limit stubs. Do NOT key it off the bare is_error
+          # flag: is_error is true for any failure (a tool crash, a network
+          # blip), and treating those as quota deaths would mislabel them
+          # "starved by quota" and wrongly assert the fan-out ran. A generic
+          # is_error with no quota signal now falls through to the dispatch/
+          # no-candidates branches below, where it belongs.
+          quota_hit="false"
+          if [ "$agent_errors" -gt 0 ] 2>/dev/null || echo "$result_text" | grep -qiE "session limit|hit your .*limit|rate.?limit"; then
+            quota_hit="true"
+          fi
 
           {
             echo "### Improvement recommender — generation"
@@ -257,20 +309,48 @@ jobs:
             echo "| total_cost_usd | $cost |"
             echo "| duration_ms | $duration_ms |"
             echo "| is_error | $is_error |"
+            echo "| Task sub-agents dispatched | $agent_calls |"
+            echo "| sub-agents killed by quota | $agent_errors |"
+            echo "| quota/session-limit death | $quota_hit |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-          echo "candidates_present=$cand_present candidates=$cand_count num_turns=$num_turns cost=$cost duration_ms=$duration_ms is_error=$is_error"
+          echo "candidates_present=$cand_present candidates=$cand_count num_turns=$num_turns cost=$cost duration_ms=$duration_ms is_error=$is_error agent_calls=$agent_calls agent_errors=$agent_errors quota_hit=$quota_hit"
 
-          # No-op guard: empty candidate set, OR a plausibly-real turn count that
-          # is too low to have run the four-specialist fan-out. A wholly ABSENT
-          # candidates.json is the strongest no-op tell — call it out distinctly.
-          if [ "$cand_present" != "true" ]; then
-            echo "::warning title=Recommender wrote no candidates.json::The generator never emitted candidates.json — the orchestrator returned without writing output at all. Almost certainly a no-op (specialists never dispatched), not a genuine 'nothing to improve'. See the metrics above and the uploaded artifact."
+          # Failure taxonomy — distinguish the THREE ways an empty run happens,
+          # because they demand different responses (the earlier guard conflated
+          # them and blamed "specialists never dispatched" for what was really a
+          # quota death — see run 28667269189, which DID dispatch all four Task
+          # agents before the shared five-hour Pro/Max window rejected them).
+          #
+          #   1. QUOTA DEATH  — a "session limit"/"rate limit" terminal message,
+          #      or sub-agents that returned session-limit stubs (agent_errors>0).
+          #      Deliberately NOT keyed off the bare is_error flag (that fires on
+          #      any failure). It was starved of tokens; fix = reduce/relocate
+          #      quota pressure, NOT the prompt. This is the loud one.
+          #   2. NO DISPATCH  — no candidates.json written AND zero Task/Agent
+          #      sub-agents in the stream. This is the original "orchestrator
+          #      returned without fanning out" failure the prompt fix targeted.
+          #      (The low-num_turns tell is a SEPARATE, secondary warning below,
+          #      not part of this branch's condition.)
+          #   3. GENUINE NO-OP — the run completed cleanly (is_error=false, no
+          #      quota signal, agents dispatched) but found nothing to propose.
+          if [ "$quota_hit" = "true" ]; then
+            echo "::warning title=Recommender starved by quota (NOT a dispatch bug)::The run hit the shared five-hour subscription limit. Task sub-agents dispatched=$agent_calls, killed by quota=$agent_errors, is_error=$is_error. If agent_calls>0 the fan-out ran and was starved mid-flight; if it is 0 the parent hit the limit before dispatching. Either way this is quota pressure, not the prompt — do NOT chase the dispatch wording. Reduce quota pressure: relocate the schedule away from other CLAUDE_CODE_OAUTH_TOKEN jobs' burn window, cut specialists' --max-turns, or enable overage. See metrics + artifact."
+          elif [ "$cand_present" != "true" ] && [ "$agent_calls" -eq 0 ] 2>/dev/null; then
+            echo "::warning title=Recommender never dispatched specialists::No Task sub-agents appear in the execution stream and no candidates.json was written — the orchestrator returned without fanning out. This is the dispatch failure (distinct from a quota death, which shows agent_calls>0)."
+          elif [ "$cand_present" != "true" ]; then
+            echo "::warning title=Recommender wrote no candidates.json::The generator dispatched $agent_calls sub-agent(s) but never emitted candidates.json. Check the artifact — the parent likely stopped before writing output."
           elif [ "$cand_count" = "0" ]; then
-            echo "::warning title=Recommender produced no candidates::candidates.json is an empty array — the run filed nothing. Distinguish a genuine 'nothing to improve' from an orchestrator that never dispatched the four specialists via the metrics above and the uploaded artifact."
+            echo "::notice title=Recommender produced no candidates::candidates.json is an empty array with a clean run ($agent_calls sub-agents, is_error=$is_error, no quota signal) — most likely a genuine 'nothing to improve'. Confirm via the artifact if this repeats."
           fi
-          if [ "$num_turns" != "?" ] && [ "$num_turns" -lt "$LOW_TURN_THRESHOLD" ] 2>/dev/null; then
-            echo "::warning title=Recommender turn count implausibly low::num_turns=$num_turns (< $LOW_TURN_THRESHOLD) — a real four-specialist fan-out runs far more turns. The parent likely returned success without dispatching the specialists."
+          # Secondary tell only — a low num_turns is NOT decisive on its own: a
+          # quota interruption reports a tiny num_turns even after a full fan-out.
+          # Only warn on it when the stream ALSO shows no dispatch and no quota
+          # death, so it never re-fires the phantom "no fan-out" alarm on a quota
+          # run (which already warned above).
+          if [ "$num_turns" != "?" ] && [ "$num_turns" -lt "$LOW_TURN_THRESHOLD" ] 2>/dev/null \
+             && [ "$quota_hit" != "true" ] && [ "$agent_calls" -eq 0 ] 2>/dev/null; then
+            echo "::warning title=Recommender turn count implausibly low::num_turns=$num_turns (< $LOW_TURN_THRESHOLD) with zero Task sub-agents and no quota signal — the parent returned without dispatching the specialists."
           fi
 
       # Preserve the generation's raw output so a green-but-empty run can be
