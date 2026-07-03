@@ -278,10 +278,23 @@ jobs:
           agent_errors=0
           if [ -f generation-execution.json ]; then
             agent_calls="$(jq -s '[ .[] | .. | objects | select(.type=="tool_use" and (.name=="Task" or .name=="Agent")) ] | length' generation-execution.json 2>/dev/null || echo 0)"
-            agent_errors="$(jq -s '[ .[] | .. | objects | select(.type=="tool_result") | .content? // [] | (if type=="array" then . else [] end) | .[] | .text? // "" | select(test("session limit|API error|hit your.*limit"; "i")) ] | length' generation-execution.json 2>/dev/null || echo 0)"
+            # Match ONLY quota/session-limit stubs — not the generic "API error"
+            # phrase, which would count unrelated tool failures and inflate the
+            # "killed by quota" metric. The real session-limit stub reads
+            # "...terminated early due to an API error: You've hit your session
+            # limit", so "session limit" alone still catches it.
+            agent_errors="$(jq -s '[ .[] | .. | objects | select(.type=="tool_result") | .content? // [] | (if type=="array" then . else [] end) | .[] | .text? // "" | select(test("session limit|hit your.*limit|rate.?limit"; "i")) ] | length' generation-execution.json 2>/dev/null || echo 0)"
           fi
+          # Derive quota_hit from QUOTA-SPECIFIC signals only — a session/rate
+          # limit message in the terminal result text, or sub-agents that
+          # returned session-limit stubs. Do NOT key it off the bare is_error
+          # flag: is_error is true for any failure (a tool crash, a network
+          # blip), and treating those as quota deaths would mislabel them
+          # "starved by quota" and wrongly assert the fan-out ran. A generic
+          # is_error with no quota signal now falls through to the dispatch/
+          # no-candidates branches below, where it belongs.
           quota_hit="false"
-          if [ "$is_error" = "true" ] || echo "$result_text" | grep -qiE "session limit|hit your .*limit|rate.?limit"; then
+          if [ "$agent_errors" -gt 0 ] 2>/dev/null || echo "$result_text" | grep -qiE "session limit|hit your .*limit|rate.?limit"; then
             quota_hit="true"
           fi
 
@@ -309,17 +322,20 @@ jobs:
           # quota death — see run 28667269189, which DID dispatch all four Task
           # agents before the shared five-hour Pro/Max window rejected them).
           #
-          #   1. QUOTA DEATH  — is_error / a "session limit" terminal message, or
-          #      sub-agents that returned an API-error stub. The fan-out DID run;
-          #      it was starved of tokens. Fix = reduce/relocate quota pressure,
-          #      NOT the prompt. This is the loud one.
-          #   2. NO DISPATCH  — zero Task sub-agents in the stream AND a low turn
-          #      count. This is the original "orchestrator returned without
-          #      fanning out" failure the prompt fix targeted.
+          #   1. QUOTA DEATH  — a "session limit"/"rate limit" terminal message,
+          #      or sub-agents that returned session-limit stubs (agent_errors>0).
+          #      Deliberately NOT keyed off the bare is_error flag (that fires on
+          #      any failure). It was starved of tokens; fix = reduce/relocate
+          #      quota pressure, NOT the prompt. This is the loud one.
+          #   2. NO DISPATCH  — no candidates.json written AND zero Task/Agent
+          #      sub-agents in the stream. This is the original "orchestrator
+          #      returned without fanning out" failure the prompt fix targeted.
+          #      (The low-num_turns tell is a SEPARATE, secondary warning below,
+          #      not part of this branch's condition.)
           #   3. GENUINE NO-OP — the run completed cleanly (is_error=false, no
           #      quota signal, agents dispatched) but found nothing to propose.
           if [ "$quota_hit" = "true" ]; then
-            echo "::warning title=Recommender starved by quota (NOT a dispatch bug)::The run hit the shared five-hour subscription limit. Task sub-agents dispatched=$agent_calls, killed by quota=$agent_errors, is_error=$is_error. The four-specialist fan-out DID run — do NOT chase the prompt/dispatch wording. Reduce quota pressure: relocate the schedule away from other CLAUDE_CODE_OAUTH_TOKEN jobs' burn window, cut specialists' --max-turns, or enable overage. See metrics + artifact."
+            echo "::warning title=Recommender starved by quota (NOT a dispatch bug)::The run hit the shared five-hour subscription limit. Task sub-agents dispatched=$agent_calls, killed by quota=$agent_errors, is_error=$is_error. If agent_calls>0 the fan-out ran and was starved mid-flight; if it is 0 the parent hit the limit before dispatching. Either way this is quota pressure, not the prompt — do NOT chase the dispatch wording. Reduce quota pressure: relocate the schedule away from other CLAUDE_CODE_OAUTH_TOKEN jobs' burn window, cut specialists' --max-turns, or enable overage. See metrics + artifact."
           elif [ "$cand_present" != "true" ] && [ "$agent_calls" -eq 0 ] 2>/dev/null; then
             echo "::warning title=Recommender never dispatched specialists::No Task sub-agents appear in the execution stream and no candidates.json was written — the orchestrator returned without fanning out. This is the dispatch failure (distinct from a quota death, which shows agent_calls>0)."
           elif [ "$cand_present" != "true" ]; then
