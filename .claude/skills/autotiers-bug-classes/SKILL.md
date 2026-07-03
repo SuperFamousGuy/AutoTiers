@@ -123,6 +123,19 @@ The fix updated `backend/.gitignore` to include `venv*/` and `coverage.xml` (rea
 - The signature symptom is **the entire page becoming unclickable after a dialog/menu/overlay closes** — especially via outside-click rather than the close button (the two paths can run cleanup against different instances). Always test the OUTSIDE-CLICK close path, and assert `document.body.style.pointerEvents` is not left at `"none"`.
 - When two primitives manage the same global (menu + dialog both touching body pointer-events), exercise them in sequence (open menu → open dialog from it → close dialog) — the cross-instance ordering is where the bug lives, not in either one alone.
 
+## 11. Error state rendered as loading state
+
+**Canonical case:** `useRules()` in `web/src/api/hooks.ts` returned `isError` from react-query but the caller — `web/src/components/RulesPanel.tsx` — never consumed it. `RulesPanel` used `canonicalRules.length === 0` as its sole loading discriminator. When a prod CORS misconfig blocked all credentialed requests to `GET /api/rules`, the rules array stayed `[]`, the component rendered "Loading rules…" forever, and no error was surfaced to the user. A total backend outage of that endpoint was visually indistinguishable from "still fetching." Fixed in PR #493: a distinct error branch driven by `isError` (with `role="alert"` + Retry), guarded by `isError && !hasRules` so a failed background refetch doesn't blank already-loaded data.
+
+**The general rule:** any component that renders async data needs THREE distinct rendered states — loading, error, and loaded-empty — not two. Using "data is empty" as the loading discriminator conflates "never fetched" with "fetch failed," which hides hard failures behind an eternal spinner. The hook's `isError` return must be destructured at the call site AND consumed in the JSX, not just destructured and ignored.
+
+**How to detect:**
+- For every component in `web/src/components/` that calls a data hook (react-query, SWR, or a custom fetch hook), destructure `isError` (and `error`) at the call site. If neither is referenced anywhere in the component body, that's a missing error state.
+- Check the loading discriminator. If it reads `data.length === 0`, `items == null`, or any emptiness check on the payload rather than an explicit `isLoading` / `isPending` flag, it will conflate load-failed with not-yet-loaded.
+- Probe: in a dev/staging environment, add a `beforeFetch` intercept (MSW `http.get('/api/rules', () => HttpResponse.error())`) or force the fetch to reject via DevTools network throttle → offline. Assert that a visible error affordance appears — not a spinner, not a blank panel. Assert the affordance has `role="alert"` so it is announced to assistive technology.
+- Verify the "already loaded, then failed refetch" path separately: load data successfully, then force a refetch failure. The already-loaded data should remain visible; a spinner or blank state in this case is the `isError && !hasRules` guard being absent.
+- Treat a missing error state as a **blocker** when the endpoint is user-critical (rules, auth, rankings). The CORS incident that surfaced this bug caused a silent total outage — no log surfaced it until a manual investigation.
+
 ## Probe order (for the QA agent)
 
 When reviewing a change, walk these in this order:
@@ -137,5 +150,6 @@ When reviewing a change, walk these in this order:
 8. UI inconsistency (do all states show consistent affordances?)
 9. Cloud resource-policy gaps (for infra changes: does every service-to-service AWS integration have the target resource policy, and is the calling role least-privilege?)
 10. Duplicate dependency instances (for frontend dep/lockfile changes: is every stateful primitive — focus trap, scroll lock, overlay manager — resolved to a single version, with the outside-click close path tested?)
+11. Error state rendered as loading state (for any component that fetches async data: are all three rendered states — loading, error, loaded-empty — distinct? Is `isError` consumed, not just destructured? Does forcing the fetch to reject produce an error affordance rather than a spinner?)
 
 If a category clearly doesn't apply to the change, say so explicitly with reasoning. Don't skip silently.
