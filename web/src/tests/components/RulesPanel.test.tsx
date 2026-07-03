@@ -179,4 +179,73 @@ describe("RulesPanel", () => {
     // RB override was added
     expect(called.RB).toEqual([{ name: "RB Committee Penalty", enabled: false, weight: 1.0 }]);
   });
+
+  it("renders the error state (not loading) when isError is true", () => {
+    render(
+      <RulesPanel
+        canonicalRules={[]}
+        positionRules={{}}
+        onChange={() => {}}
+        isError
+        onRetry={() => {}}
+      />
+    );
+
+    // Error copy is shown; the loading spinner text is NOT.
+    expect(screen.getByText("Couldn't load rules.")).toBeInTheDocument();
+    expect(screen.queryByText("Loading rules\u2026")).not.toBeInTheDocument();
+
+    // A retry affordance is present and accessible by name.
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+
+    // The whole panel is announced as an alert.
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+  });
+
+  it("isError takes precedence over the empty-rules loading check", () => {
+    // canonicalRules is [] AND isError — a failed fetch never seeds rules, so
+    // this is the real production shape. Must render ERROR, never LOADING.
+    render(
+      <RulesPanel
+        canonicalRules={[]}
+        positionRules={{}}
+        onChange={() => {}}
+        isError
+        onRetry={() => {}}
+      />
+    );
+    expect(screen.getByText("Couldn't load rules.")).toBeInTheDocument();
+    expect(screen.queryByText("Loading rules\u2026")).not.toBeInTheDocument();
+  });
+
+  it("clicking Retry calls onRetry", async () => {
+    const onRetry = vi.fn();
+    render(
+      <RulesPanel
+        canonicalRules={[]}
+        positionRules={{}}
+        onChange={() => {}}
+        isError
+        onRetry={onRetry}
+      />
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not show the error state when isError is false and rules are present", () => {
+    render(
+      <RulesPanel
+        canonicalRules={minimalCanonical}
+        positionRules={{}}
+        onChange={() => {}}
+        isError={false}
+      />
+    );
+    expect(screen.queryByText("Couldn't load rules.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    // Rules render normally.
+    expect(screen.getByText("RB Committee Penalty")).toBeInTheDocument();
+  });
 });

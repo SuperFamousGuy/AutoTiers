@@ -8,12 +8,53 @@ interface RulesPanelProps {
   canonicalRules: Rule[];
   positionRules: PositionRulesState;
   onChange: (next: PositionRulesState) => void;
+  /** True when the GET /api/rules query has failed (after retries exhausted). */
+  isError?: boolean;
+  /** Retries the rules fetch — wired to react-query's refetch. */
+  onRetry?: () => void;
 }
 
-export function RulesPanel({ canonicalRules, positionRules, onChange }: RulesPanelProps) {
+/**
+ * The disabled position-tab strip shared by the loading and error states, so
+ * both render the same chrome and only the status line below differs.
+ */
+function DisabledTabStrip() {
+  return (
+    <div role="tablist" aria-label="Position" className="flex gap-1 mb-4">
+      {POSITIONS.map((pos) => (
+        <button
+          key={pos}
+          role="tab"
+          aria-selected={false}
+          aria-controls="rules-tabpanel"
+          id={`tab-${pos}`}
+          disabled
+          className="rounded px-2.5 py-1 text-xs font-semibold font-mono bg-muted text-muted-foreground opacity-50 cursor-not-allowed"
+        >
+          {pos}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function RulesPanel({
+  canonicalRules,
+  positionRules,
+  onChange,
+  isError = false,
+  onRetry,
+}: RulesPanelProps) {
   const [activePosition, setActivePosition] = useState<Position>("RB");
 
-  const isLoading = canonicalRules.length === 0;
+  // Three distinct states, checked in precedence order below:
+  //  - ERROR  : the fetch failed. isError wins even though canonicalRules is []
+  //             (a failed fetch never seeds rules), so a hard failure no longer
+  //             masquerades as an eternal "Loading rules…" spinner.
+  //  - LOADING: no rules yet AND no error → still in flight.
+  //  - LOADED : rules present.
+  const hasRules = canonicalRules.length > 0;
+  const isLoading = !hasRules && !isError;
 
   // Filter canonical rules to those in the active position's mapping, in mapping order.
   const positionRuleNames = POSITION_RULES_MAP[activePosition];
@@ -53,24 +94,28 @@ export function RulesPanel({ canonicalRules, positionRules, onChange }: RulesPan
     onChange({ ...positionRules, [positionName]: next });
   }
 
+  if (isError) {
+    return (
+      <aside className="p-6 border-r bg-card min-h-0 overflow-y-auto" role="alert">
+        <DisabledTabStrip />
+        <p className="text-sm text-destructive font-medium mb-3">
+          Couldn't load rules.
+        </p>
+        <button
+          type="button"
+          onClick={() => onRetry?.()}
+          className="rounded bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+        >
+          Retry
+        </button>
+      </aside>
+    );
+  }
+
   if (isLoading) {
     return (
       <aside className="p-6 border-r bg-card min-h-0 overflow-y-auto">
-        <div role="tablist" aria-label="Position" className="flex gap-1 mb-4">
-          {POSITIONS.map((pos) => (
-            <button
-              key={pos}
-              role="tab"
-              aria-selected={false}
-              aria-controls="rules-tabpanel"
-              id={`tab-${pos}`}
-              disabled
-              className="rounded px-2.5 py-1 text-xs font-semibold font-mono bg-muted text-muted-foreground opacity-50 cursor-not-allowed"
-            >
-              {pos}
-            </button>
-          ))}
-        </div>
+        <DisabledTabStrip />
         <span className="text-sm text-muted-foreground">Loading rules…</span>
       </aside>
     );
