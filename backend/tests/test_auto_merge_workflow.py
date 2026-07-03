@@ -343,7 +343,7 @@ def _run_retry(
     # -- which references both (they live OUTSIDE the marker block in the real
     # workflow, initialized before the candidate loop) -- runs under `set -u`.
     script = textwrap.dedent(f"""\
-        set -uo pipefail
+        set -euo pipefail
         export PATH="{tmp}:$PATH"
         MERGEABLE_RETRIES={retries}
         MERGEABLE_BACKOFF_SECONDS={backoff}
@@ -538,7 +538,7 @@ def _run_retry_budget(
     # One shared counter, then the extracted block per PR -- deltas in the fetch
     # counter give each PR's fetch count so we can prove later PRs stop cold.
     script = textwrap.dedent(f"""\
-        set -uo pipefail
+        set -euo pipefail
         export PATH="{tmp}:$PATH"
         MERGEABLE_RETRIES={retries}
         MERGEABLE_BACKOFF_SECONDS={backoff}
