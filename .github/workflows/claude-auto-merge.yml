@@ -34,7 +34,12 @@ name: claude-auto-merge
 #                       returns MERGEABLE. After the retries a still-UNKNOWN PR is
 #                       treated as NOT eligible (SKIP, never merge); CONFLICTING
 #                       is the resolve-conflicts sweeper's job. UNKNOWN is NEVER
-#                       treated as mergeable. (issue: stuck-Dependabot #439 et al.)
+#                       treated as mergeable. A GLOBAL retry-budget
+#                       (MERGEABLE_TOTAL_RETRY_BUDGET_SECONDS, issue #474) bounds
+#                       the total UNKNOWN re-poll sleep across the whole candidate
+#                       loop so a pathological all-UNKNOWN tick can't approach the
+#                       job timeout; once spent, remaining UNKNOWN PRs skip the
+#                       tick and retry next run. (issue: stuck-Dependabot #439 et al.)
 #  3. Copilot reviewed: a review exists from copilot-pull-request-reviewer[bot] in
 #                       ANY state. !! NOT state==APPROVED — Copilot reviews come
 #                       back COMMENTED, so gating on APPROVED never fires. !!
@@ -103,6 +108,16 @@ env:
   # total extra sleep = MERGEABLE_RETRIES * MERGEABLE_BACKOFF_SECONDS.
   MERGEABLE_RETRIES: "3"
   MERGEABLE_BACKOFF_SECONDS: "2"
+  # Global cap (issue #474) on the TOTAL UNKNOWN-retry sleep across the whole
+  # candidate loop. The per-PR retry above is bounded, but a pathological tick
+  # where every one of up to 100 candidates is stuck-UNKNOWN would accumulate
+  # MERGEABLE_RETRIES*MERGEABLE_BACKOFF_SECONDS of sleep PER PR (~600s worst
+  # case), pressing against the 10-min job timeout. We track total re-poll sleep
+  # for the run and stop re-polling once it would exceed this budget; the
+  # still-UNKNOWN PRs simply skip this tick and are retried next run. Keep this
+  # comfortably under the job's timeout-minutes (600s) to leave room for the
+  # non-sleep fetch/merge work.
+  MERGEABLE_TOTAL_RETRY_BUDGET_SECONDS: "120"
   # Criterion 3 keys off this reviewer login. NOTE: the predicate reads the login
   # from GraphQL (author.login), where a Bot's login has NO "[bot]" suffix
   # (GraphQL returns "copilot-pull-request-reviewer"; REST returns the "[bot]"
@@ -262,6 +277,13 @@ jobs:
             --jq '[.[] | select(.isCrossRepository == false and .isDraft == false) | .number]')"
           echo "candidate PRs (open same-repo non-draft): $candidates"
 
+          # Global UNKNOWN-retry sleep budget (issue #474). Accumulates the total
+          # mergeable-settling backoff sleep across ALL candidate PRs this run.
+          # Initialized ONCE here, OUTSIDE the per-PR loop, so the cap is global
+          # (not per-PR); the retry loop below adds to it and stops re-polling
+          # once the next sleep would exceed MERGEABLE_TOTAL_RETRY_BUDGET_SECONDS.
+          retry_sleep_spent=0
+
           for pr in $(echo "$candidates" | python3 -c 'import json,sys; print(" ".join(str(n) for n in json.load(sys.stdin)))'); do
             echo "----- evaluating PR #$pr -----"
 
@@ -336,8 +358,22 @@ jobs:
                 echo "PR #$pr: mergeable still UNKNOWN after ${MERGEABLE_RETRIES} re-polls; will skip (never merges an unresolved PR)."
                 break
               fi
+              # Global retry-budget cap (issue #474). `retry_sleep_spent` is the
+              # total UNKNOWN-backoff sleep already spent this run (across every
+              # candidate PR, initialized before the loop). Only sleep when doing
+              # so keeps the running total within the budget; this bounds total
+              # retry sleep to <= MERGEABLE_TOTAL_RETRY_BUDGET_SECONDS regardless
+              # of how many candidates are stuck-UNKNOWN. Once the budget is
+              # spent, THIS and every later UNKNOWN PR break here without sleeping
+              # -- leaving the payload UNKNOWN so predicate.py SKIPs it -- and get
+              # retried on the next scheduled run.
+              if [ "$((retry_sleep_spent + MERGEABLE_BACKOFF_SECONDS))" -gt "$MERGEABLE_TOTAL_RETRY_BUDGET_SECONDS" ]; then
+                echo "PR #$pr: global mergeable-retry budget (${MERGEABLE_TOTAL_RETRY_BUDGET_SECONDS}s) reached (${retry_sleep_spent}s spent); skipping re-poll this tick (retried next run)."
+                break
+              fi
               echo "PR #$pr: mergeable UNKNOWN (settling); re-poll ${attempt}/${MERGEABLE_RETRIES} in ${MERGEABLE_BACKOFF_SECONDS}s."
               sleep "$MERGEABLE_BACKOFF_SECONDS"
+              retry_sleep_spent=$((retry_sleep_spent + MERGEABLE_BACKOFF_SECONDS))
             done
             # <<< mergeable-retry <<<
 

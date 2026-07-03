@@ -287,13 +287,18 @@ def _extract_retry_block() -> str:
     return "\n".join(lines)
 
 
-def _run_retry(sequence: list[str], retries: str = "3", backoff: str = "0"):
+def _run_retry(
+    sequence: list[str], retries: str = "3", backoff: str = "0", budget: str = "1000000"
+):
     """Execute the REAL extracted retry loop with a stubbed `gh` that emits, on
     each call, the next payload in `sequence` (a mergeable string, or the literal
     "" for an empty/API-error response). Returns (final_mergeable, gh_call_count,
     final_data_nonempty).
 
-    backoff defaults to 0 so the test does not actually sleep.
+    backoff defaults to 0 so the test does not actually sleep (and a no-op `sleep`
+    stub is on PATH so even a nonzero backoff never blocks). budget defaults to an
+    effectively-infinite value so the global retry-budget cap (issue #474) never
+    fires for the non-budget tests; the budget tests pass a small value.
     """
     import os
     import tempfile
@@ -331,18 +336,25 @@ def _run_retry(sequence: list[str], retries: str = "3", backoff: str = "0"):
             printf '%s' "$line"
         """))
     os.chmod(gh, 0o755)
+    _write_sleep_stub(tmp)
 
-    # Drive the loop, then report the final mergeable + fetch count.
+    # Drive the loop, then report the final mergeable + fetch count. The budget
+    # var + `retry_sleep_spent` counter are declared here so the extracted block
+    # -- which references both (they live OUTSIDE the marker block in the real
+    # workflow, initialized before the candidate loop) -- runs under `set -u`.
     script = textwrap.dedent(f"""\
         set -uo pipefail
         export PATH="{tmp}:$PATH"
         MERGEABLE_RETRIES={retries}
         MERGEABLE_BACKOFF_SECONDS={backoff}
+        MERGEABLE_TOTAL_RETRY_BUDGET_SECONDS={budget}
+        retry_sleep_spent=0
         OWNER=o; repo_name=r; pr=1
         {block}
         final_mergeable="$(printf '%s' "$data" | python3 -c 'import json,sys; d=json.loads(sys.stdin.read() or "{{}}"); print((((d.get("data") or {{}}).get("repository") or {{}}).get("pullRequest") or {{}}).get("mergeable") or "")' 2>/dev/null || true)"
         echo "FINAL_MERGEABLE=${{final_mergeable}}"
         echo "GH_CALLS=$(cat {counter})"
+        echo "RETRY_SLEEP_SPENT=${{retry_sleep_spent}}"
         if [ -n "$data" ]; then echo "DATA=nonempty"; else echo "DATA=empty"; fi
     """)
     result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=True)
@@ -350,6 +362,18 @@ def _run_retry(sequence: list[str], retries: str = "3", backoff: str = "0"):
         line.split("=", 1) for line in result.stdout.strip().splitlines() if "=" in line
     )
     return out["FINAL_MERGEABLE"], int(out["GH_CALLS"]), out["DATA"] == "nonempty"
+
+
+def _write_sleep_stub(tmp: str) -> None:
+    """Drop a no-op `sleep` on PATH so the extracted loop never actually blocks
+    even with a nonzero MERGEABLE_BACKOFF_SECONDS -- the budget accounting adds
+    the backoff to `retry_sleep_spent` arithmetically, independent of real time."""
+    import os
+
+    sl = os.path.join(tmp, "sleep")
+    with open(sl, "w") as fh:
+        fh.write("#!/usr/bin/env bash\nexit 0\n")
+    os.chmod(sl, 0o755)
 
 
 def test_retry_exhausted_stays_unknown_and_fetches_retries_plus_one():
@@ -410,3 +434,160 @@ def test_retry_api_error_after_unknown_breaks():
     final, calls, nonempty = _run_retry(["UNKNOWN", ""], retries="3")
     assert nonempty is False
     assert calls == 2
+
+
+# --- Global UNKNOWN-retry BUDGET cap (issue #474) ----------------------------
+#
+# The per-PR retry above is bounded (MERGEABLE_RETRIES+1 fetches), but a
+# pathological tick where every one of up to 100 candidates is stuck-UNKNOWN
+# would accumulate MERGEABLE_RETRIES*MERGEABLE_BACKOFF_SECONDS of sleep PER PR
+# (~600s worst case), pressing against the 10-min job timeout. #474 adds a global
+# budget (MERGEABLE_TOTAL_RETRY_BUDGET_SECONDS): a `retry_sleep_spent` counter
+# initialized ONCE before the candidate loop and shared across every PR. The loop
+# only sleeps when doing so keeps the running total within budget; once spent,
+# this and every later UNKNOWN PR skip re-polling (payload stays UNKNOWN ->
+# predicate.py SKIPs) and get retried next run.
+#
+# These tests drive the REAL extracted retry block: the single-PR ones through
+# `_run_retry` with a small budget, and the cross-PR accounting through a
+# multi-PR harness that shares one `retry_sleep_spent` across N sequential PRs --
+# exactly how the shipped candidate loop threads it. Fetch counts and total sleep
+# are pinned EXACTLY (bug-class #7: no weak ">= something" bounds).
+
+
+def test_budget_cap_wired_into_loop():
+    """Structural: the global budget env var exists, the counter is initialized
+    OUTSIDE the retry marker block (before the candidate loop), and the block
+    gates the sleep on the budget and accumulates spend."""
+    assert "MERGEABLE_TOTAL_RETRY_BUDGET_SECONDS:" in TEXT  # env declared
+    # Counter initialized before the per-PR loop, NOT inside the marker block
+    # (else it would reset every PR and the cap would be per-PR, not global).
+    init_pos = TEXT.index("retry_sleep_spent=0")
+    loop_pos = TEXT.index("for pr in $(echo")
+    block_start = TEXT.index(RETRY_START)
+    assert init_pos < loop_pos < block_start
+    block = TEXT[TEXT.index(RETRY_START) : TEXT.index(RETRY_END)]
+    # The sleep is gated on the running total + next backoff vs the budget...
+    assert '(retry_sleep_spent + MERGEABLE_BACKOFF_SECONDS))" -gt "$MERGEABLE_TOTAL_RETRY_BUDGET_SECONDS"' in block
+    # ...and the spend is accumulated only after an actual sleep.
+    assert "retry_sleep_spent=$((retry_sleep_spent + MERGEABLE_BACKOFF_SECONDS))" in block
+
+
+def test_budget_cuts_single_pr_short():
+    """A tiny budget stops re-polling an all-UNKNOWN PR before MERGEABLE_RETRIES:
+    budget=2s / backoff=2s permits exactly ONE sleep, so 2 fetches (not 4), and
+    the payload stays UNKNOWN (predicate.py SKIPs -- never merges unresolved)."""
+    final, calls, _ = _run_retry(["UNKNOWN"] * 6, retries="3", backoff="2", budget="2")
+    assert final == "UNKNOWN"  # never coerced to MERGEABLE
+    assert calls == 2          # 1 initial fetch + 1 re-poll, then budget stops it
+
+
+def test_budget_zero_disables_repoll_entirely():
+    """Budget 0: no UNKNOWN re-poll sleep is ever affordable, so an UNKNOWN PR is
+    fetched exactly once and skipped (retried next run). The safety invariant
+    holds: UNKNOWN stays UNKNOWN."""
+    final, calls, _ = _run_retry(["UNKNOWN"] * 6, retries="3", backoff="2", budget="0")
+    assert final == "UNKNOWN"
+    assert calls == 1
+
+
+def test_budget_does_not_shorten_when_ample():
+    """A budget larger than the per-PR worst case must NOT change behaviour: the
+    per-PR MERGEABLE_RETRIES cap still governs -> RETRIES+1 fetches, budget idle."""
+    final, calls, _ = _run_retry(["UNKNOWN"] * 6, retries="3", backoff="2", budget="1000")
+    assert final == "UNKNOWN"
+    assert calls == 4  # RETRIES+1, unchanged by the (ample) budget
+
+
+def _run_retry_budget(
+    num_prs: int, retries: str, backoff: str, budget: str, mergeable: str = "UNKNOWN"
+):
+    """Run the REAL extracted retry block once per PR across `num_prs` sequential
+    PRs, sharing a SINGLE `retry_sleep_spent` counter initialized before the loop
+    -- mirroring the shipped candidate loop. A stubbed `gh` always returns a
+    payload with the given `mergeable` (models every candidate stuck at that
+    state); a no-op `sleep` keeps it instant. Returns (retry_sleep_spent,
+    total_gh_calls, per_pr_fetch_counts)."""
+    import os
+    import tempfile
+    import textwrap
+
+    block = _extract_retry_block()
+    tmp = tempfile.mkdtemp()
+    payload = '{"data":{"repository":{"pullRequest":{"mergeable":"%s"}}}}' % mergeable
+    counter = os.path.join(tmp, "n")
+    with open(counter, "w") as fh:
+        fh.write("0")
+    gh = os.path.join(tmp, "gh")
+    with open(gh, "w") as fh:
+        fh.write(textwrap.dedent(f"""\
+            #!/usr/bin/env bash
+            n=$(cat {counter}); n=$((n+1)); printf '%s' "$n" > {counter}
+            printf '%s' '{payload}'
+        """))
+    os.chmod(gh, 0o755)
+    _write_sleep_stub(tmp)
+
+    # One shared counter, then the extracted block per PR -- deltas in the fetch
+    # counter give each PR's fetch count so we can prove later PRs stop cold.
+    script = textwrap.dedent(f"""\
+        set -uo pipefail
+        export PATH="{tmp}:$PATH"
+        MERGEABLE_RETRIES={retries}
+        MERGEABLE_BACKOFF_SECONDS={backoff}
+        MERGEABLE_TOTAL_RETRY_BUDGET_SECONDS={budget}
+        OWNER=o; repo_name=r
+        retry_sleep_spent=0
+        for pr in $(seq 1 {num_prs}); do
+          before="$(cat {counter})"
+          {block}
+          after="$(cat {counter})"
+          echo "PR_FETCHES=$((after - before))"
+        done
+        echo "RETRY_SLEEP_SPENT=${{retry_sleep_spent}}"
+        echo "TOTAL_GH_CALLS=$(cat {counter})"
+    """)
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=True)
+    per_pr = []
+    spent = total = None
+    for line in result.stdout.strip().splitlines():
+        if line.startswith("PR_FETCHES="):
+            per_pr.append(int(line.split("=", 1)[1]))
+        elif line.startswith("RETRY_SLEEP_SPENT="):
+            spent = int(line.split("=", 1)[1])
+        elif line.startswith("TOTAL_GH_CALLS="):
+            total = int(line.split("=", 1)[1])
+    return spent, total, per_pr
+
+
+def test_budget_bounds_total_sleep_across_prs():
+    """The whole point of #474: with EVERY candidate stuck-UNKNOWN, total re-poll
+    sleep is capped at the budget no matter how many PRs there are. budget=8s,
+    backoff=2s over 4 all-UNKNOWN PRs -> total sleep == 8s (== budget), never the
+    unbounded 4*3*2 == 24s it would be without the cap."""
+    spent, _total, per_pr = _run_retry_budget(4, retries="3", backoff="2", budget="8")
+    assert spent == 8               # exactly the budget, not a byte over
+    assert spent <= 8               # invariant restated: never exceeds budget
+    assert len(per_pr) == 4
+
+
+def test_budget_spent_makes_later_prs_skip_without_sleeping():
+    """Once the budget is exhausted, subsequent UNKNOWN PRs do their single
+    initial fetch and skip -- exactly 1 fetch each, no re-poll. Proves the cap is
+    GLOBAL (shared across PRs), not reset per PR."""
+    spent, _total, per_pr = _run_retry_budget(4, retries="3", backoff="2", budget="8")
+    # PR1 exhausts its per-PR retries (4 fetches, 3 sleeps -> 6s), PR2 spends the
+    # last 2s (2 fetches, 1 sleep), then PR3/PR4 are shut out at 1 fetch each.
+    assert per_pr == [4, 2, 1, 1]
+    assert spent == 8
+
+
+def test_budget_untouched_when_all_resolve_first_read():
+    """No PR is UNKNOWN -> the budget is never drawn down: 1 fetch per PR, zero
+    sleep spent. The cap must not penalize the common all-clean tick."""
+    spent, total, per_pr = _run_retry_budget(
+        5, retries="3", backoff="2", budget="8", mergeable="MERGEABLE"
+    )
+    assert spent == 0
+    assert total == 5
+    assert per_pr == [1, 1, 1, 1, 1]
