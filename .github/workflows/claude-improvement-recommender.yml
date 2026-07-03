@@ -8,10 +8,11 @@ name: claude-improvement-recommender
 # claude-implement-issue.yml (the user's chosen FULL autonomous loop), so a
 # recommendation can become a merged PR unsupervised.
 #
-# Ships DRY_RUN: "true" — the run produces recommendations.json and logs the
-# plan but files NOTHING, so the quality of recommendations can be judged for a
-# few days before arming. Arm by flipping DRY_RUN to "false"; ramp MAX_ISSUES
-# from 1 upward.
+# ARMED (DRY_RUN: "false", 2026-07-03): the run produces recommendations.json
+# AND files the top MAX_ISSUES as `recommendation` issues, which then feed the
+# FULL autonomous claude-implement-issue loop. It shipped DRY_RUN: "true" and
+# was armed after its dry-run output was judged good (run 28673117576). To
+# re-safe it, set DRY_RUN back to "true".
 #
 # TOKEN SPLIT (correctness-critical): issue CREATION uses PR_AUTHOR_PAT, NOT the
 # built-in GITHUB_TOKEN. A GITHUB_TOKEN-created issue does not trigger any
@@ -56,9 +57,12 @@ permissions:
   id-token: write # claude-code-action mints its GitHub token via OIDC
 
 env:
-  # Ship SAFE: produce recommendations, file nothing, until a human has watched
-  # a few days of output. Flip to "false" (start with MAX_ISSUES=1) to arm.
-  DRY_RUN: "true"
+  # ARMED 2026-07-03: dry-run output was validated (run 28673117576 produced 15
+  # candidates -> 10 selected, all "(dry-run) would file"), so DRY_RUN is now
+  # "false" and the loop files real issues. MAX_ISSUES stays 10. To re-safe it,
+  # flip DRY_RUN back to "true" (or pass the dry_run=true workflow_dispatch
+  # input for a single run).
+  DRY_RUN: "false"
   MAX_ISSUES: "10"
   REC_LABEL: "recommendation"
   LOOKBACK_DAYS: "30"
