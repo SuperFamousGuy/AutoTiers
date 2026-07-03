@@ -345,7 +345,14 @@ def _run_retry(sequence: list[str], retries: str = "3", backoff: str = "0"):
         echo "GH_CALLS=$(cat {counter})"
         if [ -n "$data" ]; then echo "DATA=nonempty"; else echo "DATA=empty"; fi
     """)
-    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=True)
+    try:
+        result = subprocess.run(
+            ["bash", "-c", script], capture_output=True, text=True, check=True
+        )
+    finally:
+        import shutil
+
+        shutil.rmtree(tmp, ignore_errors=True)
     out = dict(
         line.split("=", 1) for line in result.stdout.strip().splitlines() if "=" in line
     )
