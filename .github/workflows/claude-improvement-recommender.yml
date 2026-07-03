@@ -121,6 +121,25 @@ jobs:
             `candidates.json` at the repo root. You do NOT create GitHub issues —
             a later deterministic step selects and files them.
 
+            EXECUTION MODEL — READ FIRST. You are running as a SINGLE headless,
+            non-interactive CI invocation. There is NO continuation: the moment
+            you end your turn, this process terminates permanently. Nothing wakes
+            you back up. Therefore:
+              - Dispatch the four specialists SYNCHRONOUSLY and wait for each
+                Task call's result to come back INLINE as a tool result within
+                THIS session. Issuing all four Task calls together in one message
+                is fine (they return together as tool results) — but you must let
+                those results return and then keep working in the same turn-loop.
+              - Do NOT run any Task in the background / detached, do NOT set a
+                run-in-background flag, and do NOT call ScheduleWakeup or any
+                "I'll check back later" mechanism. Any backgrounded work and any
+                scheduled wakeup is ABANDONED when the run ends — its output is
+                lost and candidates.json is never written. (This is the exact bug
+                this instruction exists to prevent.)
+              - Your job is not done until `candidates.json` physically exists at
+                the repo root. Write it with the Write tool BEFORE your final
+                message. Never end your turn "waiting for" the specialists.
+
             Dispatch these four specialists via the Task tool, each in its lane;
             run them and collect their findings:
               - autotiers-researcher: compare our tier/ranking output against
@@ -157,6 +176,12 @@ jobs:
             precise enough for another agent to implement with no further human
             input. The repo's `.claude/skills/` and `.claude/agents/` are present
             in the checkout — use them.
+
+            FINAL STEP (do not skip): after collecting the specialists' inline
+            results, WRITE the assembled JSON array to `candidates.json` at the
+            repo root, then confirm it exists (e.g. `cat candidates.json`) before
+            your closing message. A run that ends without that file on disk has
+            failed, regardless of how much analysis you did.
           claude_args: |
             --model claude-opus-4-8
             --max-turns 120
