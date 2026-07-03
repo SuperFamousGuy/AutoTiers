@@ -226,3 +226,187 @@ def test_human_with_copilot_review_reaches_collab_check():
         reviews={"nodes": [{"author": {"login": "copilot-pull-request-reviewer"}, "state": "COMMENTED", "submittedAt": "2020-01-01T00:00:00Z"}]},
     )
     assert _verdict(pull) == "NEEDS_COLLAB:alice"
+
+
+# --- Behavioural test of the REAL mergeable-UNKNOWN retry loop ---------------
+#
+# GitHub computes `mergeable` lazily/async; a first GraphQL read is often UNKNOWN
+# and a plain read does NOT force the recompute, so eligible PRs sat at UNKNOWN
+# forever and never merged (stuck Dependabot #439 et al.). The fix re-polls the
+# single PR up to MERGEABLE_RETRIES times on UNKNOWN before giving up; the act of
+# fetching kicks the background computation, so a later poll usually resolves.
+#
+# SAFETY INVARIANT: a still-UNKNOWN PR after the retries must SKIP (never merge),
+# and a CONFLICTING read must stop the retry immediately (it is not UNKNOWN) and
+# SKIP. UNKNOWN is NEVER treated as mergeable.
+#
+# These tests EXTRACT the real retry loop between its sentinel markers and run it
+# in bash with a STUBBED `gh` on PATH that emits a scripted sequence of GraphQL
+# payloads, so they fail if the shipped loop regresses -- not a copy of it. The
+# stub also records every invocation, letting us assert the EXACT fetch count
+# (bug-class #7: no weak-bound assertions -- we pin fetch counts and final
+# mergeable exactly, not ">= something").
+
+RETRY_START = "# >>> mergeable-retry >>>"
+RETRY_END = "# <<< mergeable-retry <<<"
+
+
+def test_retry_markers_present_and_bounded():
+    """The retry loop exists, is sentinel-delimited, bounded, and re-checks
+    mergeable -- structural guard so the extract-and-run tests can find it."""
+    assert RETRY_START in TEXT
+    assert RETRY_END in TEXT
+    block = TEXT[TEXT.index(RETRY_START) : TEXT.index(RETRY_END)]
+    # Bounded: compares an attempt counter against the retry cap.
+    assert 'attempt=$((attempt + 1))' in block
+    assert '[ "$attempt" -gt "$MERGEABLE_RETRIES" ]' in block
+    # Re-checks mergeable and only keeps looping while UNKNOWN.
+    assert '[ "$mergeable" != "UNKNOWN" ]' in block
+    # Empty (API error) break must precede the UNKNOWN check so an error is
+    # never conflated with UNKNOWN.
+    empty_pos = block.index('if [ -z "$data" ]; then')
+    unknown_pos = block.index('[ "$mergeable" != "UNKNOWN" ]')
+    assert empty_pos < unknown_pos
+
+
+def test_retry_loop_does_not_treat_unknown_as_mergeable():
+    """The retry block never emits a merge decision itself; it only re-fetches.
+    The unchanged predicate.py is what SKIPs UNKNOWN -- assert the block contains
+    no merge call and does not rewrite mergeable to MERGEABLE."""
+    block = TEXT[TEXT.index(RETRY_START) : TEXT.index(RETRY_END)]
+    assert "gh pr merge" not in block
+    assert 'mergeable="MERGEABLE"' not in block
+
+
+def _extract_retry_block() -> str:
+    """Pull the shell between the retry sentinel markers, de-indented for bash."""
+    start = TEXT.index(RETRY_START)
+    end = TEXT.index(RETRY_END)
+    block = TEXT[start:end]
+    lines = [line[12:] if line.startswith(" " * 12) else line for line in block.splitlines()]
+    return "\n".join(lines)
+
+
+def _run_retry(sequence: list[str], retries: str = "3", backoff: str = "0"):
+    """Execute the REAL extracted retry loop with a stubbed `gh` that emits, on
+    each call, the next payload in `sequence` (a mergeable string, or the literal
+    "" for an empty/API-error response). Returns (final_mergeable, gh_call_count,
+    final_data_nonempty).
+
+    backoff defaults to 0 so the test does not actually sleep.
+    """
+    import os
+    import tempfile
+    import textwrap
+
+    block = _extract_retry_block()
+    tmp = tempfile.mkdtemp()
+    # A fake `gh` on PATH. Each call reads+increments a counter file and prints
+    # the payload for that 1-based call index (or empty past the end of the
+    # sequence). It ignores all args (the real invocation is `gh api graphql`).
+    payloads = []
+    for m in sequence:
+        if m == "":
+            payloads.append("")  # empty response == API error
+        else:
+            payloads.append(
+                '{"data":{"repository":{"pullRequest":{"mergeable":"%s"}}}}' % m
+            )
+    counter = os.path.join(tmp, "n")
+    with open(counter, "w") as fh:
+        fh.write("0")
+    seq_file = os.path.join(tmp, "seq")
+    with open(seq_file, "w") as fh:
+        # one payload per line; blank line == empty payload
+        fh.write("\n".join(p if p else "<<EMPTY>>" for p in payloads) + "\n")
+    gh = os.path.join(tmp, "gh")
+    with open(gh, "w") as fh:
+        fh.write(textwrap.dedent(f"""\
+            #!/usr/bin/env bash
+            n=$(cat {counter}); n=$((n+1)); printf '%s' "$n" > {counter}
+            line=$(sed -n "${{n}}p" {seq_file})
+            if [ -z "$line" ] || [ "$line" = "<<EMPTY>>" ]; then
+              exit 0
+            fi
+            printf '%s' "$line"
+        """))
+    os.chmod(gh, 0o755)
+
+    # Drive the loop, then report the final mergeable + fetch count.
+    script = textwrap.dedent(f"""\
+        set -uo pipefail
+        export PATH="{tmp}:$PATH"
+        MERGEABLE_RETRIES={retries}
+        MERGEABLE_BACKOFF_SECONDS={backoff}
+        OWNER=o; repo_name=r; pr=1
+        {block}
+        final_mergeable="$(printf '%s' "$data" | python3 -c 'import json,sys; d=json.loads(sys.stdin.read() or "{{}}"); print((((d.get("data") or {{}}).get("repository") or {{}}).get("pullRequest") or {{}}).get("mergeable") or "")' 2>/dev/null || true)"
+        echo "FINAL_MERGEABLE=${{final_mergeable}}"
+        echo "GH_CALLS=$(cat {counter})"
+        if [ -n "$data" ]; then echo "DATA=nonempty"; else echo "DATA=empty"; fi
+    """)
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=True)
+    out = dict(
+        line.split("=", 1) for line in result.stdout.strip().splitlines() if "=" in line
+    )
+    return out["FINAL_MERGEABLE"], int(out["GH_CALLS"]), out["DATA"] == "nonempty"
+
+
+def test_retry_exhausted_stays_unknown_and_fetches_retries_plus_one():
+    """AC: mergeable never resolves -> after RETRIES retries the payload is STILL
+    UNKNOWN (so predicate.py will SKIP -- never merges an unresolved PR), and the
+    loop made exactly RETRIES+1 fetches (no off-by-one, no infinite loop)."""
+    final, calls, nonempty = _run_retry(["UNKNOWN"] * 6, retries="3")
+    assert final == "UNKNOWN"      # NEVER coerced to MERGEABLE
+    assert calls == 4              # RETRIES+1 == 3+1, exact (bug-class #7)
+    assert nonempty is True
+
+
+def test_retry_resolves_to_mergeable_stops_early():
+    """AC: UNKNOWN then MERGEABLE -> loop stops on the resolve, final==MERGEABLE,
+    exactly 2 fetches (1 UNKNOWN + 1 resolve)."""
+    final, calls, _ = _run_retry(["UNKNOWN", "MERGEABLE", "MERGEABLE"], retries="3")
+    assert final == "MERGEABLE"
+    assert calls == 2
+
+
+def test_retry_resolves_to_conflicting_stops_immediately_and_skips():
+    """AC: UNKNOWN then CONFLICTING -> loop stops on CONFLICTING (it is not
+    UNKNOWN); final==CONFLICTING so predicate.py SKIPs. NEVER merges a conflict.
+    Exactly 2 fetches."""
+    final, calls, _ = _run_retry(["UNKNOWN", "CONFLICTING", "MERGEABLE"], retries="3")
+    assert final == "CONFLICTING"
+    assert calls == 2
+
+
+def test_retry_first_read_mergeable_no_extra_fetches():
+    """A PR that is MERGEABLE on the first read never retries: exactly 1 fetch."""
+    final, calls, _ = _run_retry(["MERGEABLE"], retries="3")
+    assert final == "MERGEABLE"
+    assert calls == 1
+
+
+def test_retry_first_read_conflicting_never_retries():
+    """A CONFLICTING first read stops immediately: 1 fetch, final CONFLICTING
+    (predicate.py SKIPs). The retry must not 'rescue' a real conflict."""
+    final, calls, _ = _run_retry(["CONFLICTING", "MERGEABLE"], retries="3")
+    assert final == "CONFLICTING"
+    assert calls == 1
+
+
+def test_retry_api_error_breaks_without_conflation():
+    """AC (API error mid-retry): an empty/errored response breaks the loop with
+    empty data (caller's empty-guard -> NOT eligible). It is NOT looped on as if
+    UNKNOWN, and NEVER produces a merge. Empty on the FIRST read == 1 fetch."""
+    final, calls, nonempty = _run_retry([""], retries="3")
+    assert final == ""             # nothing extracted
+    assert nonempty is False       # data empty -> caller skips PR
+    assert calls == 1              # did not spin
+
+
+def test_retry_api_error_after_unknown_breaks():
+    """UNKNOWN then an API error: the error breaks the loop (empty data), does not
+    keep retrying as if UNKNOWN. 2 fetches, empty final data."""
+    final, calls, nonempty = _run_retry(["UNKNOWN", ""], retries="3")
+    assert nonempty is False
+    assert calls == 2
