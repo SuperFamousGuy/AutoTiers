@@ -122,23 +122,29 @@ jobs:
             a later deterministic step selects and files them.
 
             EXECUTION MODEL — READ FIRST. You are running as a SINGLE headless,
-            non-interactive CI invocation. There is NO continuation: the moment
-            you end your turn, this process terminates permanently. Nothing wakes
-            you back up. Therefore:
+            non-interactive CI invocation. Tool calls DO continue the agentic
+            loop normally — you keep getting turns as long as you call tools. But
+            there is NO continuation once you STOP: the run ends the instant you
+            produce a final assistant message with no further tool calls, and
+            nothing ever wakes you back up. So the only failure mode to avoid is
+            stopping (or parking work off-thread) before candidates.json is
+            written. Therefore:
               - Dispatch the four specialists SYNCHRONOUSLY and wait for each
                 Task call's result to come back INLINE as a tool result within
                 THIS session. Issuing all four Task calls together in one message
-                is fine (they return together as tool results) — but you must let
-                those results return and then keep working in the same turn-loop.
+                is fine (they return together as tool results) — let those
+                results come back and keep going in the same agentic loop.
               - Do NOT run any Task in the background / detached, do NOT set a
                 run-in-background flag, and do NOT call ScheduleWakeup or any
-                "I'll check back later" mechanism. Any backgrounded work and any
-                scheduled wakeup is ABANDONED when the run ends — its output is
-                lost and candidates.json is never written. (This is the exact bug
-                this instruction exists to prevent.)
+                "I'll check back later" mechanism. Backgrounded work and any
+                scheduled wakeup is ABANDONED the instant the run ends — its
+                output is lost and candidates.json is never written. (This is the
+                exact bug this instruction exists to prevent.)
               - Your job is not done until `candidates.json` physically exists at
                 the repo root. Write it with the Write tool BEFORE your final
-                message. Never end your turn "waiting for" the specialists.
+                (tool-call-free) message. Never finish while "waiting for" the
+                specialists — their results arrive as inline tool results, not
+                later.
 
             Dispatch these four specialists via the Task tool, each in its lane;
             run them and collect their findings:
