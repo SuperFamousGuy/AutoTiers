@@ -110,6 +110,7 @@ jobs:
           echo "::group::existing_recs.json"; cat existing_recs.json; echo "::endgroup::"
 
       - name: Generate candidate recommendations
+        id: generate
         uses: anthropics/claude-code-action@v1
         with:
           # Subscription auth (Pro/Max), same as claude-implement-issue.yml.
@@ -160,6 +161,82 @@ jobs:
             --model claude-opus-4-8
             --max-turns 120
             --allowedTools Edit,Write,Read,Glob,Grep,Bash,Task,WebSearch,WebFetch
+
+      # Observability + no-op guard. The generation step swallows a bad run
+      # silently (empty/absent candidates.json still exits the schedule green),
+      # so a parent that never dispatched the four specialists is otherwise
+      # indistinguishable from a legitimate "found nothing". Surface the run's
+      # true shape — candidate count + the agent's own turn/cost metrics — and
+      # raise a loud ::warning:: (never fail: a bad generation must not break the
+      # schedule) when the run looks like a no-op. LOW_TURN_THRESHOLD is set well
+      # below any real four-specialist fan-out (which runs many minutes and
+      # dozens of turns); a run under it did not do the work.
+      - name: Inspect generation
+        env:
+          EXECUTION_FILE: ${{ steps.generate.outputs.execution_file }}
+          LOW_TURN_THRESHOLD: "20"
+        run: |
+          set -uo pipefail
+
+          # candidate count (missing/garbage file -> 0, never crash)
+          [ -f candidates.json ] || echo "[]" > candidates.json
+          cand_count="$(jq 'if type=="array" then length else 0 end' candidates.json 2>/dev/null || echo 0)"
+          echo "::group::candidates.json"; cat candidates.json; echo; echo "::endgroup::"
+
+          # agent self-reported metrics from claude-code-action's execution log.
+          # File is a stream: pick the terminal result object. Fall back to the
+          # action's known temp path if the output was not surfaced.
+          exec_file="$EXECUTION_FILE"
+          [ -n "$exec_file" ] && [ -f "$exec_file" ] || exec_file="/home/runner/work/_temp/claude-execution-output.json"
+          result='{}'
+          if [ -f "$exec_file" ]; then
+            result="$(jq -c 'if type=="array" then (map(select(.type=="result")) | last) else . end // {}' "$exec_file" 2>/dev/null || echo '{}')"
+            # Stable copy so the artifact upload does not depend on the action's
+            # output var resolving.
+            cp "$exec_file" generation-execution.json 2>/dev/null || true
+          fi
+          num_turns="$(echo "$result"   | jq -r '.num_turns // "?"')"
+          cost="$(echo "$result"        | jq -r '.total_cost_usd // "?"')"
+          duration_ms="$(echo "$result" | jq -r '.duration_ms // "?"')"
+          # NB: `.is_error // "?"` is wrong here — jq's `//` treats `false` as
+          # empty, so a healthy is_error=false would render "?". Test for null.
+          is_error="$(echo "$result"    | jq -r 'if .is_error == null then "?" else .is_error end')"
+
+          {
+            echo "### Improvement recommender — generation"
+            echo ""
+            echo "| metric | value |"
+            echo "|---|---|"
+            echo "| candidates written | $cand_count |"
+            echo "| num_turns | $num_turns |"
+            echo "| total_cost_usd | $cost |"
+            echo "| duration_ms | $duration_ms |"
+            echo "| is_error | $is_error |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "candidates=$cand_count num_turns=$num_turns cost=$cost duration_ms=$duration_ms is_error=$is_error"
+
+          # No-op guard: empty candidate set, OR a plausibly-real turn count that
+          # is too low to have run the four-specialist fan-out.
+          if [ "$cand_count" = "0" ]; then
+            echo "::warning title=Recommender produced no candidates::candidates.json is empty — the run filed nothing. Distinguish a genuine 'nothing to improve' from an orchestrator that never dispatched the four specialists via the metrics above and the uploaded artifact."
+          fi
+          if [ "$num_turns" != "?" ] && [ "$num_turns" -lt "$LOW_TURN_THRESHOLD" ] 2>/dev/null; then
+            echo "::warning title=Recommender turn count implausibly low::num_turns=$num_turns (< $LOW_TURN_THRESHOLD) — a real four-specialist fan-out runs far more turns. The parent likely returned success without dispatching the specialists."
+          fi
+
+      # Preserve the generation's raw output so a green-but-empty run can be
+      # diagnosed after the fact (candidates vs the agent's execution stream).
+      - name: Upload generation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recommender-generation
+          path: |
+            candidates.json
+            generation-execution.json
+          if-no-files-found: warn
+          retention-days: 14
 
       # Deterministic selection: dedup vs existing issues + already-kept
       # candidates, order by score, cap to MAX_ISSUES. A missing or garbage
