@@ -248,4 +248,37 @@ describe("RulesPanel", () => {
     // Rules render normally.
     expect(screen.getByText("RB Committee Penalty")).toBeInTheDocument();
   });
+
+  it("keeps showing previously-loaded rules when a refetch fails (isError with rules present)", () => {
+    // react-query keeps the last successful data on a failed refetch, so
+    // canonicalRules is non-empty while isError is true. We must keep showing
+    // the usable rules rather than blanking to the full error state.
+    render(
+      <RulesPanel
+        canonicalRules={minimalCanonical}
+        positionRules={{}}
+        onChange={() => {}}
+        isError
+        onRetry={() => {}}
+      />
+    );
+    expect(screen.queryByText("Couldn't load rules.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByText("RB Committee Penalty")).toBeInTheDocument();
+  });
+
+  it("omits the Retry button in the error state when no onRetry handler is provided", () => {
+    render(
+      <RulesPanel
+        canonicalRules={[]}
+        positionRules={{}}
+        onChange={() => {}}
+        isError
+      />
+    );
+    // Error is still surfaced…
+    expect(screen.getByText("Couldn't load rules.")).toBeInTheDocument();
+    // …but there is no no-op Retry button without a handler.
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+  });
 });

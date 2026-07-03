@@ -26,7 +26,6 @@ function DisabledTabStrip() {
           key={pos}
           role="tab"
           aria-selected={false}
-          aria-controls="rules-tabpanel"
           id={`tab-${pos}`}
           disabled
           className="rounded px-2.5 py-1 text-xs font-semibold font-mono bg-muted text-muted-foreground opacity-50 cursor-not-allowed"
@@ -48,12 +47,15 @@ export function RulesPanel({
   const [activePosition, setActivePosition] = useState<Position>("RB");
 
   // Three distinct states, checked in precedence order below:
-  //  - ERROR  : the fetch failed. isError wins even though canonicalRules is []
-  //             (a failed fetch never seeds rules), so a hard failure no longer
-  //             masquerades as an eternal "Loading rules…" spinner.
+  //  - ERROR  : the fetch failed AND there are no rules to fall back on. A hard
+  //             failure no longer masquerades as an eternal "Loading rules…"
+  //             spinner. If a prior fetch already seeded rules, react-query keeps
+  //             that data on a failed refetch — we keep showing those usable rules
+  //             rather than blanking to an error.
   //  - LOADING: no rules yet AND no error → still in flight.
   //  - LOADED : rules present.
   const hasRules = canonicalRules.length > 0;
+  const showError = isError && !hasRules;
   const isLoading = !hasRules && !isError;
 
   // Filter canonical rules to those in the active position's mapping, in mapping order.
@@ -94,20 +96,22 @@ export function RulesPanel({
     onChange({ ...positionRules, [positionName]: next });
   }
 
-  if (isError) {
+  if (showError) {
     return (
       <aside className="p-6 border-r bg-card min-h-0 overflow-y-auto" role="alert">
         <DisabledTabStrip />
         <p className="text-sm text-destructive font-medium mb-3">
           Couldn't load rules.
         </p>
-        <button
-          type="button"
-          onClick={() => onRetry?.()}
-          className="rounded bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
-        >
-          Retry
-        </button>
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="rounded bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            Retry
+          </button>
+        )}
       </aside>
     );
   }
