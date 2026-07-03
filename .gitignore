@@ -1,1 +1,10 @@
 .worktrees/
+
+# Recommender workflow working-tree artifacts (claude-improvement-recommender.yml).
+# These are written to the repo root during a run and must never be committed.
+candidates.json
+recommendations.json
+existing_recs.json
+open_recs.json
+closed_recs.json
+generation-execution.json
