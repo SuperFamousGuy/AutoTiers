@@ -8,10 +8,11 @@ name: claude-improvement-recommender
 # claude-implement-issue.yml (the user's chosen FULL autonomous loop), so a
 # recommendation can become a merged PR unsupervised.
 #
-# Ships DRY_RUN: "true" — the run produces recommendations.json and logs the
-# plan but files NOTHING, so the quality of recommendations can be judged for a
-# few days before arming. Arm by flipping DRY_RUN to "false"; ramp MAX_ISSUES
-# from 1 upward.
+# ARMED (DRY_RUN: "false", 2026-07-03): the run produces recommendations.json
+# AND files the top MAX_ISSUES as `recommendation` issues, which then feed the
+# FULL autonomous claude-implement-issue loop. It shipped DRY_RUN: "true" and
+# was armed after its dry-run output was judged good (run 28673117576). To
+# re-safe it, set DRY_RUN back to "true".
 #
 # TOKEN SPLIT (correctness-critical): issue CREATION uses PR_AUTHOR_PAT, NOT the
 # built-in GITHUB_TOKEN. A GITHUB_TOKEN-created issue does not trigger any
@@ -24,11 +25,19 @@ name: claude-improvement-recommender
 
 on:
   schedule:
-    # Daily 08:10 UTC. Minute 10 is free of every existing scheduled workflow
+    # Daily 06:10 UTC — deliberately OFF the 08:xx scheduled cluster
     # (copilot-review=0, sweeper-health=17, fix-checks=30, orphan-sweeper=40,
-    # resolve-conflicts=45, auto-merge=50) — a cron fires AT its minute field, so
-    # the minute is what must be unique.
-    - cron: "10 8 * * *"
+    # resolve-conflicts=45, auto-merge=50), several of which also spend the
+    # shared CLAUDE_CODE_OAUTH_TOKEN. This is a heavy job (one Opus parent + four
+    # nested Opus specialists) and it kept quota-dying at 08:10 because it landed
+    # right as that cluster saturated the rolling five-hour subscription window
+    # (see run 28667269189). 06:10 gives it the quietest possible lookback: the
+    # preceding five hours (01–06 UTC) are deep US night, when the event-driven
+    # Claude jobs (implement-issue, fix-pr-checks, resolve-conflicts,
+    # address-copilot-review) fire least. Minute 10 stays unique across the cron
+    # set (a cron fires AT its minute field, so the minute is what must not
+    # collide).
+    - cron: "10 6 * * *"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -48,9 +57,12 @@ permissions:
   id-token: write # claude-code-action mints its GitHub token via OIDC
 
 env:
-  # Ship SAFE: produce recommendations, file nothing, until a human has watched
-  # a few days of output. Flip to "false" (start with MAX_ISSUES=1) to arm.
-  DRY_RUN: "true"
+  # ARMED 2026-07-03: dry-run output was validated (run 28673117576 produced 15
+  # candidates -> 10 selected, all "(dry-run) would file"), so DRY_RUN is now
+  # "false" and the loop files real issues. MAX_ISSUES stays 10. To re-safe it,
+  # flip DRY_RUN back to "true" (or pass the dry_run=true workflow_dispatch
+  # input for a single run).
+  DRY_RUN: "false"
   MAX_ISSUES: "10"
   REC_LABEL: "recommendation"
   LOOKBACK_DAYS: "30"
@@ -110,6 +122,7 @@ jobs:
           echo "::group::existing_recs.json"; cat existing_recs.json; echo "::endgroup::"
 
       - name: Generate candidate recommendations
+        id: generate
         uses: anthropics/claude-code-action@v1
         with:
           # Subscription auth (Pro/Max), same as claude-implement-issue.yml.
@@ -119,6 +132,43 @@ jobs:
             improvement recommendations for THIS repository and write them to
             `candidates.json` at the repo root. You do NOT create GitHub issues —
             a later deterministic step selects and files them.
+
+            EXECUTION MODEL — READ FIRST. You are running as a SINGLE headless,
+            non-interactive CI invocation. Tool calls DO continue the agentic
+            loop normally — you keep getting turns as long as you call tools. But
+            there is NO continuation once you STOP: the run ends the instant you
+            produce a final assistant message with no further tool calls, and
+            nothing ever wakes you back up. So the only failure mode to avoid is
+            stopping (or parking work off-thread) before candidates.json is
+            written. Therefore:
+              - Dispatch the four specialists SYNCHRONOUSLY and wait for each
+                Task call's result to come back INLINE as a tool result within
+                THIS session. Issuing all four Task calls together in one message
+                is fine (they return together as tool results) — let those
+                results come back and keep going in the same agentic loop.
+              - Do NOT run any Task in the background / detached, do NOT set a
+                run-in-background flag, and do NOT call ScheduleWakeup or any
+                "I'll check back later" mechanism. Backgrounded work and any
+                scheduled wakeup is ABANDONED the instant the run ends — its
+                output is lost and candidates.json is never written. (This is the
+                exact bug this instruction exists to prevent.)
+              - Your job is not done until `candidates.json` physically exists at
+                the repo root. Write it with the Write tool BEFORE your final
+                (tool-call-free) message. Never finish while "waiting for" the
+                specialists — their results arrive as inline tool results, not
+                later.
+
+            QUOTA BUDGET — this job runs one Opus parent plus four nested Opus
+            specialists on a SHARED subscription token, and has quota-died when
+            the fan-out ran unbounded. Keep the whole run lean:
+              - In each specialist's Task prompt, cap the work explicitly: tell
+                it to time-box its investigation, look only where its lane's
+                highest-value findings live (do NOT crawl the whole repo), and
+                return its TOP 3–5 findings only, as terse specs — not an
+                exhaustive audit.
+              - Do the minimum inspection yourself before dispatching; let the
+                specialists do the digging, and don't re-do their work after.
+            Fewer, sharper candidates beat a thorough run that never finishes.
 
             Dispatch these four specialists via the Task tool, each in its lane;
             run them and collect their findings:
@@ -156,10 +206,169 @@ jobs:
             precise enough for another agent to implement with no further human
             input. The repo's `.claude/skills/` and `.claude/agents/` are present
             in the checkout — use them.
+
+            FINAL STEP (do not skip): after collecting the specialists' inline
+            results, WRITE the assembled JSON array to `candidates.json` at the
+            repo root, then confirm it exists (e.g. `cat candidates.json`) before
+            your closing message. A run that ends without that file on disk has
+            failed, regardless of how much analysis you did.
           claude_args: |
             --model claude-opus-4-8
             --max-turns 120
             --allowedTools Edit,Write,Read,Glob,Grep,Bash,Task,WebSearch,WebFetch
+
+      # Observability + no-op guard. The generation step swallows a bad run
+      # silently (empty/absent candidates.json still exits the schedule green),
+      # so a parent that never dispatched the four specialists is otherwise
+      # indistinguishable from a legitimate "found nothing". Surface the run's
+      # true shape — candidate count + the agent's own turn/cost metrics — and
+      # raise a loud ::warning:: (never fail: a bad generation must not break the
+      # schedule) when the run looks like a no-op. LOW_TURN_THRESHOLD is set well
+      # below any real four-specialist fan-out (which runs many minutes and
+      # dozens of turns); a run under it did not do the work.
+      - name: Inspect generation
+        env:
+          EXECUTION_FILE: ${{ steps.generate.outputs.execution_file }}
+          LOW_TURN_THRESHOLD: "20"
+        run: |
+          set -uo pipefail
+
+          # Record whether the generator actually wrote the file BEFORE creating
+          # any placeholder — a missing file (agent never emitted output) is a
+          # stronger no-op signal than an explicit empty array, and the
+          # placeholder would erase that distinction. The downstream Select step
+          # still creates its own `[]` fallback; this one is diagnostic only.
+          if [ -f candidates.json ]; then
+            cand_present="true"
+          else
+            cand_present="false"
+            echo "[]" > candidates.json
+          fi
+          cand_count="$(jq 'if type=="array" then length else 0 end' candidates.json 2>/dev/null || echo 0)"
+          echo "::group::candidates.json (present=$cand_present)"; cat candidates.json; echo; echo "::endgroup::"
+
+          # agent self-reported metrics from claude-code-action's execution log.
+          # Pick the TERMINAL result event. The file's exact shape isn't
+          # guaranteed — it may be a single JSON array, newline-delimited JSON,
+          # or a concatenated object stream — so slurp (-s) into one array and
+          # flatten (unwraps the single-array case to a flat event list without
+          # touching object values), then take the last result event. `last`
+          # over an empty set is null -> `// {}`.
+          exec_file="$EXECUTION_FILE"
+          [ -n "$exec_file" ] && [ -f "$exec_file" ] || exec_file="/home/runner/work/_temp/claude-execution-output.json"
+          result='{}'
+          if [ -f "$exec_file" ]; then
+            result="$(jq -c -s 'flatten | map(select(type=="object" and .type=="result")) | last // {}' "$exec_file" 2>/dev/null || echo '{}')"
+            # Stable copy so the artifact upload does not depend on the action's
+            # output var resolving.
+            cp "$exec_file" generation-execution.json 2>/dev/null || true
+          fi
+          num_turns="$(echo "$result"   | jq -r '.num_turns // "?"')"
+          cost="$(echo "$result"        | jq -r '.total_cost_usd // "?"')"
+          duration_ms="$(echo "$result" | jq -r '.duration_ms // "?"')"
+          # NB: `.is_error // "?"` is wrong here — jq's `//` treats `false` as
+          # empty, so a healthy is_error=false would render "?". Test for null.
+          is_error="$(echo "$result"    | jq -r 'if .is_error == null then "?" else .is_error end')"
+          # The result's `.result` text carries the terminal error message when
+          # the run was cut off (e.g. "You've hit your session limit"). And the
+          # execution stream records the true depth of the run: how many Task
+          # (a.k.a. `Agent`) sub-agents were actually dispatched, and whether any
+          # of them died mid-flight with an API/session-limit error. These are
+          # what tell a QUOTA death apart from a genuine no-op — num_turns alone
+          # does NOT (a session-limit interruption reports a tiny num_turns even
+          # though the parent really did fan out; that misread cost two commits).
+          result_text="$(echo "$result" | jq -r '.result // ""')"
+          agent_calls=0
+          agent_errors=0
+          if [ -f generation-execution.json ]; then
+            agent_calls="$(jq -s '[ .[] | .. | objects | select(.type=="tool_use" and (.name=="Task" or .name=="Agent")) ] | length' generation-execution.json 2>/dev/null || echo 0)"
+            # Match ONLY quota/session-limit stubs — not the generic "API error"
+            # phrase, which would count unrelated tool failures and inflate the
+            # "killed by quota" metric. The real session-limit stub reads
+            # "...terminated early due to an API error: You've hit your session
+            # limit", so "session limit" alone still catches it.
+            agent_errors="$(jq -s '[ .[] | .. | objects | select(.type=="tool_result") | .content? // [] | (if type=="array" then . else [] end) | .[] | .text? // "" | select(test("session limit|hit your.*limit|rate.?limit"; "i")) ] | length' generation-execution.json 2>/dev/null || echo 0)"
+          fi
+          # Derive quota_hit from QUOTA-SPECIFIC signals only — a session/rate
+          # limit message in the terminal result text, or sub-agents that
+          # returned session-limit stubs. Do NOT key it off the bare is_error
+          # flag: is_error is true for any failure (a tool crash, a network
+          # blip), and treating those as quota deaths would mislabel them
+          # "starved by quota" and wrongly assert the fan-out ran. A generic
+          # is_error with no quota signal now falls through to the dispatch/
+          # no-candidates branches below, where it belongs.
+          quota_hit="false"
+          if [ "$agent_errors" -gt 0 ] 2>/dev/null || echo "$result_text" | grep -qiE "session limit|hit your .*limit|rate.?limit"; then
+            quota_hit="true"
+          fi
+
+          {
+            echo "### Improvement recommender — generation"
+            echo ""
+            echo "| metric | value |"
+            echo "|---|---|"
+            echo "| candidates.json written | $cand_present |"
+            echo "| candidates written | $cand_count |"
+            echo "| num_turns | $num_turns |"
+            echo "| total_cost_usd | $cost |"
+            echo "| duration_ms | $duration_ms |"
+            echo "| is_error | $is_error |"
+            echo "| Task sub-agents dispatched | $agent_calls |"
+            echo "| sub-agents killed by quota | $agent_errors |"
+            echo "| quota/session-limit death | $quota_hit |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "candidates_present=$cand_present candidates=$cand_count num_turns=$num_turns cost=$cost duration_ms=$duration_ms is_error=$is_error agent_calls=$agent_calls agent_errors=$agent_errors quota_hit=$quota_hit"
+
+          # Failure taxonomy — distinguish the THREE ways an empty run happens,
+          # because they demand different responses (the earlier guard conflated
+          # them and blamed "specialists never dispatched" for what was really a
+          # quota death — see run 28667269189, which DID dispatch all four Task
+          # agents before the shared five-hour Pro/Max window rejected them).
+          #
+          #   1. QUOTA DEATH  — a "session limit"/"rate limit" terminal message,
+          #      or sub-agents that returned session-limit stubs (agent_errors>0).
+          #      Deliberately NOT keyed off the bare is_error flag (that fires on
+          #      any failure). It was starved of tokens; fix = reduce/relocate
+          #      quota pressure, NOT the prompt. This is the loud one.
+          #   2. NO DISPATCH  — no candidates.json written AND zero Task/Agent
+          #      sub-agents in the stream. This is the original "orchestrator
+          #      returned without fanning out" failure the prompt fix targeted.
+          #      (The low-num_turns tell is a SEPARATE, secondary warning below,
+          #      not part of this branch's condition.)
+          #   3. GENUINE NO-OP — the run completed cleanly (is_error=false, no
+          #      quota signal, agents dispatched) but found nothing to propose.
+          if [ "$quota_hit" = "true" ]; then
+            echo "::warning title=Recommender starved by quota (NOT a dispatch bug)::The run hit the shared five-hour subscription limit. Task sub-agents dispatched=$agent_calls, killed by quota=$agent_errors, is_error=$is_error. If agent_calls>0 the fan-out ran and was starved mid-flight; if it is 0 the parent hit the limit before dispatching. Either way this is quota pressure, not the prompt — do NOT chase the dispatch wording. Reduce quota pressure: relocate the schedule away from other CLAUDE_CODE_OAUTH_TOKEN jobs' burn window, cut specialists' --max-turns, or enable overage. See metrics + artifact."
+          elif [ "$cand_present" != "true" ] && [ "$agent_calls" -eq 0 ] 2>/dev/null; then
+            echo "::warning title=Recommender never dispatched specialists::No Task sub-agents appear in the execution stream and no candidates.json was written — the orchestrator returned without fanning out. This is the dispatch failure (distinct from a quota death, which shows agent_calls>0)."
+          elif [ "$cand_present" != "true" ]; then
+            echo "::warning title=Recommender wrote no candidates.json::The generator dispatched $agent_calls sub-agent(s) but never emitted candidates.json. Check the artifact — the parent likely stopped before writing output."
+          elif [ "$cand_count" = "0" ]; then
+            echo "::notice title=Recommender produced no candidates::candidates.json is an empty array with a clean run ($agent_calls sub-agents, is_error=$is_error, no quota signal) — most likely a genuine 'nothing to improve'. Confirm via the artifact if this repeats."
+          fi
+          # Secondary tell only — a low num_turns is NOT decisive on its own: a
+          # quota interruption reports a tiny num_turns even after a full fan-out.
+          # Only warn on it when the stream ALSO shows no dispatch and no quota
+          # death, so it never re-fires the phantom "no fan-out" alarm on a quota
+          # run (which already warned above).
+          if [ "$num_turns" != "?" ] && [ "$num_turns" -lt "$LOW_TURN_THRESHOLD" ] 2>/dev/null \
+             && [ "$quota_hit" != "true" ] && [ "$agent_calls" -eq 0 ] 2>/dev/null; then
+            echo "::warning title=Recommender turn count implausibly low::num_turns=$num_turns (< $LOW_TURN_THRESHOLD) with zero Task sub-agents and no quota signal — the parent returned without dispatching the specialists."
+          fi
+
+      # Preserve the generation's raw output so a green-but-empty run can be
+      # diagnosed after the fact (candidates vs the agent's execution stream).
+      - name: Upload generation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recommender-generation
+          path: |
+            candidates.json
+            generation-execution.json
+          if-no-files-found: warn
+          retention-days: 14
 
       # Deterministic selection: dedup vs existing issues + already-kept
       # candidates, order by score, cap to MAX_ISSUES. A missing or garbage

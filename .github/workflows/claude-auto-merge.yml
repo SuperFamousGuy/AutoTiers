@@ -104,8 +104,9 @@ env:
   # Criterion 2 (mergeable) settling retries. GitHub computes `mergeable` async;
   # a first read is often UNKNOWN. On UNKNOWN we re-fetch the PR up to
   # MERGEABLE_RETRIES times, MERGEABLE_BACKOFF_SECONDS apart, before giving up
-  # and skipping. Total extra fetches per still-UNKNOWN PR = MERGEABLE_RETRIES+1;
-  # total extra sleep = MERGEABLE_RETRIES * MERGEABLE_BACKOFF_SECONDS.
+  # and skipping. Total fetches per still-UNKNOWN PR = MERGEABLE_RETRIES+1
+  # (1 initial read + MERGEABLE_RETRIES re-polls); total extra sleep =
+  # MERGEABLE_RETRIES * MERGEABLE_BACKOFF_SECONDS.
   MERGEABLE_RETRIES: "3"
   MERGEABLE_BACKOFF_SECONDS: "2"
   # Global cap (issue #474) on the TOTAL UNKNOWN-retry sleep across the whole
