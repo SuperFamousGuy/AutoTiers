@@ -22,6 +22,7 @@ These tests do two things:
 import json
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 WORKFLOW = (
@@ -186,6 +187,7 @@ def _clean_pull(**overrides) -> dict:
                 {
                     "commit": {
                         "committedDate": "2020-01-01T00:00:00Z",
+                        "authoredDate": "2020-01-01T00:00:00Z",
                         "statusCheckRollup": {"state": "SUCCESS"},
                     }
                 }
@@ -226,3 +228,80 @@ def test_human_with_copilot_review_reaches_collab_check():
         reviews={"nodes": [{"author": {"login": "copilot-pull-request-reviewer"}, "state": "COMMENTED", "submittedAt": "2020-01-01T00:00:00Z"}]},
     )
     assert _verdict(pull) == "NEEDS_COLLAB:alice"
+
+
+# --- Behavioural test of predicate 5's rebase exemption (issue #473) --------
+#
+# When Dependabot rebases a PR onto an updated main (e.g. after a sibling PR
+# merges), it force-pushes a commit whose COMMITTER date is "now" but whose
+# AUTHOR date is preserved from the original bump. Counting committedDate resets
+# the 24h quiet clock on every sibling merge, so a repeatedly-rebased PR never
+# ages into eligibility. The fix uses authoredDate for BOT authors, which only
+# advances on genuinely new authorship. These tests run the SHIPPED predicate.py
+# so they fail if that logic regresses -- not a copy of it.
+
+
+def _iso(hours_ago: float) -> str:
+    """An ISO-8601 "Z" timestamp `hours_ago` hours before now."""
+    ts = datetime.now(timezone.utc) - timedelta(hours=hours_ago)
+    return ts.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _pull_with_commit(committed: str, *, authored=None, **overrides) -> dict:
+    """A clean PR whose head commit carries the given date metadata."""
+    commit = {"committedDate": committed, "statusCheckRollup": {"state": "SUCCESS"}}
+    if authored is not None:
+        commit["authoredDate"] = authored
+    pull = _clean_pull(**overrides)
+    pull["commits"] = {"nodes": [{"commit": commit}]}
+    return pull
+
+
+def test_bot_rebase_only_push_does_not_reset_quiet_clock():
+    """A Dependabot rebase (fresh committer date, preserved old author date) is
+    EXEMPT from resetting the 24h clock -> the PR stays ELIGIBLE."""
+    pull = _pull_with_commit(
+        committed=_iso(1),  # rebased 1h ago -> committer date is recent
+        authored="2020-01-01T00:00:00Z",  # original bump, long quiet
+        author={"__typename": "Bot", "login": "dependabot"},
+    )
+    assert _verdict(pull) == "ELIGIBLE"
+
+
+def test_bot_fresh_bump_still_waits_quiet_window():
+    """A genuinely new bump (author AND committer date both recent) is NOT
+    exempted -- it must still wait out the 24h quiet window."""
+    pull = _pull_with_commit(
+        committed=_iso(1),
+        authored=_iso(1),  # authored 1h ago -> substantive, not a rebase
+        author={"__typename": "Bot", "login": "dependabot"},
+    )
+    assert _verdict(pull).startswith("SKIP:active-")
+
+
+def test_human_new_commit_still_resets_quiet_clock():
+    """The exemption is bot-only: a human's recent commit still resets the clock
+    via committedDate even if its author date is old (e.g. a cherry-pick)."""
+    pull = _pull_with_commit(
+        committed=_iso(1),  # human pushed 1h ago
+        authored="2020-01-01T00:00:00Z",
+        author={"__typename": "User", "login": "alice"},
+        reviews={"nodes": [{"author": {"login": "copilot-pull-request-reviewer"}, "state": "COMMENTED", "submittedAt": "2020-01-01T00:00:00Z"}]},
+    )
+    assert _verdict(pull).startswith("SKIP:active-")
+
+
+def test_bot_missing_authored_date_falls_back_to_committed():
+    """Defensive: if authoredDate is absent for a bot, fall back to committedDate
+    (an old committer date here still yields ELIGIBLE, no crash)."""
+    pull = _pull_with_commit(
+        committed="2020-01-01T00:00:00Z",
+        authored=None,  # omitted entirely
+        author={"__typename": "Bot", "login": "dependabot"},
+    )
+    assert _verdict(pull) == "ELIGIBLE"
+
+
+def test_query_selects_authored_date():
+    """The GraphQL query must request authoredDate so the predicate can read it."""
+    assert "authoredDate" in TEXT
