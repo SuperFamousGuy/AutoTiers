@@ -26,3 +26,17 @@ domain_name = "auto-tiers.com"
 
 # ACM cert fronting the ALB HTTPS listener (us-east-1). Not secret — an ARN.
 acm_certificate_arn = "arn:aws:acm:us-east-1:400360841089:certificate/d275c22f-a27f-4970-9048-7e2f91ebf06b"
+
+# Public frontend URL (apex). Drives CORS_ORIGINS and FRONTEND_URL on the ECS
+# backend/scheduler task-defs (ecs.tf:44-49). When set, the cors_origins local
+# emits apex + www + CloudFront; when EMPTY (the variable default) it collapses
+# to CloudFront-only, which is exactly the prod regression that broke credentialed
+# requests from https://auto-tiers.com / www (RulesPanel stuck "Loading rules...").
+# Committed here so CI applies stop re-regressing CORS+OAuth on every run.
+frontend_url = "https://auto-tiers.com"
+
+# Public backend base URL (HTTPS custom domain). Constructs the OAuth redirect
+# URIs YAHOO_REDIRECT_URI / GOOGLE_REDIRECT_URI (ecs.tf:109-113). Empty default
+# falls back to the raw ALB hostname, which breaks the OAuth callback + TLS cert
+# match. Committed so CI stops pointing redirects at the ALB.
+backend_base_url = "https://api.auto-tiers.com"
