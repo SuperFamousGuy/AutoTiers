@@ -420,8 +420,33 @@ jobs:
               echo "(dry-run) would file issue."
               continue
             fi
-            printf '%s\n\n_Filed by `claude-improvement-recommender.yml` (area: %s)._' \
+            # Create the issue. We keep --label here belt-and-suspenders (if the
+            # PAT ever regains Issues:Write, the create-time label is harmless and
+            # the edit below is idempotent), but do NOT trust it: PR_AUTHOR_PAT has
+            # historically lacked Issues:Write, so GitHub SILENTLY DROPS the
+            # create-time --label. The explicit edit below is the load-bearing
+            # guarantee that the `recommendation` label actually lands — and it
+            # FAILS LOUDLY if it can't, so a future silent drop is visible in the
+            # run instead of quietly breaking the recommender's label-based dedup.
+            issue_url="$(printf '%s\n\n_Filed by `claude-improvement-recommender.yml` (area: %s)._' \
               "$body" "$area" \
               | gh issue create --repo "$REPO" --label "$REC_LABEL" \
-                  --title "$title" --body-file -
+                  --title "$title" --body-file -)"
+            echo "created: $issue_url"
+            # Pull the number from the /issues/<n> path segment rather than the
+            # end of the string, so a trailing slash or query string on the URL
+            # (e.g. .../issues/123/) doesn't defeat the parse and hard-fail us
+            # after the issue was already created.
+            issue_num="$(printf '%s' "$issue_url" | grep -oE '/issues/[0-9]+' | grep -oE '[0-9]+$' || true)"
+            if [ -z "$issue_num" ]; then
+              echo "::error::filed an issue but could not parse its number from '$issue_url'; cannot guarantee the '$REC_LABEL' label was applied"
+              exit 1
+            fi
+            # Re-apply the label explicitly and verify it succeeds. NO `|| true`:
+            # if this fails, the step must fail so the drop is never swallowed.
+            if ! gh issue edit "$issue_num" --repo "$REPO" --add-label "$REC_LABEL"; then
+              echo "::error::failed to apply the '$REC_LABEL' label to issue #$issue_num (does PR_AUTHOR_PAT have Issues:Write?); refusing to continue with unlabeled recommendation issues"
+              exit 1
+            fi
+            echo "labeled #$issue_num with '$REC_LABEL'"
           done
