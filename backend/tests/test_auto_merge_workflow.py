@@ -302,9 +302,21 @@ def test_bot_missing_authored_date_falls_back_to_committed():
     assert _verdict(pull) == "ELIGIBLE"
 
 
+GQL_START = "data=\"$(gh api graphql -f query='"
+GQL_END = "' -F owner="
+
+
 def test_query_selects_authored_date():
-    """The GraphQL query must request authoredDate so the predicate can read it."""
-    assert "authoredDate" in TEXT
+    """The GraphQL query must request authoredDate so the predicate can read it.
+
+    Scope the assertion to the GraphQL query text only — ``authoredDate`` also
+    appears in the predicate code and comments elsewhere in the file, so an
+    unscoped ``in TEXT`` check would pass even if the query stopped selecting it.
+    """
+    start = TEXT.index(GQL_START) + len(GQL_START)
+    end = TEXT.index(GQL_END, start)
+    query = TEXT[start:end]
+    assert "authoredDate" in query
 
 
 # --- Behavioural test of the REAL mergeable-UNKNOWN retry loop ---------------
