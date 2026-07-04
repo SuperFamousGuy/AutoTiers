@@ -22,7 +22,7 @@ export function ManageProfilesDialog({ open, onOpenChange, profiles, onRename, o
   async function handleRename(id: string) {
     setError(null);
     try {
-      await onRename(id, draftName);
+      await onRename(id, draftName.trim());
       setEditingId(null);
     } catch {
       setError("Rename failed. Please try again.");
@@ -59,7 +59,7 @@ export function ManageProfilesDialog({ open, onOpenChange, profiles, onRename, o
                       className="flex-1"
                       autoFocus
                     />
-                    <Button size="sm" onClick={() => handleRename(p.id)}>Save</Button>
+                    <Button size="sm" onClick={() => handleRename(p.id)} disabled={draftName.trim() === ""}>Save</Button>
                     <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>Cancel</Button>
                   </>
                 ) : (

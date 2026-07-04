@@ -18,6 +18,20 @@ router = APIRouter(prefix="/profiles", tags=["profiles"])
 _PROFILE_CAP = 5
 
 
+def _validate_and_normalize_name(name: str) -> str:
+    """Trim and reject blank/whitespace-only profile names.
+
+    Mirrors favorites_api._validate_and_normalize: a name like " " passes
+    Pydantic's min_length=1 (a single space has len 1) but produces an
+    invisibly-blank profile, indistinguishable from others in the switcher.
+    Reject with 422 and persist the trimmed value.
+    """
+    trimmed = name.strip()
+    if not trimmed:
+        raise HTTPException(status_code=422, detail="Profile name cannot be blank.")
+    return trimmed
+
+
 @router.get("", response_model=ProfilesListResponse)
 async def list_profiles(
     user: User = require_user,
@@ -41,6 +55,7 @@ async def create_profile(
     user: User = require_user,
     db: AsyncSession = Depends(get_db),
 ) -> ProfileOut:
+    name = _validate_and_normalize_name(body.name)
     count = await db.scalar(
         select(func.count(Profile.id)).where(Profile.user_id == user.id)
     ) or 0
@@ -51,7 +66,7 @@ async def create_profile(
         )
     profile = Profile(
         user_id=user.id,
-        name=body.name,
+        name=name,
         settings_json=body.settings_json,
         rules_json=body.rules_json,
     )
@@ -87,7 +102,7 @@ async def update_profile(
         raise HTTPException(status_code=403, detail="Not your profile")
 
     if body.name is not None:
-        profile.name = body.name
+        profile.name = _validate_and_normalize_name(body.name)
     if body.settings_json is not None:
         profile.settings_json = body.settings_json
     if body.rules_json is not None:

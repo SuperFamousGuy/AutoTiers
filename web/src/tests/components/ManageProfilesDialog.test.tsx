@@ -53,6 +53,29 @@ describe("ManageProfilesDialog", () => {
     await waitFor(() => expect(props.onRename).toHaveBeenCalledWith("p1", "Updated Name"));
   });
 
+  it("keeps Save disabled when the rename input is only whitespace", async () => {
+    const props = _render();
+    const user = userEvent.setup();
+    await user.click(screen.getAllByRole("button", { name: /rename/i })[0]);
+    const input = screen.getByDisplayValue("PPR 12-team");
+    await user.clear(input);
+    await user.type(input, "   ");
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+    expect(props.onRename).not.toHaveBeenCalled();
+  });
+
+  it("trims surrounding whitespace before calling onRename", async () => {
+    const props = _render();
+    const user = userEvent.setup();
+    await user.click(screen.getAllByRole("button", { name: /rename/i })[0]);
+    const input = screen.getByDisplayValue("PPR 12-team");
+    await user.clear(input);
+    await user.type(input, "  Updated Name  ");
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(props.onRename).toHaveBeenCalledWith("p1", "Updated Name"));
+  });
+
   it("Cancel during rename reverts back to the read-only row", async () => {
     _render();
     const user = userEvent.setup();
