@@ -119,14 +119,53 @@ BUILTIN_RULES: list[Rule] = [
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.50),
         description="Heavy penalty for players with no current-season projection from any source - data confidence is low. -50% at default weight.",
     ),
+    # The high-volume RB "curse" is age-conditioned, not flat: recent workload
+    # studies (Fantasy Football For Winners 2025, Fantasy Life 2025) show RBs
+    # first absorbing a 400+ touch load at ages 21–26 decline ~24% in next-year
+    # PPG on average, vs ~37% at age 27+. So we split the old flat 0.90 rule into
+    # two mutually-exclusive age bands sharing the same prior_touches>=370 gate.
+    # Coefficients (0.87 young / 0.75 veteran) are dampened from the raw study
+    # deltas — the base projection already prices in some regression, so passing
+    # the raw decline through would double-count. See issue #498 and the
+    # autotiers-ff-knowledge "370 Touches" entry.
+    #
+    # NOTE: an RB whose `age` is unknown (None) fires NEITHER band — `_evaluate`
+    # treats a None field as a non-match. This is intentional: a 370+ touch
+    # workhorse essentially always has a known age, and defaulting a missing-age
+    # player into a penalty band would be guessing. Locked by a unit test.
     Rule(
-        name="370 Touches",
+        name="370 Touches (Young RB)",
         conditions=[
             RuleCondition(field="position", operator="==", value="RB"),
             RuleCondition(field="prior_touches", operator=">=", value=370),
+            RuleCondition(field="age", operator="<=", value=26),
         ],
-        effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.90),
-        description="Penalizes RBs who absorbed 370+ touches (carries + receptions) last season — historically a leading indicator of decline. -10% at default weight.",
+        effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.87),
+        description=(
+            "Penalizes younger RBs (age <=26) who absorbed 370+ touches "
+            "(carries + receptions) last season — a leading indicator of "
+            "decline. The workhorse curse is age-conditioned: young backs "
+            "recover better, so this band is milder than the veteran band. "
+            "-13% at default weight."
+        ),
+        positions=["RB"],
+    ),
+    Rule(
+        name="370 Touches (Veteran RB)",
+        conditions=[
+            RuleCondition(field="position", operator="==", value="RB"),
+            RuleCondition(field="prior_touches", operator=">=", value=370),
+            RuleCondition(field="age", operator=">=", value=27),
+        ],
+        effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.75),
+        description=(
+            "Penalizes veteran RBs (age >=27) who absorbed 370+ touches "
+            "(carries + receptions) last season — the workhorse curse is "
+            "steepest for older backs (~37% avg next-year decline vs ~24% for "
+            "younger). -25% at default weight. Calibrated to co-fire with "
+            "'Over the Hill' for RBs age >=28 (combined ~-36%); that "
+            "compounding is intentional, not a bug."
+        ),
         positions=["RB"],
     ),
     Rule(
