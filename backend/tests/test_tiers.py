@@ -1,7 +1,11 @@
+import logging
+
 import pytest
+from app.engine import tiers as tiers_module
 from app.engine.tiers import (
     TieredPlayer,
     assign_tiers,
+    _jenks_interior_breaks,
     _quantile_breaks,
     _compute_overall_breaks,
     _qb_replacement_multiplier,
@@ -621,4 +625,80 @@ def test_310_qb_recalibration_locks_overall_ordering():
     # Seed QB ladder rank 8 (index 7) = 308.0 -> Lamar VBD = 400 - 308 = 92.
     assert lamar.vbd_score == 92.0, f"Lamar VBD should be 92.0 (QB8 baseline 308), got {lamar.vbd_score}"
     assert allen.vbd_score == 77.0, f"Allen VBD should be 77.0 (QB8 baseline 308), got {allen.vbd_score}"
+
+
+class TestJenksInteriorBreaksFailureHandling:
+    """The Jenks except was over-broad (`except (ValueError, Exception)`), so a
+    NaN score, a None, or a jenkspy API break all silently collapsed into a
+    single tier with no diagnostic trail (issue #505). These tests lock in the
+    narrowed behaviour: ValueError is caught + logged as a real failure, the
+    expected all-identical path stays quiet, and non-ValueError failures
+    propagate loudly instead of being absorbed.
+    """
+
+    def test_all_identical_scores_stay_quiet(self, caplog):
+        """All-identical scores are the legitimate single-tier path: no interior
+        break, no warning (debug at most)."""
+        with caplog.at_level(logging.DEBUG, logger="app.engine.tiers"):
+            breaks = _jenks_interior_breaks([5.0, 5.0, 5.0, 5.0], max_classes=3)
+        assert breaks == []
+        # Never a warning for the expected path.
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+    def test_nan_score_is_caught_and_logged_as_warning(self, caplog):
+        """A NaN leaking in from a bad projection makes jenkspy raise ValueError.
+        We catch it, fall back to no interior breaks, and log a warning naming
+        the context and score stats so the regression surfaces in logs."""
+        nan = float("nan")
+        scores = [10.0, 8.0, nan, 4.0, 2.0]
+        with caplog.at_level(logging.WARNING, logger="app.engine.tiers"):
+            breaks = _jenks_interior_breaks(scores, max_classes=3, context="WR positional")
+        assert breaks == []
+        warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warnings) == 1
+        msg = warnings[0].getMessage()
+        assert "jenks_breaks failed" in msg
+        assert "WR positional" in msg  # context is named
+        assert "5 scores" in msg       # score count reported
+
+    def test_non_valueerror_propagates(self, monkeypatch):
+        """A TypeError (e.g. a None score, or a future jenkspy API break) must NOT
+        be silently absorbed — it propagates so a genuine bug is loud."""
+
+        def boom(*args, **kwargs):
+            raise TypeError("simulated jenkspy API break")
+
+        monkeypatch.setattr(tiers_module.jenkspy, "jenks_breaks", boom)
+        with pytest.raises(TypeError, match="simulated jenkspy API break"):
+            _jenks_interior_breaks([10.0, 8.0, 6.0, 4.0], max_classes=3)
+
+    def test_memoryerror_propagates(self, monkeypatch):
+        """MemoryError is not a tiering-quality signal — it must propagate, not
+        degrade silently into a single tier."""
+
+        def boom(*args, **kwargs):
+            raise MemoryError()
+
+        monkeypatch.setattr(tiers_module.jenkspy, "jenks_breaks", boom)
+        with pytest.raises(MemoryError):
+            _jenks_interior_breaks([10.0, 8.0, 6.0, 4.0], max_classes=3)
+
+    def test_valueerror_still_falls_back_to_quantile_end_to_end(self, caplog):
+        """Even when jenkspy raises ValueError on a real player set, assign_tiers
+        must still return tiered players (via the quantile fallback), not crash."""
+        players = [_player(str(i), "WR", float(100 - i)) for i in range(12)]
+
+        def raise_ve(*args, **kwargs):
+            raise ValueError("simulated insufficient variance")
+
+        # Force the ValueError path across all Jenks calls.
+        import unittest.mock as mock
+        with mock.patch.object(tiers_module.jenkspy, "jenks_breaks", side_effect=raise_ve):
+            with caplog.at_level(logging.WARNING, logger="app.engine.tiers"):
+                ranked = assign_tiers(players, league_size=12)
+        # Players still get tiers from the quantile fallback.
+        assert all(p.positional_tier.startswith("WR") for p in ranked)
+        assert all(p.overall_tier >= 1 for p in ranked)
+        # And the failure was surfaced, not swallowed.
+        assert [r for r in caplog.records if r.levelno >= logging.WARNING]
 
