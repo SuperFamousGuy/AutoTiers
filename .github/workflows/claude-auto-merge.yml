@@ -54,7 +54,18 @@ name: claude-auto-merge
 #  4. No open threads : zero reviewThreads with isResolved==false, AND no human's
 #                       latest review is CHANGES_REQUESTED.
 #  5. Quiet 24h       : now - max(last commit, comments, review comments, reviews)
-#                       >= QUIET_HOURS.
+#                       >= QUIET_HOURS. REBASE EXEMPTION (issue #473): for BOT
+#                       authors the commit stamp is the head commit's AUTHOR
+#                       date, not its COMMITTER date. A Dependabot rebase (e.g.
+#                       onto an updated main after a sibling PR merges) force-
+#                       pushes a commit whose committer date is "now" but whose
+#                       author date is preserved from the original bump, so
+#                       committer date would reset this 24h clock on every
+#                       sibling merge and could stall the PR forever. Author
+#                       date only advances on genuinely new authorship, so a
+#                       rebase-only push no longer resets the clock while a
+#                       substantive change still does. Humans keep committer date
+#                       (a new human commit is real activity).
 #  6. Trusted author  : author is a Bot (__typename Bot / login ends [bot]) OR a
 #                       repo collaborator with admin|write|maintain permission.
 #
@@ -218,7 +229,19 @@ jobs:
           if any(state == "CHANGES_REQUESTED" for _, state in latest.values()):
               print("SKIP:changes-requested"); sys.exit(0)
 
-          stamps = [head["committedDate"]]
+          # Predicate 5 rebase exemption (issue #473). A bot rebase (Dependabot
+          # rebasing onto an updated main after a sibling PR merges) force-pushes
+          # a new commit whose COMMITTER date is "now" but whose AUTHOR date is
+          # preserved from the original bump. Counting committedDate would reset
+          # the 24h quiet clock on every sibling merge, so a PR that keeps getting
+          # rebased never ages into eligibility. For bots we use authoredDate,
+          # which only advances on genuinely new authorship (a real new commit by
+          # anyone has a fresh author date) -- so a rebase-only push no longer
+          # resets the clock while a substantive change still does. Humans keep
+          # committedDate (a new human commit is real activity). Fall back to
+          # committedDate if authoredDate is somehow absent.
+          commit_stamp = (head.get("authoredDate") if is_bot else None) or head["committedDate"]
+          stamps = [commit_stamp]
           for c in (pull.get("comments") or {}).get("nodes", []):
               stamps.append(c["createdAt"])
           for r in reviews:
@@ -319,6 +342,7 @@ jobs:
                       labels(first:50){ nodes{ name } }
                       commits(last:1){ nodes{ commit{
                         committedDate
+                        authoredDate
                         statusCheckRollup{ state }
                       }}}
                       comments(last:100){ nodes{ createdAt } }
