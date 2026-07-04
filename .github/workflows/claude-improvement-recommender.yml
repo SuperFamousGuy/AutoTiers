@@ -433,7 +433,11 @@ jobs:
               | gh issue create --repo "$REPO" --label "$REC_LABEL" \
                   --title "$title" --body-file -)"
             echo "created: $issue_url"
-            issue_num="$(printf '%s' "$issue_url" | grep -oE '[0-9]+$' || true)"
+            # Pull the number from the /issues/<n> path segment rather than the
+            # end of the string, so a trailing slash or query string on the URL
+            # (e.g. .../issues/123/) doesn't defeat the parse and hard-fail us
+            # after the issue was already created.
+            issue_num="$(printf '%s' "$issue_url" | grep -oE '/issues/[0-9]+' | grep -oE '[0-9]+$' || true)"
             if [ -z "$issue_num" ]; then
               echo "::error::filed an issue but could not parse its number from '$issue_url'; cannot guarantee the '$REC_LABEL' label was applied"
               exit 1
