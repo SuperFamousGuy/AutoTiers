@@ -43,6 +43,15 @@ class Settings(BaseSettings):
     # has crash-looped or frozen and stopped refreshing data. Override via
     # DATA_FRESHNESS_THRESHOLD_HOURS.
     data_freshness_threshold_hours: float = 2.0
+    # Number of trusted reverse-proxy hops in front of the app (issue #519). In
+    # production ECS Fargate sits behind a single ALB, so the default is 1. The
+    # ALB does NOT strip a client-supplied X-Forwarded-For; it appends the real
+    # peer IP to the right of whatever the client sent. Rate-limit keying reads
+    # the entry this many hops from the right so a client can't forge its bucket
+    # by sending its own XFF. Set to 0 only when there is no trusted proxy (the
+    # app is directly internet-facing) — then XFF is fully untrusted and only the
+    # socket peer is used. Override via TRUSTED_PROXY_COUNT.
+    trusted_proxy_count: int = 1
 
 
 settings = Settings()

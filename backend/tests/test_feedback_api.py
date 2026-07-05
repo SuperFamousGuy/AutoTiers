@@ -424,3 +424,116 @@ async def test_screenshot_filename_strips_header_breaking_chars(async_client, fa
     att = fake_sender.sent[0].attachments[0]
     assert "\r" not in att.filename and "\n" not in att.filename
     assert att.filename == "shotBcc: evil@example.com.png"
+
+
+# --- #519: right-most X-Forwarded-For so clients can't forge their rate key ----
+
+from starlette.requests import Request as _StarletteRequest
+
+from app.api.feedback import _client_ip
+from app.auth.rate_limit import feedback_rate_limiter
+
+
+def _make_request(xff: str | None, client_host: str | None = "10.0.0.1") -> _StarletteRequest:
+    """Build a minimal Starlette Request with an optional XFF header + peer."""
+    headers = []
+    if xff is not None:
+        headers.append((b"x-forwarded-for", xff.encode()))
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/feedback",
+        "headers": headers,
+        "client": (client_host, 12345) if client_host is not None else None,
+    }
+    return _StarletteRequest(scope)
+
+
+def test_client_ip_takes_rightmost_entry_for_single_alb_hop(monkeypatch):
+    # Default one trusted hop: ALB appends the real peer to the RIGHT, so the
+    # right-most entry is the real client, not the client-supplied left entry.
+    monkeypatch.setattr(settings, "trusted_proxy_count", 1)
+    req = _make_request("1.2.3.4, 203.0.113.9")
+    assert _client_ip(req) == "203.0.113.9"
+
+
+def test_client_ip_forged_xff_maps_to_same_real_client(monkeypatch):
+    # Acceptance criterion: two requests from the same real client that forge
+    # DIFFERENT left-most XFF values must resolve to the same key.
+    monkeypatch.setattr(settings, "trusted_proxy_count", 1)
+    a = _client_ip(_make_request("1.2.3.4, 203.0.113.9"))
+    b = _client_ip(_make_request("9.9.9.9, 203.0.113.9"))
+    c = _client_ip(_make_request("evil, spoof, chain, 203.0.113.9"))
+    assert a == b == c == "203.0.113.9"
+
+
+def test_client_ip_two_trusted_hops(monkeypatch):
+    # With two trusted proxies the chain is `client, real, proxy1`; the entry
+    # two-from-the-right is the real client.
+    monkeypatch.setattr(settings, "trusted_proxy_count", 2)
+    req = _make_request("1.2.3.4, 203.0.113.9, 10.0.0.7")
+    assert _client_ip(req) == "203.0.113.9"
+
+
+def test_client_ip_chain_shorter_than_hop_count_falls_back_to_leftmost(monkeypatch):
+    # A chain shorter than the trusted-hop count (misconfig or missing hop)
+    # yields the left-most entry rather than raising / wrapping negative.
+    monkeypatch.setattr(settings, "trusted_proxy_count", 3)
+    req = _make_request("203.0.113.9")
+    assert _client_ip(req) == "203.0.113.9"
+
+
+def test_client_ip_single_entry_direct_client(monkeypatch):
+    monkeypatch.setattr(settings, "trusted_proxy_count", 1)
+    req = _make_request("203.0.113.9")
+    assert _client_ip(req) == "203.0.113.9"
+
+
+def test_client_ip_zero_trusted_hops_ignores_xff(monkeypatch):
+    # No trusted proxy → XFF is fully untrusted; use the socket peer only.
+    monkeypatch.setattr(settings, "trusted_proxy_count", 0)
+    req = _make_request("1.2.3.4, 203.0.113.9", client_host="10.0.0.1")
+    assert _client_ip(req) == "10.0.0.1"
+
+
+def test_client_ip_no_xff_uses_socket_peer(monkeypatch):
+    monkeypatch.setattr(settings, "trusted_proxy_count", 1)
+    req = _make_request(None, client_host="198.51.100.5")
+    assert _client_ip(req) == "198.51.100.5"
+
+
+def test_client_ip_no_xff_no_peer_is_unknown(monkeypatch):
+    monkeypatch.setattr(settings, "trusted_proxy_count", 1)
+    req = _make_request(None, client_host=None)
+    assert _client_ip(req) == "unknown"
+
+
+def test_client_ip_ignores_empty_and_whitespace_entries(monkeypatch):
+    monkeypatch.setattr(settings, "trusted_proxy_count", 1)
+    # Trailing comma / whitespace must not become the (empty) key.
+    req = _make_request(" 1.2.3.4 ,  203.0.113.9 , ")
+    assert _client_ip(req) == "203.0.113.9"
+
+
+@pytest.mark.asyncio
+async def test_forged_xff_cannot_rotate_rate_limit_bucket(async_client, fake_sender, monkeypatch):
+    # End-to-end acceptance: an attacker rotating the left-most (forged) XFF on
+    # every request, while the ALB appends the same real client IP, stays in ONE
+    # bucket and still hits 429 after the limit.
+    monkeypatch.setattr(settings, "trusted_proxy_count", 1)
+    feedback_rate_limiter._attempts.clear()
+    real_client = "203.0.113.42"
+    for i in range(5):
+        r = await async_client.post(
+            "/api/feedback",
+            json={"message": "spam"},
+            headers={"X-Forwarded-For": f"10.0.0.{i}, {real_client}"},
+        )
+        assert r.status_code == 202, f"request {i} unexpectedly blocked"
+    blocked = await async_client.post(
+        "/api/feedback",
+        json={"message": "spam"},
+        headers={"X-Forwarded-For": f"9.9.9.9, {real_client}"},
+    )
+    assert blocked.status_code == 429
+    feedback_rate_limiter._attempts.clear()
