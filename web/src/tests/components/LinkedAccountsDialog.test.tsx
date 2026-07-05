@@ -285,4 +285,55 @@ describe("LinkedAccountsDialog", () => {
     await u.click(screen.getByRole("button", { name: /^nfl fantasy$/i }));
     expect(await screen.findByText(/select a profile/i)).toBeInTheDocument();
   });
+
+  // --- Connected-dot semantics (issue #522) ---
+  // The green dot means the same thing for every provider: an active league is
+  // linked to the profile. Yahoo's OAuth sign-in alone must NOT light it.
+  const yahooLeague = (): Profile["linked_league"] => ({
+    profile_id: "p1",
+    provider: "yahoo",
+    league_id: "423.l.1",
+    league_metadata_json: { name: "My League", season: 2024 },
+    keepers_json: null,
+    adp_json: null,
+    last_synced_at: "",
+  });
+
+  it("Yahoo tab dot does NOT light on OAuth sign-in alone (no league linked)", () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop}
+        user={{ ...baseUser, yahoo_subject: "y-sub", yahoo_fantasy_connected: true }}
+        onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
+    );
+    const yahooTab = screen.getByRole("button", { name: /^yahoo$/i });
+    expect(yahooTab.querySelector("span.bg-green-500")).toBeNull();
+  });
+
+  it("Yahoo tab dot lights only when a Yahoo league is linked to the active profile", () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop}
+        user={{ ...baseUser, yahoo_subject: "y-sub", yahoo_fantasy_connected: true }}
+        onRefresh={noop} initialError={null}
+        activeProfile={{ ...activeProfile, linked_league: yahooLeague() }} />,
+    );
+    const yahooTab = screen.getByRole("button", { name: /^yahoo$/i });
+    expect(yahooTab.querySelector("span.bg-green-500")).not.toBeNull();
+  });
+
+  it("only the tab whose provider is linked shows the dot (no regression for other providers)", () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null}
+        activeProfile={{
+          ...activeProfile,
+          linked_league: { ...yahooLeague()!, provider: "sleeper", league_id: "s1" },
+        }} />,
+    );
+    expect(
+      screen.getByRole("button", { name: /^sleeper$/i }).querySelector("span.bg-green-500"),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: /^yahoo$/i }).querySelector("span.bg-green-500"),
+    ).toBeNull();
+  });
 });
