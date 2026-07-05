@@ -37,6 +37,33 @@ async def test_create_profile_persists_and_returns(async_client):
 
 
 @pytest.mark.asyncio
+async def test_create_profile_rejects_whitespace_only_name(async_client):
+    await _signup(async_client)
+    r = await async_client.post("/api/profiles", json={
+        "name": "  ",
+        "settings_json": {},
+        "rules_json": {},
+    })
+    assert r.status_code == 422
+    assert "blank" in r.json()["detail"].lower()
+    # Nothing was persisted.
+    listing = await async_client.get("/api/profiles")
+    assert listing.json()["profiles"] == []
+
+
+@pytest.mark.asyncio
+async def test_create_profile_trims_surrounding_whitespace(async_client):
+    await _signup(async_client)
+    r = await async_client.post("/api/profiles", json={
+        "name": "  Trimmed  ",
+        "settings_json": {},
+        "rules_json": {},
+    })
+    assert r.status_code == 201
+    assert r.json()["name"] == "Trimmed"
+
+
+@pytest.mark.asyncio
 async def test_create_profile_rejects_when_at_cap(async_client):
     await _signup(async_client)
     for i in range(5):
@@ -74,6 +101,38 @@ async def test_patch_profile_updates_fields(async_client):
     assert body["name"] == "Renamed"
     assert body["settings_json"]["league_size"] == 14
     assert body["rules_json"] == {}
+
+
+@pytest.mark.asyncio
+async def test_patch_profile_rejects_whitespace_only_name(async_client):
+    await _signup(async_client)
+    create = await async_client.post("/api/profiles", json={
+        "name": "Original",
+        "settings_json": {},
+        "rules_json": {},
+    })
+    pid = create.json()["id"]
+
+    r = await async_client.patch(f"/api/profiles/{pid}", json={"name": " "})
+    assert r.status_code == 422
+    assert "blank" in r.json()["detail"].lower()
+
+    # The stored row is unchanged — name still "Original".
+    listing = await async_client.get("/api/profiles")
+    assert listing.json()["profiles"][0]["name"] == "Original"
+
+
+@pytest.mark.asyncio
+async def test_patch_profile_trims_surrounding_whitespace(async_client):
+    await _signup(async_client)
+    create = await async_client.post("/api/profiles", json={
+        "name": "Original", "settings_json": {}, "rules_json": {},
+    })
+    pid = create.json()["id"]
+
+    r = await async_client.patch(f"/api/profiles/{pid}", json={"name": "  Renamed  "})
+    assert r.status_code == 200
+    assert r.json()["name"] == "Renamed"
 
 
 @pytest.mark.asyncio
