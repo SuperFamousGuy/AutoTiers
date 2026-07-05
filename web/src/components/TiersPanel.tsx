@@ -25,9 +25,15 @@ interface TiersPanelProps {
   onDownloadDebugCsv?: () => void;
   /** Stable id for the linked league (or "default"), used to scope Draft Mode persistence per league + scoring format. */
   leagueKey?: string;
+  /** True when settings/rules changed since this list was generated — surfaces the staleness banner (#523). */
+  isStale?: boolean;
+  /** Regenerate handler invoked from the staleness banner's Generate affordance. */
+  onRegenerate?: () => void;
+  /** Whether a regenerate is currently allowed (valid weights + rules loaded); disables the banner's Generate button. */
+  canRegenerate?: boolean;
 }
 
-export function TiersPanel({ result, isPending, onDownloadXlsx, keepers, scoringFormat, tierLabelOverrides, debugMode, onDownloadDebugCsv, leagueKey }: TiersPanelProps) {
+export function TiersPanel({ result, isPending, onDownloadXlsx, keepers, scoringFormat, tierLabelOverrides, debugMode, onDownloadDebugCsv, leagueKey, isStale, onRegenerate, canRegenerate }: TiersPanelProps) {
   const [filter, setFilter] = useState<PositionFilterValue>("ALL");
   const [draftMode, setDraftMode] = useState(false);
 
@@ -110,6 +116,26 @@ export function TiersPanel({ result, isPending, onDownloadXlsx, keepers, scoring
 
   return (
     <section className="flex flex-col h-full min-h-0">
+      {isStale && (
+        <div
+          role="status"
+          className="flex items-center justify-between gap-3 border-b border-yellow-300 bg-yellow-50 px-4 py-2.5 text-yellow-900 dark:border-yellow-700/60 dark:bg-yellow-950/40 dark:text-yellow-200"
+        >
+          <p className="min-w-0 flex-1 text-xs">
+            Settings changed since this list was generated — regenerate to update.
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-6 shrink-0 px-2 text-xs text-yellow-900 hover:bg-yellow-100 hover:text-yellow-900 dark:text-yellow-200 dark:hover:bg-yellow-900/30"
+            onClick={onRegenerate}
+            disabled={!canRegenerate}
+          >
+            Generate
+          </Button>
+        </div>
+      )}
       {keepers && keepers.length > 0 && (
         <div className="border-b px-3 py-2 text-xs text-muted-foreground">
           Excluded Keepers: {keepers.map((k) => k.player_name).join(", ")}

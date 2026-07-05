@@ -104,6 +104,11 @@ export default function App() {
     refetch: refetchRules,
   } = useRules();
   const generate = useGenerateMutation();
+  // The GenerateRequest that produced the currently-displayed tier list. Set on
+  // every successful generate; diffed against the live request each render to
+  // detect stale results (settings/rules edited after generating). Null before
+  // the first generate and after a profile switch clears the result (#523).
+  const [lastGeneratedRequest, setLastGeneratedRequest] = useState<GenerateRequest | null>(null);
 
   // Smart mobile default: switch to "tiers" tab on the FIRST generate result after
   // app load or profile switch. Subsequent generates leave the user's current tab
@@ -257,6 +262,9 @@ export default function App() {
     // the guard reset above: the next generate is treated as a fresh first
     // result and re-fires the mobile auto-switch.
     generate.reset();
+    // Drop the captured request so the staleness banner can't compare the new
+    // profile's live settings against the previous profile's generate (#523).
+    setLastGeneratedRequest(null);
     await activateProfile(id);
   }, [generate.reset]);
 
@@ -274,6 +282,7 @@ export default function App() {
     setMobilePanel("settings");
     hasAutoSwitchedToTiers.current = false;
     generate.reset();
+    setLastGeneratedRequest(null);
     await activateProfile(created.id);
   }, [profiles, settings, positionRules, setProfiles, generate.reset]);
 
@@ -335,6 +344,26 @@ export default function App() {
 
   const canGenerate = weightsAreValid(settings.weights) && canonicalRules.length > 0;
 
+  // The request the current settings/rules would send. Recomputed each render so
+  // the staleness check below reflects edits within a single render (#523).
+  const currentRequest = buildRequest();
+
+  // Fires a generate and, on success, records the exact request that produced
+  // the result — the baseline the staleness banner compares against.
+  const handleGenerate = () => {
+    generate.mutate(currentRequest, {
+      onSuccess: () => setLastGeneratedRequest(currentRequest),
+    });
+  };
+
+  // The displayed tier list is stale when the live request no longer matches the
+  // one that generated it. Requires an existing result: no banner before the
+  // first generate, and none while the empty/loading states are showing (#523).
+  const isStale =
+    generate.data != null &&
+    lastGeneratedRequest != null &&
+    JSON.stringify(currentRequest) !== JSON.stringify(lastGeneratedRequest);
+
   // Tier labels shown/exported for the active scoring format: per-format
   // overrides win over the global tier_labels, which win over static defaults (#164).
   const resolvedTierNames = buildResolvedTierNames(
@@ -351,7 +380,7 @@ export default function App() {
       <Header
         generateDisabled={!canGenerate}
         generateIsPending={generate.isPending}
-        onGenerate={() => generate.mutate(buildRequest())}
+        onGenerate={handleGenerate}
         currentState={{ settings, rules: positionRules }}
         isDark={isDark}
         onToggleDark={toggleDark}
@@ -457,6 +486,9 @@ export default function App() {
           <TiersPanel
             result={generate.data ?? null}
             isPending={generate.isPending}
+            isStale={isStale}
+            onRegenerate={handleGenerate}
+            canRegenerate={canGenerate}
             onDownloadXlsx={() => {
               if (generate.data) {
                 void downloadDraftXlsx(

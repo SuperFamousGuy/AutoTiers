@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "@/App";
@@ -47,5 +47,42 @@ describe("App (integration)", () => {
       expect(screen.getByText("Ja'Marr Chase")).toBeInTheDocument();
     });
     expect(screen.getByText("Bijan Robinson")).toBeInTheDocument();
+  });
+
+  it("shows a staleness banner after a settings change and clears it on regenerate", async () => {
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Target Share Premium")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    const STALE_TEXT = /settings changed since this list was generated/i;
+
+    // No banner before the first generate.
+    expect(screen.queryByText(STALE_TEXT)).not.toBeInTheDocument();
+
+    // Generate once.
+    await user.click(screen.getByRole("button", { name: /^generate$/i }));
+    await waitFor(() => {
+      expect(screen.getByText("Ja'Marr Chase")).toBeInTheDocument();
+    });
+    // No banner immediately after a fresh generate.
+    expect(screen.queryByText(STALE_TEXT)).not.toBeInTheDocument();
+
+    // Change an input that flows into the GenerateRequest (a bonus toggle).
+    await user.click(screen.getByRole("switch", { name: /100-yd rushing/i }));
+
+    // Banner appears (within one render).
+    await waitFor(() => {
+      expect(screen.getByText(STALE_TEXT)).toBeInTheDocument();
+    });
+
+    // Regenerating from the banner clears it once the fresh result lands.
+    const banner = screen.getByRole("status");
+    await user.click(within(banner).getByRole("button", { name: /^generate$/i }));
+    await waitFor(() => {
+      expect(screen.queryByText(STALE_TEXT)).not.toBeInTheDocument();
+    });
   });
 });

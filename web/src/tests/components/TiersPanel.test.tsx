@@ -239,6 +239,73 @@ describe("TiersPanel", () => {
     });
   });
 
+  describe("staleness banner", () => {
+    const STALE_TEXT = /settings changed since this list was generated/i;
+
+    it("does not show the banner when isStale is falsy (default)", () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      expect(screen.queryByText(STALE_TEXT)).not.toBeInTheDocument();
+    });
+
+    it("does not show the banner before the first generate (empty state)", () => {
+      render(<TiersPanel result={null} isPending={false} onDownloadXlsx={() => {}} isStale={true} />);
+      expect(screen.queryByText(STALE_TEXT)).not.toBeInTheDocument();
+      // Empty-state copy still shows.
+      expect(screen.getByText(/click generate/i)).toBeInTheDocument();
+    });
+
+    it("does not show the banner while a (re)generate is pending", () => {
+      render(<TiersPanel result={null} isPending={true} onDownloadXlsx={() => {}} isStale={true} />);
+      expect(screen.queryByText(STALE_TEXT)).not.toBeInTheDocument();
+      expect(screen.getByText(/generating/i)).toBeInTheDocument();
+    });
+
+    it("shows the banner when isStale is true and a result exists", () => {
+      render(
+        <TiersPanel
+          result={response}
+          isPending={false}
+          onDownloadXlsx={() => {}}
+          isStale={true}
+          canRegenerate={true}
+        />,
+      );
+      expect(screen.getByText(STALE_TEXT)).toBeInTheDocument();
+    });
+
+    it("calls onRegenerate when the banner's Generate button is clicked", async () => {
+      const onRegenerate = vi.fn();
+      render(
+        <TiersPanel
+          result={response}
+          isPending={false}
+          onDownloadXlsx={() => {}}
+          isStale={true}
+          canRegenerate={true}
+          onRegenerate={onRegenerate}
+        />,
+      );
+      const banner = screen.getByRole("status");
+      const user = userEvent.setup();
+      await user.click(within(banner).getByRole("button", { name: /^generate$/i }));
+      expect(onRegenerate).toHaveBeenCalledTimes(1);
+    });
+
+    it("disables the banner's Generate button when canRegenerate is false", () => {
+      render(
+        <TiersPanel
+          result={response}
+          isPending={false}
+          onDownloadXlsx={() => {}}
+          isStale={true}
+          canRegenerate={false}
+        />,
+      );
+      const banner = screen.getByRole("status");
+      expect(within(banner).getByRole("button", { name: /^generate$/i })).toBeDisabled();
+    });
+  });
+
   describe("draft mode", () => {
     it("does not show the draft toggle button on player rows until Draft Mode is on", () => {
       render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
