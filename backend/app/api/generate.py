@@ -302,9 +302,16 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
         league_type_val = req.league_type.value if hasattr(req.league_type, "value") else req.league_type
         player_adp = _get_adp(player.adp_entries, scoring_fmt, league_type_val)
 
+        # Pass the ESPN projection (if any) through to the blend so weight_espn
+        # is not a validated-but-inert field (#502). espn_pts is None in
+        # production today because EspnFetcher is intentionally not invoked
+        # (see sources/fetcher.py), making this a no-op — but if the "espn"
+        # source is ever re-enabled the schema, response field, and blend math
+        # stay in agreement instead of silently absorbing weight_espn into the
+        # prior_year/consensus ratio.
         blended = blend_scores(
             prior_year_actual=prior_actual,
-            espn_projection=None,
+            espn_projection=espn_pts,
             consensus_projection=avg_proj,
             settings=settings,
             prior_year_games=(stat.games_played if stat is not None else None),
