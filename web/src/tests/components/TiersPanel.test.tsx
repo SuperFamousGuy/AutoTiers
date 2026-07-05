@@ -294,20 +294,88 @@ describe("TiersPanel", () => {
       expect(nameEl.className).not.toContain("line-through");
     });
 
-    it("Reset Draft clears all drafted players", async () => {
-      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
-      const user = userEvent.setup();
-      await user.click(screen.getByRole("switch", { name: /draft mode/i }));
-      await user.click(screen.getByRole("button", { name: /mark ja'marr chase as drafted/i }));
-      await user.click(screen.getByRole("button", { name: /mark bijan robinson as drafted/i }));
-      expect(screen.getByText(/2 drafted/i)).toBeInTheDocument();
+    it("Reset Draft clears all drafted players once the confirmation is accepted", async () => {
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+      try {
+        render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+        const user = userEvent.setup();
+        await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+        await user.click(screen.getByRole("button", { name: /mark ja'marr chase as drafted/i }));
+        await user.click(screen.getByRole("button", { name: /mark bijan robinson as drafted/i }));
+        expect(screen.getByText(/2 drafted/i)).toBeInTheDocument();
 
-      await user.click(screen.getByRole("button", { name: /^reset draft$/i }));
-      // Header suffix now reads "0 drafted" (still in Draft Mode), not "2 drafted".
-      expect(screen.getByText(/0 drafted/i)).toBeInTheDocument();
-      expect(screen.queryByText(/2 drafted/i)).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /mark ja'marr chase as drafted/i })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /mark bijan robinson as drafted/i })).toBeInTheDocument();
+        await user.click(screen.getByRole("button", { name: /^reset draft$/i }));
+
+        // The confirmation names the count of players about to be wiped.
+        expect(confirmSpy).toHaveBeenCalledWith(
+          expect.stringMatching(/clear all 2 drafted players for this board\? this can't be undone\./i),
+        );
+        // Header suffix now reads "0 drafted" (still in Draft Mode), not "2 drafted".
+        expect(screen.getByText(/0 drafted/i)).toBeInTheDocument();
+        expect(screen.queryByText(/2 drafted/i)).not.toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /mark ja'marr chase as drafted/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /mark bijan robinson as drafted/i })).toBeInTheDocument();
+      } finally {
+        confirmSpy.mockRestore();
+      }
+    });
+
+    it("Reset Draft keeps the drafted players when the confirmation is cancelled", async () => {
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+      try {
+        render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+        const user = userEvent.setup();
+        await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+        await user.click(screen.getByRole("button", { name: /mark ja'marr chase as drafted/i }));
+        await user.click(screen.getByRole("button", { name: /mark bijan robinson as drafted/i }));
+        expect(screen.getByText(/2 drafted/i)).toBeInTheDocument();
+
+        await user.click(screen.getByRole("button", { name: /^reset draft$/i }));
+
+        expect(confirmSpy).toHaveBeenCalledTimes(1);
+        // Cancelling leaves the board untouched — the picks survive.
+        expect(screen.getByText(/2 drafted/i)).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /mark ja'marr chase as available/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /mark bijan robinson as available/i })).toBeInTheDocument();
+      } finally {
+        confirmSpy.mockRestore();
+      }
+    });
+
+    it("Reset Draft with nothing drafted no-ops without prompting for confirmation", async () => {
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+      try {
+        render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+        const user = userEvent.setup();
+        await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+        expect(screen.getByText(/0 drafted/i)).toBeInTheDocument();
+
+        await user.click(screen.getByRole("button", { name: /^reset draft$/i }));
+
+        // Nothing to lose → no confirmation dialog, no state change.
+        expect(confirmSpy).not.toHaveBeenCalled();
+        expect(screen.getByText(/0 drafted/i)).toBeInTheDocument();
+      } finally {
+        confirmSpy.mockRestore();
+      }
+    });
+
+    it("the Reset Draft confirmation copy is singular when exactly one player is drafted", async () => {
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+      try {
+        render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+        const user = userEvent.setup();
+        await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+        await user.click(screen.getByRole("button", { name: /mark ja'marr chase as drafted/i }));
+
+        await user.click(screen.getByRole("button", { name: /^reset draft$/i }));
+
+        expect(confirmSpy).toHaveBeenCalledWith(
+          expect.stringMatching(/clear all 1 drafted player for this board\?/i),
+        );
+      } finally {
+        confirmSpy.mockRestore();
+      }
     });
 
     it("the available-count badge for Tier 1 drops from 2 to 1 after drafting one of its players", async () => {

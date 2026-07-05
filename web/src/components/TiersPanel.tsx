@@ -34,6 +34,19 @@ export function TiersPanel({ result, isPending, onDownloadXlsx, keepers, scoring
   const draftStorageKey = `${leagueKey ?? "default"}:${scoringFormat ?? "standard"}`;
   const { isDrafted, draftedCount, toggleDrafted, reset: resetDraft, drafted } = useDraftBoard(draftStorageKey);
 
+  // Reset Draft wipes the live drafted-players board (per-league, per-format,
+  // persisted to localStorage) with no undo. On a phone during a live draft
+  // this button sits next to the frequently-tapped Draft Mode toggle, so gate
+  // the wipe behind a confirmation that names the count. When nothing is
+  // drafted there is nothing to lose, so skip the prompt and no-op.
+  const handleResetDraft = () => {
+    if (draftedCount === 0) return;
+    const noun = draftedCount === 1 ? "player" : "players";
+    if (window.confirm(`Clear all ${draftedCount} drafted ${noun} for this board? This can't be undone.`)) {
+      resetDraft();
+    }
+  };
+
   const groupedByTier = useMemo(() => {
     if (!result) return [] as { label: string; descriptiveLabel?: string; players: GenerateResponse["players"] }[];
     const filtered = filter === "ALL"
@@ -127,7 +140,7 @@ export function TiersPanel({ result, isPending, onDownloadXlsx, keepers, scoring
           <div className="flex items-center gap-2 shrink-0">
             {draftMode && (
               <Button
-                onClick={resetDraft}
+                onClick={handleResetDraft}
                 variant="outline"
                 size="sm"
               >
