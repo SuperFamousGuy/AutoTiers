@@ -72,7 +72,13 @@ async def _with_refresh(url: str, user, db: AsyncSession) -> dict:
     try:
         new_token = await refresh_access_token(decrypt(user.yahoo_refresh_token))
     except httpx.HTTPStatusError as e:
-        raise YahooReauthRequired from e
+        # Only a revoked/expired refresh token (Yahoo returns 400/401) means the
+        # user must reconnect. Other statuses (429 rate-limit, 5xx) are transient
+        # provider outages — re-raise so they flow through _provider_http_error as
+        # an upstream error rather than a misleading "reconnect Yahoo" prompt.
+        if e.response.status_code in (400, 401):
+            raise YahooReauthRequired from e
+        raise
     user.yahoo_access_token = encrypt(new_token)
     await db.commit()
     return await _get(url, new_token)

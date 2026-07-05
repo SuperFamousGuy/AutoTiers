@@ -181,6 +181,33 @@ async def test_fetch_league_raises_reauth_when_refresh_token_revoked(respx_mock,
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("refresh_status", [429, 500, 503])
+async def test_fetch_league_reraises_transient_refresh_failure(respx_mock, refresh_status):
+    """A transient failure on the refresh POST (429 rate-limit, 5xx outage) is
+    NOT a revoked token — it must propagate as the raw HTTPStatusError (which the
+    endpoint maps to a 502 upstream error) rather than a misleading
+    YahooReauthRequired "reconnect Yahoo" prompt."""
+    league_key = "423.l.12345"
+    url = f"https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/settings"
+    respx_mock.get(url).mock(return_value=httpx.Response(401, text="Unauthorized"))
+    respx_mock.post(TOKEN_URL).mock(
+        return_value=httpx.Response(refresh_status, text="temporarily unavailable")
+    )
+
+    db = AsyncMock()
+    user = _make_user()
+
+    with pytest.MonkeyPatch().context() as m:
+        m.setattr("app.integrations.yahoo_fantasy.decrypt", lambda x: x)
+        m.setattr("app.integrations.yahoo_fantasy.encrypt", lambda x: x)
+        with pytest.raises(httpx.HTTPStatusError):
+            await fetch_league(league_key, user, db)
+
+    # The stale access token must NOT be overwritten on a failed refresh.
+    db.commit.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_get_yahoo_leagues_endpoint(async_client, test_db):
     from app.models import User, Profile
     from app.security.fernet import encrypt
