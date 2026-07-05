@@ -406,3 +406,76 @@ def test_calculate_fantasy_points_unchanged():
     s.rush_tds = 8
     # 50 + 60 (rec yds + rec) + 30 (5 rec TDs) + 100 (rush yds) + 48 (8 rush TDs) = 288
     assert calculate_fantasy_points(s, _ppr_settings(), position="RB") == 288.0
+
+
+# ---------------------------------------------------------------------------
+# TE Premium (#525)
+# ---------------------------------------------------------------------------
+
+
+def test_te_premium_defaults_to_zero_on_league_settings():
+    """The new field is opt-in: an existing LeagueSettings(...) construction that
+    omits te_premium_bonus keeps the default 0.0, so nothing changes for it."""
+    assert _ppr_settings().te_premium_bonus == 0.0
+
+
+def test_te_premium_default_zero_byte_identical_for_te():
+    """Acceptance: default 0.0 produces byte-identical output to current behavior,
+    even for a TE. This is the regression guard on the whole feature."""
+    s = _stats(receptions=90, rec_yards=1100.0, rec_tds=10)
+    settings = _settings(scoring_format=ScoringFormat.PPR)  # te_premium_bonus defaults to 0.0
+    # 90 rec + 110 rec-yds + 60 rec-TDs = 260, identical whether or not position is TE.
+    assert calculate_fantasy_points(s, settings, position="TE") == 260.0
+    assert calculate_fantasy_points(s, settings, position="WR") == 260.0
+
+
+def test_te_premium_adds_to_te_receptions_on_top_of_ppr():
+    """A 1.0 TE premium adds one point per TE reception, on top of the PPR value."""
+    s = _stats(receptions=90, rec_yards=1100.0, rec_tds=10)
+    settings = _settings(scoring_format=ScoringFormat.PPR, te_premium_bonus=1.0)
+    # base PPR = 260; TE premium adds 90 * 1.0 = 90 -> 350
+    assert calculate_fantasy_points(s, settings, position="TE") == pytest.approx(350.0)
+
+
+def test_te_premium_is_case_insensitive():
+    """Position matching must not depend on casing of the incoming position string."""
+    s = _stats(receptions=10)
+    settings = _settings(scoring_format=ScoringFormat.PPR, te_premium_bonus=0.5)
+    # 10 rec * (1.0 PPR + 0.5 TEP) = 15
+    assert calculate_fantasy_points(s, settings, position="te") == pytest.approx(15.0)
+
+
+def test_te_premium_not_applied_to_non_te_positions():
+    """WR/RB receptions must be unaffected by te_premium_bonus."""
+    s = _stats(receptions=90, rec_yards=1100.0)
+    settings = _settings(scoring_format=ScoringFormat.PPR, te_premium_bonus=1.5)
+    # base PPR only: 90 + 110 = 200, no premium for a WR
+    assert calculate_fantasy_points(s, settings, position="WR") == pytest.approx(200.0)
+
+
+def test_te_premium_additive_on_standard_and_half_ppr():
+    """TE premium is additive on top of whatever the base reception value is,
+    including standard (0.0 base) and half-PPR (0.5 base)."""
+    s = _stats(receptions=8)
+    # standard: 0.0 base + 1.0 TEP per rec = 8
+    std = _settings(scoring_format=ScoringFormat.STANDARD, te_premium_bonus=1.0)
+    assert calculate_fantasy_points(s, std, position="TE") == pytest.approx(8.0)
+    # half-ppr: 0.5 base + 1.0 TEP per rec = 12
+    half = _settings(scoring_format=ScoringFormat.HALF_PPR, te_premium_bonus=1.0)
+    assert calculate_fantasy_points(s, half, position="TE") == pytest.approx(12.0)
+
+
+def test_score_receiving_te_premium_direct():
+    """_score_receiving gates the premium on position and never touches TDs."""
+    from app.engine.scoring import _score_receiving
+    s = _empty_stats()
+    s.receptions = 50
+    s.rec_yards = 600.0
+    s.rec_tds = 5
+    settings = _settings(scoring_format=ScoringFormat.PPR, te_premium_bonus=0.5)
+    # 50 * (1.0 + 0.5) + 60 yds = 135; TDs excluded
+    assert _score_receiving(s, settings, "TE") == pytest.approx(135.0)
+    # WR: no premium -> 50 + 60 = 110
+    assert _score_receiving(s, settings, "WR") == pytest.approx(110.0)
+    # default position arg (pre-#525 callers) -> no premium
+    assert _score_receiving(s, settings) == pytest.approx(110.0)

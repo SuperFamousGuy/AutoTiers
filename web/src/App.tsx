@@ -4,7 +4,7 @@ import { useDarkMode } from "@/hooks/useDarkMode";
 import { useOnboarding } from "@/hooks/useOnboarding";
 import { OnboardingTour } from "@/components/OnboardingTour";
 import { ONBOARDING_STEPS } from "@/lib/onboardingSteps";
-import { SettingsPanel, DEFAULT_FULL_SEASON_GAMES, DEFAULT_PRIOR_YEAR_RAMP, type SettingsState } from "@/components/SettingsPanel";
+import { SettingsPanel, DEFAULT_FULL_SEASON_GAMES, DEFAULT_PRIOR_YEAR_RAMP, DEFAULT_TE_PREMIUM, type SettingsState } from "@/components/SettingsPanel";
 import { RulesPanel } from "@/components/RulesPanel";
 import { TiersPanel } from "@/components/TiersPanel";
 import { ProfilePicker } from "@/components/ProfilePicker";
@@ -35,6 +35,7 @@ const DEFAULT_SETTINGS: SettingsState = {
   bonus_100yd_rushing: false,
   bonus_100yd_receiving: false,
   bonus_first_downs: false,
+  te_premium_bonus: DEFAULT_TE_PREMIUM,
   weights: { prior: 30, consensus: 70 },
   full_season_games: DEFAULT_FULL_SEASON_GAMES,
   prior_year_ramp: DEFAULT_PRIOR_YEAR_RAMP,
@@ -320,6 +321,7 @@ export default function App() {
       bonus_100yd_rushing: settings.bonus_100yd_rushing,
       bonus_100yd_receiving: settings.bonus_100yd_receiving,
       bonus_first_downs: settings.bonus_first_downs,
+      te_premium_bonus: settings.te_premium_bonus,
       weight_prior_year: settings.weights.prior / 100,
       weight_espn: 0,
       weight_consensus: settings.weights.consensus / 100,
