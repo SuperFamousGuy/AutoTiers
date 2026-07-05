@@ -1,6 +1,9 @@
 """Tests for POST /api/feedback (in-app feedback → fixed team inbox via SES)."""
 import pytest
+from starlette.requests import Request as _StarletteRequest
 
+from app.api.feedback import _client_ip
+from app.auth.rate_limit import feedback_rate_limiter
 from app.config import settings
 
 
@@ -427,11 +430,6 @@ async def test_screenshot_filename_strips_header_breaking_chars(async_client, fa
 
 
 # --- #519: right-most X-Forwarded-For so clients can't forge their rate key ----
-
-from starlette.requests import Request as _StarletteRequest
-
-from app.api.feedback import _client_ip
-from app.auth.rate_limit import feedback_rate_limiter
 
 
 def _make_request(xff: str | None, client_host: str | None = "10.0.0.1") -> _StarletteRequest:
