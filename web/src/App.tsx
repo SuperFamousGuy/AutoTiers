@@ -351,8 +351,13 @@ export default function App() {
   // Fires a generate and, on success, records the exact request that produced
   // the result — the baseline the staleness banner compares against.
   const handleGenerate = () => {
-    generate.mutate(currentRequest, {
-      onSuccess: () => setLastGeneratedRequest(currentRequest),
+    // Recompute the request at click time (rather than reusing the render-closure
+    // `currentRequest`) and record the exact payload the mutation sent via the
+    // onSuccess `variables` arg, so `lastGeneratedRequest` can't drift from what
+    // was actually generated even if state changed between renders (#523).
+    const request = buildRequest();
+    generate.mutate(request, {
+      onSuccess: (_data, variables) => setLastGeneratedRequest(variables),
     });
   };
 

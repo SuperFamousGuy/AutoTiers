@@ -130,7 +130,7 @@ export function TiersPanel({ result, isPending, onDownloadXlsx, keepers, scoring
             variant="ghost"
             className="h-6 shrink-0 px-2 text-xs text-yellow-900 hover:bg-yellow-100 hover:text-yellow-900 dark:text-yellow-200 dark:hover:bg-yellow-900/30"
             onClick={onRegenerate}
-            disabled={!canRegenerate}
+            disabled={canRegenerate === false}
           >
             Generate
           </Button>
