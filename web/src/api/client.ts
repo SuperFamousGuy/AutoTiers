@@ -55,9 +55,11 @@ export async function apiFetch<T>(
   try {
     const resp = await fetch(`${API_URL}${path}`, {
       credentials: "include",
-      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
       ...init,
-      // Placed after `...init` so our composed signal always wins.
+      // Placed after `...init` so the default Content-Type merge and our composed
+      // signal always win — spreading `init` first would otherwise let a caller's
+      // `init.headers` clobber the merged headers and drop the default.
+      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
       signal: controller.signal,
     });
     if (!resp.ok) {

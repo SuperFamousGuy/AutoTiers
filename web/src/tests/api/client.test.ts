@@ -90,12 +90,20 @@ describe("apiFetch", () => {
         headers: { "Content-Type": "application/json" },
       }),
     );
+    const setTimeoutSpy = vi.spyOn(global, "setTimeout");
+    const clearTimeoutSpy = vi.spyOn(global, "clearTimeout");
 
     await apiFetch("/api/test");
 
     const passedInit = fetchSpy.mock.calls[0][1] as RequestInit;
     expect(passedInit.signal).toBeInstanceOf(AbortSignal);
     expect(passedInit.signal?.aborted).toBe(false);
+
+    // The timeout timer must actually be cleared on success — otherwise a
+    // late-firing timer could abort an already-completed request. Assert the
+    // exact timer created by apiFetch was passed to clearTimeout.
+    const timerId = setTimeoutSpy.mock.results[0].value;
+    expect(clearTimeoutSpy).toHaveBeenCalledWith(timerId);
   });
 
   it("aborts immediately when a caller-supplied signal is already aborted", async () => {
