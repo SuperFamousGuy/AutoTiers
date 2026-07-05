@@ -254,7 +254,8 @@ export function SettingsPanel({ value, onChange, linkedLeague, profileId, onRefr
         <div className="space-y-0.5">
           <Label htmlFor="te-premium-select">TE Premium</Label>
           <p className="text-xs text-muted-foreground">
-            Bonus points per tight-end reception, added on top of your PPR value.
+            Bonus points per tight-end reception, added on top of your base
+            reception value in any scoring format.
           </p>
         </div>
         <Select
