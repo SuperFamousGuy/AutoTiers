@@ -17,6 +17,13 @@ from app.security.fernet import encrypt, decrypt
 _BASE = "https://fantasysports.yahooapis.com/fantasy/v2"
 
 
+class YahooReauthRequired(Exception):
+    """Yahoo rejected the refresh token (revoked/expired) — the access token
+    can't be renewed and the user must reconnect Yahoo. Mirrors the
+    EspnAuthRequired/CbsAuthRequired pattern so callers can surface a
+    reconnect prompt instead of a generic "verify credentials" HTTP error."""
+
+
 @dataclass
 class YahooLeagueSummary:
     league_key: str
@@ -59,8 +66,13 @@ async def _with_refresh(url: str, user, db: AsyncSession) -> dict:
     except httpx.HTTPStatusError as e:
         if e.response.status_code != 401:
             raise
-    # Token expired — refresh and retry.
-    new_token = await refresh_access_token(decrypt(user.yahoo_refresh_token))
+    # Token expired — refresh and retry. If the refresh token itself is
+    # revoked/expired Yahoo returns 401 (or 400); that is not something the
+    # user can fix by "verifying credentials" — they must reconnect Yahoo.
+    try:
+        new_token = await refresh_access_token(decrypt(user.yahoo_refresh_token))
+    except httpx.HTTPStatusError as e:
+        raise YahooReauthRequired from e
     user.yahoo_access_token = encrypt(new_token)
     await db.commit()
     return await _get(url, new_token)
