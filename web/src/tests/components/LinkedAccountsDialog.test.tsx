@@ -72,11 +72,11 @@ describe("LinkedAccountsDialog", () => {
       <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
         onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
     );
-    expect(screen.getByRole("button", { name: /^sleeper$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^espn$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^yahoo$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^nfl fantasy$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^cbs$/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^sleeper$/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^espn$/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^yahoo$/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^nfl fantasy$/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^cbs$/i })).toBeInTheDocument();
   });
 
   it("default active tab is Sleeper — Sleeper username field is visible", () => {
@@ -93,7 +93,7 @@ describe("LinkedAccountsDialog", () => {
         onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
     );
     const u = userEvent.setup();
-    await u.click(screen.getByRole("button", { name: /^espn$/i }));
+    await u.click(screen.getByRole("tab", { name: /^espn$/i }));
     expect(await screen.findByLabelText(/league id/i)).toBeInTheDocument();
   });
 
@@ -103,7 +103,7 @@ describe("LinkedAccountsDialog", () => {
         onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
     );
     const u = userEvent.setup();
-    await u.click(screen.getByRole("button", { name: /^yahoo$/i }));
+    await u.click(screen.getByRole("tab", { name: /^yahoo$/i }));
     expect(await screen.findByTestId("yahoo-connect-form")).toBeInTheDocument();
   });
 
@@ -113,7 +113,7 @@ describe("LinkedAccountsDialog", () => {
         onRefresh={noop} initialError={null} />,
     );
     const u = userEvent.setup();
-    await u.click(screen.getByRole("button", { name: /^yahoo$/i }));
+    await u.click(screen.getByRole("tab", { name: /^yahoo$/i }));
     expect(await screen.findByText(/select a profile/i)).toBeInTheDocument();
   });
 
@@ -206,7 +206,7 @@ describe("LinkedAccountsDialog", () => {
         onRefresh={vi.fn()} initialError={null} activeProfile={activeProfile} />,
     );
     const u = userEvent.setup();
-    await u.click(screen.getByRole("button", { name: /^espn$/i }));
+    await u.click(screen.getByRole("tab", { name: /^espn$/i }));
     expect(await screen.findByLabelText(/league id/i)).toBeInTheDocument();
 
     rerender(
@@ -228,7 +228,7 @@ describe("LinkedAccountsDialog", () => {
         onRefresh={onRefresh} initialError={null} activeProfile={activeProfile} />,
     );
     const u = userEvent.setup();
-    await u.click(screen.getByRole("button", { name: /^yahoo$/i }));
+    await u.click(screen.getByRole("tab", { name: /^yahoo$/i }));
     const form = await screen.findByTestId("yahoo-connect-form");
     await u.click(form);
     expect(onRefresh).toHaveBeenCalled();
@@ -239,7 +239,7 @@ describe("LinkedAccountsDialog", () => {
       <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
         onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
     );
-    const cbsTab = screen.getByRole("button", { name: /^cbs$/i });
+    const cbsTab = screen.getByRole("tab", { name: /^cbs$/i });
     expect(cbsTab).toBeEnabled();
     expect(screen.queryByText(/cbs sports.*coming soon/i)).not.toBeInTheDocument();
     const u = userEvent.setup();
@@ -254,7 +254,7 @@ describe("LinkedAccountsDialog", () => {
         onRefresh={noop} initialError={null} />,
     );
     const u = userEvent.setup();
-    await u.click(screen.getByRole("button", { name: /^cbs$/i }));
+    await u.click(screen.getByRole("tab", { name: /^cbs$/i }));
     expect(await screen.findByText(/select a profile/i)).toBeInTheDocument();
   });
 
@@ -264,7 +264,7 @@ describe("LinkedAccountsDialog", () => {
         onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
     );
     const u = userEvent.setup();
-    const nflTab = screen.getByRole("button", { name: /^nfl fantasy$/i });
+    const nflTab = screen.getByRole("tab", { name: /^nfl fantasy$/i });
     expect(nflTab).toBeEnabled();
     await u.click(nflTab);
     expect(screen.queryByText(/nfl fantasy.*coming soon/i)).not.toBeInTheDocument();
@@ -282,7 +282,7 @@ describe("LinkedAccountsDialog", () => {
         onRefresh={noop} initialError={null} />,
     );
     const u = userEvent.setup();
-    await u.click(screen.getByRole("button", { name: /^nfl fantasy$/i }));
+    await u.click(screen.getByRole("tab", { name: /^nfl fantasy$/i }));
     expect(await screen.findByText(/select a profile/i)).toBeInTheDocument();
   });
 
@@ -305,7 +305,7 @@ describe("LinkedAccountsDialog", () => {
         user={{ ...baseUser, yahoo_subject: "y-sub", yahoo_fantasy_connected: true }}
         onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
     );
-    const yahooTab = screen.getByRole("button", { name: /^yahoo$/i });
+    const yahooTab = screen.getByRole("tab", { name: /^yahoo$/i });
     expect(yahooTab.querySelector("span.bg-green-500")).toBeNull();
   });
 
@@ -316,7 +316,7 @@ describe("LinkedAccountsDialog", () => {
         onRefresh={noop} initialError={null}
         activeProfile={{ ...activeProfile, linked_league: yahooLeague() }} />,
     );
-    const yahooTab = screen.getByRole("button", { name: /^yahoo$/i });
+    const yahooTab = screen.getByRole("tab", { name: /^yahoo$/i });
     expect(yahooTab.querySelector("span.bg-green-500")).not.toBeNull();
   });
 
@@ -330,10 +330,103 @@ describe("LinkedAccountsDialog", () => {
         }} />,
     );
     expect(
-      screen.getByRole("button", { name: /^sleeper$/i }).querySelector("span.bg-green-500"),
+      screen.getByRole("tab", { name: /^sleeper$/i }).querySelector("span.bg-green-500"),
     ).not.toBeNull();
     expect(
-      screen.getByRole("button", { name: /^yahoo$/i }).querySelector("span.bg-green-500"),
+      screen.getByRole("tab", { name: /^yahoo$/i }).querySelector("span.bg-green-500"),
     ).toBeNull();
+  });
+
+  it("exposes a labelled tablist containing role=tab for each platform", () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
+    );
+    expect(screen.getByRole("tablist", { name: /fantasy platform/i })).toBeInTheDocument();
+    expect(screen.getAllByRole("tab")).toHaveLength(5);
+  });
+
+  it("aria-selected reflects the active tab and moves with it", async () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
+    );
+    const sleeperTab = screen.getByRole("tab", { name: /^sleeper$/i });
+    const espnTab = screen.getByRole("tab", { name: /^espn$/i });
+    expect(sleeperTab).toHaveAttribute("aria-selected", "true");
+    expect(espnTab).toHaveAttribute("aria-selected", "false");
+
+    const u = userEvent.setup();
+    await u.click(espnTab);
+    expect(espnTab).toHaveAttribute("aria-selected", "true");
+    expect(sleeperTab).toHaveAttribute("aria-selected", "false");
+  });
+
+  it("the panel is a tabpanel associated with the active tab", () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
+    );
+    const panel = screen.getByRole("tabpanel");
+    expect(panel).toHaveAttribute("id", "linked-accounts-tabpanel");
+    expect(panel).toHaveAttribute("aria-labelledby", "tab-sleeper");
+    // Each tab points back at the panel it controls.
+    expect(screen.getByRole("tab", { name: /^sleeper$/i })).toHaveAttribute(
+      "aria-controls",
+      "linked-accounts-tabpanel",
+    );
+  });
+
+  it("uses a roving tabindex — only the active tab is in the tab order", () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
+    );
+    expect(screen.getByRole("tab", { name: /^sleeper$/i })).toHaveAttribute("tabindex", "0");
+    expect(screen.getByRole("tab", { name: /^espn$/i })).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("ArrowRight moves focus and selection to the next tab", async () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
+    );
+    const sleeperTab = screen.getByRole("tab", { name: /^sleeper$/i });
+    const espnTab = screen.getByRole("tab", { name: /^espn$/i });
+    sleeperTab.focus();
+    const u = userEvent.setup();
+    await u.keyboard("{ArrowRight}");
+    expect(espnTab).toHaveFocus();
+    expect(espnTab).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByLabelText(/league id/i)).toBeInTheDocument();
+  });
+
+  it("ArrowLeft wraps from the first tab to the last", async () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
+    );
+    const sleeperTab = screen.getByRole("tab", { name: /^sleeper$/i });
+    const cbsTab = screen.getByRole("tab", { name: /^cbs$/i });
+    sleeperTab.focus();
+    const u = userEvent.setup();
+    await u.keyboard("{ArrowLeft}");
+    expect(cbsTab).toHaveFocus();
+    expect(cbsTab).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("ArrowRight from the last tab wraps back to the first", async () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
+    );
+    const sleeperTab = screen.getByRole("tab", { name: /^sleeper$/i });
+    const cbsTab = screen.getByRole("tab", { name: /^cbs$/i });
+    const u = userEvent.setup();
+    await u.click(cbsTab);
+    cbsTab.focus();
+    await u.keyboard("{ArrowRight}");
+    expect(sleeperTab).toHaveFocus();
+    expect(sleeperTab).toHaveAttribute("aria-selected", "true");
   });
 });
