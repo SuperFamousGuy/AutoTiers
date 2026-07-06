@@ -104,6 +104,9 @@ export interface GenerateResponse {
   players: TieredPlayer[];
   total: number;
   data_as_of: string | null;
+  // Sources attempted but never once successfully refreshed (#547). Absent from
+  // data_as_of despite contributing no data, so surfaced for a warning.
+  never_succeeded: string[];
 }
 
 export interface DataSourceStatus {

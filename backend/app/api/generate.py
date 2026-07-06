@@ -41,6 +41,33 @@ async def _compute_data_as_of(db: AsyncSession) -> Optional[str]:
     return oldest.date().isoformat()
 
 
+async def _compute_never_succeeded(db: AsyncSession) -> list[str]:
+    """Return sorted source names that have been attempted but never succeeded.
+
+    A ``DataSourceStatus`` row with ``last_attempted`` set and ``last_updated``
+    still NULL means the scheduler has run for that source but every attempt has
+    failed since day one (broken credentials, a changed endpoint, …). Such a
+    source contributes nothing to ``blend_scores``/``_avg_projection`` yet is
+    silently dropped from the ``_compute_data_as_of`` ``min()``, so the banner
+    reports a fresh date from only the working sources. Surfacing these sources
+    separately lets the frontend warn ("CBS projections have never loaded")
+    instead of showing a falsely-clean banner (#547).
+
+    Retired sources (#402) are excluded: their rows are purged on refresh, and a
+    lingering one should read as noise, not a live failure.
+    """
+    from app.models import DataSourceStatus
+    from app.data.status import RETIRED_SOURCES
+    rows = (await db.scalars(
+        select(DataSourceStatus.source).where(
+            DataSourceStatus.last_attempted.is_not(None),
+            DataSourceStatus.last_updated.is_(None),
+            DataSourceStatus.source.not_in(RETIRED_SOURCES),
+        )
+    )).all()
+    return sorted(rows)
+
+
 def _build_league_settings(req: GenerateRequest) -> LeagueSettings:
     return LeagueSettings(
         scoring_format=req.scoring_format,
@@ -520,6 +547,7 @@ async def generate_tiers(
 ) -> GenerateResponse:
     ranked = await _run_generate(req, db, current_user)
     data_as_of = await _compute_data_as_of(db)
+    never_succeeded = await _compute_never_succeeded(db)
     league_adp_normalized: dict[str, float] = (
         {normalize_name(k): v for k, v in req.league_adp.items()} if req.league_adp else {}
     )
@@ -534,4 +562,5 @@ async def generate_tiers(
         ],
         total=len(ranked),
         data_as_of=data_as_of,
+        never_succeeded=never_succeeded,
     )
