@@ -75,6 +75,12 @@ const qbOnlyResponse: GenerateResponse = {
   ],
 };
 
+const emptyResponse: GenerateResponse = {
+  total: 0,
+  data_as_of: null,
+  players: [],
+};
+
 describe("TiersPanel", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -216,7 +222,10 @@ describe("TiersPanel", () => {
     it("does not show the empty-state message in the ALL view even when a list is empty", () => {
       // The guard only fires for a position filter, never for ALL — an empty ALL
       // list is a different (upstream) condition and keeps the existing render path.
-      render(<TiersPanel result={qbOnlyResponse} isPending={false} onDownloadXlsx={() => {}} />);
+      // Render a genuinely empty players list under the default ALL filter so the
+      // assertion actually exercises the `filter === "ALL"` branch of the guard:
+      // groupedByTier is empty here, yet the empty-state message must stay hidden.
+      render(<TiersPanel result={emptyResponse} isPending={false} onDownloadXlsx={() => {}} />);
       expect(screen.queryByText(/players in this tier list/i)).not.toBeInTheDocument();
     });
   });
