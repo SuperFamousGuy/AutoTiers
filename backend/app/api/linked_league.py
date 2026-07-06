@@ -203,6 +203,9 @@ async def get_sleeper_leagues(
     db: AsyncSession = Depends(get_db),
 ) -> list[SleeperLeagueSummaryOut]:
     await _check_ownership(profile_id, user, db)
+    username = username.strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="Enter a Sleeper username.")
     try:
         leagues = await list_user_leagues(username, season)
     except SleeperUserNotFound:
@@ -219,10 +222,14 @@ async def post_sleeper(
     user: User = require_user,
     db: AsyncSession = Depends(get_db),
 ) -> LinkedLeagueResponse:
+    username = body.username.strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="Enter a Sleeper username.")
+
     profile = await _resolve_profile(profile_id, user, db)
     ll = _upsert_linked_league(profile, db)
     ll.provider = "sleeper"
-    ll.username_or_swid = body.username
+    ll.username_or_swid = username
     ll.credentials_encrypted = None
     ll.last_synced_at = datetime.now(timezone.utc)
 
