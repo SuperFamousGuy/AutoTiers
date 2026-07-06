@@ -295,6 +295,17 @@ class TestReplacementPoolDecoupling:
         # overall_rank is sequential over the display set only.
         assert sorted(p.overall_rank for p in ranked) == list(range(1, 25))
 
+    def test_replacement_pool_missing_display_object_fails_fast(self):
+        # If the pool does not contain the same TieredPlayer objects as the
+        # display set, VBD is never written onto the display players and the
+        # tiers would be silently wrong. assign_tiers must fail loudly instead.
+        full = [_player(f"rb_{i}", "RB", 300.0 - i) for i in range(40)]
+        # Same player_ids but distinct objects (copies), so identity differs.
+        display = [_player(f"rb_{i}", "RB", 300.0 - i) for i in range(24)]
+
+        with pytest.raises(ValueError, match="same TieredPlayer objects"):
+            assign_tiers(display, league_size=12, replacement_pool=full)
+
 
 def _kicker(pid: str, score: float, adp: float) -> TieredPlayer:
     return TieredPlayer(

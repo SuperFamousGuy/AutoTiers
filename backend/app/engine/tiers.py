@@ -248,6 +248,22 @@ def assign_tiers(
     # Compute VBD first; subsequent ranking and clustering use vbd_score.
     # Anchor replacement level on the full pool when one is supplied, so capping
     # the display set does not inflate the replacement baseline (issue #540).
+    if replacement_pool is not None:
+        # _compute_vbd writes vbd_score/position_replacement onto the pool's
+        # objects. Ranking and clustering below read those attributes off the
+        # display players, so every display player must be the *same object*
+        # present in the pool. If a caller passes copies or an incomplete pool,
+        # some display players keep their default vbd_score (0.0) and the tiers
+        # are silently wrong — fail fast instead (issue #540 review).
+        pool_ids = {id(p) for p in replacement_pool}
+        missing = [p for p in all_players if id(p) not in pool_ids]
+        if missing:
+            raise ValueError(
+                "replacement_pool must be a superset of all_players containing the "
+                f"same TieredPlayer objects; {len(missing)} display player(s) are "
+                f"absent from the pool (e.g. player_id={missing[0].player_id!r}). "
+                "Pass the same objects, not copies."
+            )
     _compute_vbd(replacement_pool if replacement_pool is not None else all_players, league_size, qb_starters)
 
     def _max_tiers(position: str) -> int:
