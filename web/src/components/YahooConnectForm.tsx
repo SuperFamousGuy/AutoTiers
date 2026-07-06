@@ -145,8 +145,8 @@ export function YahooConnectForm({ profile, user, onLinked, onRefresh }: Props) 
     return (
       <div className="space-y-3 py-2">
         <p className="text-sm text-muted-foreground">
-          Your Yahoo account is linked for sign-in. To import league data, authorize Fantasy Sports
-          access.
+          Your Yahoo account is linked for sign-in{user.email ? ` as ${user.email}` : ""}. To import
+          league data, authorize Fantasy Sports access.
         </p>
         <Button
           className="w-full"
@@ -190,11 +190,23 @@ export function YahooConnectForm({ profile, user, onLinked, onRefresh }: Props) 
 
   return (
     <div className="space-y-3">
+      {/* Account-link status, stated independently of league-link status. The tab
+          strip's green dot only lights once a league is chosen (see
+          LinkedAccountsDialog), so surface the OAuth-linked state here. */}
+      <p className="text-xs text-muted-foreground">
+        Yahoo account linked{user.email ? ` as ${user.email}` : ""}
+        {leagues.length === 0 ? "." : " — choose a league below."}
+      </p>
       {error && <p className="text-xs text-red-600">{error}</p>}
       {leagues.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No Yahoo Fantasy NFL leagues found for your account.
-        </p>
+        // Only claim "no leagues" when the request actually succeeded and came
+        // back empty. On error the message above already explains the failure,
+        // so suppress this to avoid implying the lookup returned zero leagues.
+        !error && (
+          <p className="text-sm text-muted-foreground">
+            No Yahoo Fantasy NFL leagues found for your account.
+          </p>
+        )
       ) : (
         <>
           <label className="block text-sm">

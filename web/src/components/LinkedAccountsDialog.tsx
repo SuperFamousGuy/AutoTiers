@@ -238,9 +238,11 @@ export function LinkedAccountsDialog({
           className="flex overflow-x-auto border-b border-border"
         >
           {TABS.map(({ id, label, Icon, comingSoon }) => {
-            const isConnected =
-              (id === "yahoo" && !!user.yahoo_subject) ||
-              (activeProfile?.linked_league?.provider === id);
+            // Green dot means the same thing for every provider: an active league
+            // is linked to this profile. Yahoo's account-level OAuth status (signed
+            // in, no league yet) is surfaced inside the Yahoo tab panel instead — see
+            // YahooConnectForm — so the tab strip never over-promises "connected".
+            const isConnected = activeProfile?.linked_league?.provider === id;
             const selected = activeTab === id;
             return (
               <button
