@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -43,6 +44,25 @@ class Settings(BaseSettings):
     # has crash-looped or frozen and stopped refreshing data. Override via
     # DATA_FRESHNESS_THRESHOLD_HOURS.
     data_freshness_threshold_hours: float = 2.0
+    # Number of trusted reverse-proxy hops in front of the app (issue #519). In
+    # production ECS Fargate sits behind a single ALB, so the default is 1. The
+    # ALB does NOT strip a client-supplied X-Forwarded-For; it appends the real
+    # peer IP to the right of whatever the client sent. Rate-limit keying reads
+    # the entry this many hops from the right so a client can't forge its bucket
+    # by sending its own XFF. Set to 0 only when there is no trusted proxy (the
+    # app is directly internet-facing) — then XFF is fully untrusted and only the
+    # socket peer is used. Override via TRUSTED_PROXY_COUNT.
+    trusted_proxy_count: int = 1
+
+    @field_validator("trusted_proxy_count")
+    @classmethod
+    def _non_negative_trusted_proxy_count(cls, v: int) -> int:
+        # A negative hop count would silently corrupt rate-limit keying (all
+        # clients could bucket under the proxy IP behind the ALB). Fail fast at
+        # startup rather than degrade at runtime.
+        if v < 0:
+            raise ValueError("trusted_proxy_count must be non-negative")
+        return v
 
 
 settings = Settings()
