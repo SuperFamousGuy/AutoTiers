@@ -25,6 +25,7 @@ from app.integrations.yahoo_fantasy import (
     list_user_leagues as list_yahoo_leagues,
     fetch_league as fetch_yahoo_league,
     YahooLeagueSummary,
+    YahooReauthRequired,
 )
 from app.integrations.cbs import (
     get_access_token as get_cbs_access_token,
@@ -45,6 +46,11 @@ from app.schemas.auth import ProfileOut
 
 
 router = APIRouter(prefix="/profiles/{profile_id}/link", tags=["linked_league"])
+
+# Shown when Yahoo's refresh token is revoked/expired (see YahooReauthRequired).
+# The user can't fix this by re-checking a league id or credentials — the only
+# remedy is re-running the Yahoo OAuth flow, so say exactly that.
+_YAHOO_REAUTH_DETAIL = "Your Yahoo authorization has expired — reconnect Yahoo to continue."
 
 
 class SleeperLeagueSummaryOut(BaseModel):
@@ -321,6 +327,8 @@ async def get_yahoo_leagues(
         )
     try:
         leagues = await list_yahoo_leagues(user, db)
+    except YahooReauthRequired:
+        raise HTTPException(status_code=400, detail=_YAHOO_REAUTH_DETAIL)
     except Exception as e:
         raise _provider_http_error("Yahoo", e)
     return [
@@ -349,6 +357,8 @@ async def post_yahoo(
     profile = await _resolve_profile(profile_id, user, db)
     try:
         data = await fetch_yahoo_league(body.league_key, user, db)
+    except YahooReauthRequired:
+        raise HTTPException(status_code=400, detail=_YAHOO_REAUTH_DETAIL)
     except Exception as e:
         raise _provider_http_error("Yahoo", e)
 
@@ -517,6 +527,8 @@ async def refresh(
             raise HTTPException(status_code=400, detail="Yahoo Fantasy token missing — reconnect Yahoo.")
         try:
             data = await fetch_yahoo_league(ll.league_id, user, db)
+        except YahooReauthRequired:
+            raise HTTPException(status_code=400, detail=_YAHOO_REAUTH_DETAIL)
         except Exception as e:
             raise _provider_http_error("Yahoo", e)
         mapped = yahoo_to_settings(data.raw_scoring, league_size=data.league_size)

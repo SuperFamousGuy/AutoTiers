@@ -7,7 +7,11 @@ from app.integrations.yahoo_fantasy import (
     fetch_league,
     YahooLeagueSummary,
     YahooLeagueData,
+    YahooReauthRequired,
 )
+
+# Yahoo's OAuth token endpoint that refresh_access_token POSTs to.
+TOKEN_URL = "https://api.login.yahoo.com/oauth2/get_token"
 
 
 LEAGUES_RESPONSE = {
@@ -151,6 +155,59 @@ async def test_fetch_league_refreshes_token_on_401(respx_mock):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("refresh_status", [400, 401])
+async def test_fetch_league_raises_reauth_when_refresh_token_revoked(respx_mock, refresh_status):
+    """When the access token is stale (401) AND the refresh token is
+    revoked/expired (Yahoo returns 400/401 on the refresh POST), the client
+    surfaces YahooReauthRequired instead of leaking the raw HTTPStatusError."""
+    league_key = "423.l.12345"
+    url = f"https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/settings"
+    respx_mock.get(url).mock(return_value=httpx.Response(401, text="Unauthorized"))
+    respx_mock.post(TOKEN_URL).mock(
+        return_value=httpx.Response(refresh_status, text="invalid_grant")
+    )
+
+    db = AsyncMock()
+    user = _make_user()
+
+    with pytest.MonkeyPatch().context() as m:
+        m.setattr("app.integrations.yahoo_fantasy.decrypt", lambda x: x)
+        m.setattr("app.integrations.yahoo_fantasy.encrypt", lambda x: x)
+        with pytest.raises(YahooReauthRequired):
+            await fetch_league(league_key, user, db)
+
+    # The stale access token must NOT be overwritten on a failed refresh.
+    db.commit.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("refresh_status", [429, 500, 503])
+async def test_fetch_league_reraises_transient_refresh_failure(respx_mock, refresh_status):
+    """A transient failure on the refresh POST (429 rate-limit, 5xx outage) is
+    NOT a revoked token — it must propagate as the raw HTTPStatusError (which the
+    endpoint maps to a 502 upstream error) rather than a misleading
+    YahooReauthRequired "reconnect Yahoo" prompt."""
+    league_key = "423.l.12345"
+    url = f"https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/settings"
+    respx_mock.get(url).mock(return_value=httpx.Response(401, text="Unauthorized"))
+    respx_mock.post(TOKEN_URL).mock(
+        return_value=httpx.Response(refresh_status, text="temporarily unavailable")
+    )
+
+    db = AsyncMock()
+    user = _make_user()
+
+    with pytest.MonkeyPatch().context() as m:
+        m.setattr("app.integrations.yahoo_fantasy.decrypt", lambda x: x)
+        m.setattr("app.integrations.yahoo_fantasy.encrypt", lambda x: x)
+        with pytest.raises(httpx.HTTPStatusError):
+            await fetch_league(league_key, user, db)
+
+    # The stale access token must NOT be overwritten on a failed refresh.
+    db.commit.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_get_yahoo_leagues_endpoint(async_client, test_db):
     from app.models import User, Profile
     from app.security.fernet import encrypt
@@ -242,3 +299,106 @@ async def test_post_yahoo_link_endpoint(async_client, test_db):
     body = resp.json()
     assert body["linked_league"]["provider"] == "yahoo"
     assert body["linked_league"]["league_id"] == "423.l.99"
+
+
+# --- Refresh-token-revoked reconnect-prompt endpoint tests ---------------------
+#
+# These drive the real integration path (no monkeypatch of the client) with
+# respx returning 401 on the Yahoo API call and 401 on the refresh POST, so a
+# revoked refresh token propagates as YahooReauthRequired and each endpoint must
+# translate it to a 400 "reconnect Yahoo" message — NOT a 502 "verify
+# credentials". Deleting either the client's YahooReauthRequired raise or the
+# endpoint's except-branch makes these fail.
+
+_LEAGUES_URL = "https://fantasysports.yahooapis.com/fantasy/v2/users;use_login=1/games;game_keys=nfl/leagues"
+_REAUTH_SUBSTR = "reconnect Yahoo"
+
+
+async def _make_yahoo_user_and_profile(test_db):
+    from app.models import User, Profile
+    from app.security.fernet import encrypt
+
+    user = User(
+        email="reauth@example.com",
+        yahoo_subject="ysub-reauth",
+        yahoo_access_token=encrypt("acc"),
+        yahoo_refresh_token=encrypt("ref"),
+    )
+    test_db.add(user)
+    await test_db.flush()
+    profile = Profile(user_id=user.id, name="P", settings_json={}, rules_json=[])
+    test_db.add(profile)
+    await test_db.commit()
+    await test_db.refresh(profile)
+    return user, profile
+
+
+@pytest.mark.asyncio
+async def test_get_yahoo_leagues_reauth_returns_400(async_client, test_db, respx_mock):
+    respx_mock.get(_LEAGUES_URL).mock(return_value=httpx.Response(401, text="Unauthorized"))
+    respx_mock.post(TOKEN_URL).mock(return_value=httpx.Response(401, text="invalid_grant"))
+
+    user, profile = await _make_yahoo_user_and_profile(test_db)
+    from app.auth.jwt import encode_jwt
+    jwt = encode_jwt(str(user.id))
+
+    resp = await async_client.get(
+        f"/api/profiles/{profile.id}/link/yahoo/leagues",
+        cookies={"autotiers_session": jwt},
+    )
+
+    assert resp.status_code == 400
+    assert _REAUTH_SUBSTR in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_post_yahoo_reauth_returns_400(async_client, test_db, respx_mock):
+    league_key = "423.l.99"
+    settings_url = f"https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/settings"
+    respx_mock.get(settings_url).mock(return_value=httpx.Response(401, text="Unauthorized"))
+    respx_mock.post(TOKEN_URL).mock(return_value=httpx.Response(401, text="invalid_grant"))
+
+    user, profile = await _make_yahoo_user_and_profile(test_db)
+    from app.auth.jwt import encode_jwt
+    jwt = encode_jwt(str(user.id))
+
+    resp = await async_client.post(
+        f"/api/profiles/{profile.id}/link/yahoo",
+        json={"league_key": league_key, "season": 2024},
+        cookies={"autotiers_session": jwt},
+    )
+
+    assert resp.status_code == 400
+    assert _REAUTH_SUBSTR in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_refresh_yahoo_reauth_returns_400(async_client, test_db, respx_mock):
+    from app.models import LinkedLeague
+
+    league_key = "423.l.99"
+    settings_url = f"https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/settings"
+    respx_mock.get(settings_url).mock(return_value=httpx.Response(401, text="Unauthorized"))
+    respx_mock.post(TOKEN_URL).mock(return_value=httpx.Response(401, text="invalid_grant"))
+
+    user, profile = await _make_yahoo_user_and_profile(test_db)
+    ll = LinkedLeague(
+        profile_id=profile.id,
+        provider="yahoo",
+        username_or_swid="",
+        league_id=league_key,
+        league_metadata_json={"name": "Test League", "season": 2024},
+    )
+    test_db.add(ll)
+    await test_db.commit()
+
+    from app.auth.jwt import encode_jwt
+    jwt = encode_jwt(str(user.id))
+
+    resp = await async_client.post(
+        f"/api/profiles/{profile.id}/link/refresh",
+        cookies={"autotiers_session": jwt},
+    )
+
+    assert resp.status_code == 400
+    assert _REAUTH_SUBSTR in resp.json()["detail"]
