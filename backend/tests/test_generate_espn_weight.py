@@ -16,15 +16,22 @@ The seeded player carries two projection sources that disagree sharply:
 
     espn        = 300.0
     fantasypros = 100.0
-    avg (consensus) = mean(300, 100) = 200.0
+
+The "espn" source has its own ``weight_espn`` term, so the consensus average
+excludes it (#538) — otherwise ESPN would be double-counted once the source is
+re-enabled. The consensus therefore reflects non-ESPN sources only:
+
+    consensus = mean(fantasypros) = 100.0
 
 With no prior-year stat, the prior-year term is absent from the blend, so the
-math reduces to a two-source weighted average:
+math reduces to a two-source weighted average over two independent pools:
 
-    weight_espn=0.0, weight_consensus=1.0  -> 200.0            (ESPN excluded)
-    weight_espn=0.5, weight_consensus=0.5  -> 0.5*300 + 0.5*200 = 250.0
+    weight_espn=0.0, weight_consensus=1.0  -> 100.0            (ESPN excluded)
+    weight_espn=0.5, weight_consensus=0.5  -> 0.5*300 + 0.5*100 = 200.0
 
-Before the fix both requests returned 200.0 (ESPN inert); after it they diverge.
+Before the #502 fix both requests returned the consensus (ESPN inert); after it
+they diverge. Before the #538 fix the consensus itself absorbed ESPN (200.0),
+double-counting it; after it the consensus is a clean non-ESPN pool (100.0).
 """
 import pytest
 from app.models.player import Player
@@ -33,7 +40,9 @@ from app.models.projection import Projection
 
 ESPN_PTS = 300.0
 FP_PTS = 100.0
-CONSENSUS = (ESPN_PTS + FP_PTS) / 2  # _avg_projection averages every source == 200.0
+# _avg_projection excludes the "espn" source (blended separately via weight_espn),
+# so the consensus is the mean of non-ESPN sources only == fantasypros == 100.0.
+CONSENSUS = FP_PTS
 
 
 async def _seed_player_with_espn_and_consensus(test_db) -> str:
@@ -73,10 +82,10 @@ def _find(resp_json: dict, pid: str) -> dict:
 async def test_espn_projection_participates_in_blend(async_client, test_db):
     """An "espn" DB row reaches blend_scores when weight_espn > 0 (#502).
 
-    With weight_espn=0.0 the blend is the pure consensus (200.0); with
-    weight_espn=0.5 the ESPN projection (300.0) pulls the raw score up to 250.0.
-    Before the fix, espn_projection=None was hardcoded, so both requests
-    returned 200.0 and this test would fail on the second assertion.
+    With weight_espn=0.0 the blend is the pure non-ESPN consensus (100.0); with
+    weight_espn=0.5 the ESPN projection (300.0) pulls the raw score up to 200.0.
+    Before the #502 fix, espn_projection=None was hardcoded, so both requests
+    returned the consensus and this test would fail on the second assertion.
     """
     pid = await _seed_player_with_espn_and_consensus(test_db)
 
@@ -92,12 +101,20 @@ async def test_espn_projection_participates_in_blend(async_client, test_db):
     assert no_espn["espn_projection"] == pytest.approx(ESPN_PTS)
     assert with_espn["espn_projection"] == pytest.approx(ESPN_PTS)
 
-    # weight_espn=0.0 -> consensus only.
+    # The consensus/avg field excludes the ESPN row (#538): with espn=300 and
+    # fantasypros=100 present, avg_projection is fantasypros only (100.0), NOT
+    # the double-counting mean(300, 100) == 200.0.
+    assert no_espn["avg_projection"] == pytest.approx(CONSENSUS)
+    assert with_espn["avg_projection"] == pytest.approx(CONSENSUS)
+
+    # weight_espn=0.0 -> non-ESPN consensus only (100.0).
     assert no_espn["projected_score_raw"] == pytest.approx(CONSENSUS)
 
-    # weight_espn=0.5 -> ESPN (300) and consensus (200) blended 50/50 == 250.
+    # weight_espn=0.5 -> ESPN (300) and consensus (100) blended 50/50 == 200,
+    # NOT 250 (which would be the double-counted 0.5*300 + 0.5*200).
     expected_blend = 0.5 * ESPN_PTS + 0.5 * CONSENSUS
     assert with_espn["projected_score_raw"] == pytest.approx(expected_blend)
+    assert with_espn["projected_score_raw"] == pytest.approx(200.0)
 
     # The regression guard: allocating weight to ESPN must move the score.
     assert with_espn["projected_score_raw"] > no_espn["projected_score_raw"]
@@ -121,7 +138,9 @@ async def test_weight_espn_is_not_inert(async_client, test_db):
     a = _find(r_a.json(), pid)["projected_score_raw"]
     b = _find(r_b.json(), pid)["projected_score_raw"]
 
-    # ESPN (300) > consensus (200): the heavier ESPN weight yields a higher blend.
+    # ESPN (300) > non-ESPN consensus (100): heavier ESPN weight -> higher blend.
+    # The consensus excludes the ESPN row (#538), so the two weight budgets sit
+    # over independent pools and no value is double-counted.
     assert b > a
     assert a == pytest.approx(0.2 * ESPN_PTS + 0.8 * CONSENSUS)
     assert b == pytest.approx(0.8 * ESPN_PTS + 0.2 * CONSENSUS)
