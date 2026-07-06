@@ -226,12 +226,29 @@ def assign_tiers(
     tiebreak_adp_attr: str = "adp_ppr",
     overall_tier_count: int = 10,
     qb_starters: int = 1,
+    replacement_pool: Optional[list[TieredPlayer]] = None,
 ) -> list[TieredPlayer]:
+    """Tier and rank ``all_players`` (the display set).
+
+    ``replacement_pool`` decouples *which players compute the VBD replacement
+    baseline* from *which players are tiered and returned*. When the caller has
+    trimmed ``all_players`` down to a capped roster for display, it must pass the
+    full, un-capped per-position pool here so ``_compute_vbd`` anchors each
+    position's replacement level on the position's true Nth-ranked player rather
+    than the worst survivor of the cap (issue #540). The pool must be a superset
+    of ``all_players`` (the same ``TieredPlayer`` objects) so the vbd_score it
+    writes onto each display player is the one used for clustering and ranking.
+
+    When ``replacement_pool`` is ``None`` (the default) VBD is computed against
+    ``all_players`` itself — the historical behaviour, unchanged.
+    """
     if not all_players:
         return []
 
     # Compute VBD first; subsequent ranking and clustering use vbd_score.
-    _compute_vbd(all_players, league_size, qb_starters)
+    # Anchor replacement level on the full pool when one is supplied, so capping
+    # the display set does not inflate the replacement baseline (issue #540).
+    _compute_vbd(replacement_pool if replacement_pool is not None else all_players, league_size, qb_starters)
 
     def _max_tiers(position: str) -> int:
         base = POSITION_MAX_TIERS.get(position, 3)
