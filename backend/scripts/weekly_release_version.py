@@ -24,8 +24,13 @@ Two guards, both deliberate:
     must not cut an identical release (which would re-trigger a prod deploy).
 
 Keeping this here (not in the workflow's shell) makes the parse / numeric-sort /
-increment / guard boundaries deterministic and unit-tested. The workflow's shell
-consumes the emitted `next=vX.Y` line and the exit code; it re-derives nothing.
+increment / guard boundaries deterministic and unit-tested. The shell does
+compute one input on its own -- the commit count, since the empty-week guard
+needs `git rev-list <latest_tag>..HEAD`, and that range needs the latest tag as
+a git ref -- but the version DECISION (which tag is latest, how to increment,
+whether to skip) lives only here. The shell passes `--commit-count` in and
+consumes the emitted `next=vX.Y` line and the exit code; it makes no version
+decision of its own.
 
 CLI contract (consumed by the workflow):
     python3 backend/scripts/weekly_release_version.py \

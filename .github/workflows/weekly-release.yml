@@ -157,6 +157,19 @@ jobs:
             exit 0
           fi
 
+          # Branch guard (armed path only): a published release fires deploy.yml,
+          # which force-deploys whatever commit the release targets to prod. The
+          # scheduled tick always runs on the default branch, but a
+          # workflow_dispatch can target ANY ref -- an armed dispatch from a
+          # feature branch would deploy non-main code to prod. Refuse to cut a
+          # real release unless we are on refs/heads/main. (The dry-run path
+          # above is intentionally allowed from any branch for testing.)
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "::error::refusing to cut a real release from '${GITHUB_REF}';" \
+                 "arming is only permitted on refs/heads/main"
+            exit 1
+          fi
+
           echo "creating release ${next}"
           gh release create "${next}" \
             --title "${next}" \
