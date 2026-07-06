@@ -168,19 +168,35 @@ export function TiersPanel({ result, isPending, onDownloadXlsx, keepers, scoring
             </ul>
           </details>
         )}
-        <div className="space-y-4">
-          {groupedByTier.map((group) => (
-            <TierGroup
-              key={group.label}
-              label={group.label}
-              descriptiveLabel={group.descriptiveLabel}
-              players={group.players}
-              draftMode={draftMode}
-              isDrafted={isDrafted}
-              onToggleDraft={toggleDrafted}
-            />
-          ))}
-        </div>
+        {groupedByTier.length === 0 && filter !== "ALL" ? (
+          <div className="rounded-md border border-dashed py-8 px-4 text-center">
+            <p className="text-sm text-muted-foreground">
+              No {filter} players in this tier list.
+            </p>
+            <Button
+              onClick={() => setFilter("ALL")}
+              variant="outline"
+              size="sm"
+              className="mt-3"
+            >
+              Show all positions
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {groupedByTier.map((group) => (
+              <TierGroup
+                key={group.label}
+                label={group.label}
+                descriptiveLabel={group.descriptiveLabel}
+                players={group.players}
+                draftMode={draftMode}
+                isDrafted={isDrafted}
+                onToggleDraft={toggleDrafted}
+              />
+            ))}
+          </div>
+        )}
       </div>
       <div className="border-t bg-card px-6 py-3 flex justify-center gap-3">
         <Button data-tour="download" onClick={onDownloadXlsx} variant="default">
