@@ -227,6 +227,39 @@ async def test_post_espn_rejects_swid_without_espn_s2(async_client, test_db):
 
 
 @pytest.mark.asyncio
+async def test_post_espn_rejects_half_cookies_even_with_league_id(async_client, test_db):
+    """A league_id must not let a lone cookie past the guard: exactly one of
+    swid/espn_s2 → 400, and no LinkedLeague row is created (no half-credential)."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    r = await async_client.post(
+        f"/api/profiles/{p.id}/link/espn",
+        json={"league_id": "12345", "season": 2026, "swid": "abc", "espn_s2": None},
+    )
+    assert r.status_code == 400
+    assert "both" in r.json()["detail"].lower()
+    from sqlalchemy import select as sql_select
+    rows = (await test_db.scalars(sql_select(LinkedLeague))).all()
+    assert rows == [], "no half-credential row should be persisted on the 400 path"
+
+
+@pytest.mark.asyncio
+async def test_post_espn_rejects_espn_s2_without_swid_with_league_id(async_client, test_db):
+    """The mirror case: espn_s2 present, swid blank, league_id supplied → 400."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    r = await async_client.post(
+        f"/api/profiles/{p.id}/link/espn",
+        json={"league_id": "12345", "season": 2026, "swid": "   ", "espn_s2": "blob"},
+    )
+    assert r.status_code == 400
+    assert "both" in r.json()["detail"].lower()
+    from sqlalchemy import select as sql_select
+    rows = (await test_db.scalars(sql_select(LinkedLeague))).all()
+    assert rows == []
+
+
+@pytest.mark.asyncio
 async def test_post_espn_pre_link_stores_cookies_with_no_league(async_client, test_db):
     """ESPN body with cookies but no league_id → store cookies, skip league fetch."""
     u, p = await _make_user_and_profile(test_db)
