@@ -84,6 +84,12 @@ class LeagueSettings:
     weight_prior_year: float
     weight_espn: float
     weight_consensus: float
+    # TE Premium (#525): bonus points awarded per TIGHT-END reception, additive on
+    # top of the base PPR/half-PPR reception value. Applies to position == "TE"
+    # only; 0.0 (the default) makes the whole feature a no-op and keeps output
+    # byte-identical to pre-#525 behaviour for every existing caller. Trailing
+    # default so callers that don't set it (tests, scripts) keep working.
+    te_premium_bonus: float = 0.0
 
 
 @dataclass
@@ -102,14 +108,24 @@ class PlayerStats:
     games_played: int
 
 
-def _score_receiving(stats: PlayerStats, settings: LeagueSettings) -> float:
-    """Receiving points EXCLUDING TDs (yards + reception bonus + 100yd bonus)."""
+def _score_receiving(stats: PlayerStats, settings: LeagueSettings, position: str = "") -> float:
+    """Receiving points EXCLUDING TDs (yards + reception bonus + 100yd bonus).
+
+    ``position`` gates the TE Premium bonus (#525): ``settings.te_premium_bonus``
+    extra points per reception, awarded ON TOP of the base PPR/half-PPR value for
+    tight ends only (case-insensitive ``"TE"`` match). Any other position — and the
+    default ``te_premium_bonus`` of 0.0 — leaves output byte-identical to the
+    pre-#525 formula. ``position`` defaults to ``""`` so callers that predate the
+    parameter keep their exact behaviour.
+    """
     if settings.scoring_format == ScoringFormat.PPR:
         rec_pts = 1.0
     elif settings.scoring_format == ScoringFormat.HALF_PPR:
         rec_pts = 0.5
     else:
         rec_pts = 0.0
+    if position.upper() == "TE":
+        rec_pts += settings.te_premium_bonus
     pts = stats.receptions * rec_pts + stats.rec_yards * 0.1
     if settings.bonus_100yd_receiving and stats.rec_yards >= 100:
         pts += 3.0
@@ -144,7 +160,7 @@ def calculate_fantasy_points(stats: PlayerStats, settings: LeagueSettings, posit
         _score_passing(stats, settings)
         + _score_rushing(stats, settings)
         + _score_tds_only(stats, settings)
-        + _score_receiving(stats, settings)
+        + _score_receiving(stats, settings, position)
     )
     return round(pts, 2)
 

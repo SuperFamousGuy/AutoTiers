@@ -501,6 +501,29 @@ async def test_generate_validates_prior_year_games_knobs(async_client):
     assert resp.status_code == 200
 
 
+@pytest.mark.asyncio
+async def test_generate_validates_te_premium_bonus(async_client):
+    """#525: te_premium_bonus must be within [0.0, 2.0]; omitting it defaults to off."""
+    base_payload = {
+        "scoring_format": "ppr", "league_type": "standard", "league_size": 12,
+        "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
+        "bonus_first_downs": False, "weight_prior_year": 0.40, "weight_espn": 0.30,
+        "weight_consensus": 0.30, "rules": {},
+    }
+    # Below range -> 422
+    resp = await async_client.post("/api/generate", json={**base_payload, "te_premium_bonus": -0.5})
+    assert resp.status_code == 422
+    # Above range -> 422
+    resp = await async_client.post("/api/generate", json={**base_payload, "te_premium_bonus": 2.5})
+    assert resp.status_code == 422
+    # In-range value accepted
+    resp = await async_client.post("/api/generate", json={**base_payload, "te_premium_bonus": 1.0})
+    assert resp.status_code == 200
+    # Omitting it (default 0.0) still works
+    resp = await async_client.post("/api/generate", json=base_payload)
+    assert resp.status_code == 200
+
+
 async def test_generate_prior_year_knobs_change_blended_score(async_client, test_db):
     """#315: full_season_games and prior_year_ramp must actually reach blend_scores.
 

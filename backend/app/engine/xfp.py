@@ -108,7 +108,7 @@ def compute_league_averages(
         ps = _to_player_stats(s)
         pos = s.position
         targets_sum[pos] = targets_sum.get(pos, 0) + ps.targets
-        rec_pts_sum[pos] = rec_pts_sum.get(pos, 0.0) + _score_receiving(ps, settings)
+        rec_pts_sum[pos] = rec_pts_sum.get(pos, 0.0) + _score_receiving(ps, settings, pos)
         carries_sum[pos] = carries_sum.get(pos, 0) + ps.rush_att
         rush_pts_sum[pos] = rush_pts_sum.get(pos, 0.0) + _score_rushing(ps, settings)
         rz_looks_sum[pos] = rz_looks_sum.get(pos, 0) + (s.red_zone_looks or 0)
@@ -192,7 +192,7 @@ def compute_opportunity_score_z(
         return None
     ps = _to_player_stats(stat)
     fp = (
-        _score_receiving(ps, settings)
+        _score_receiving(ps, settings, pos)
         + _score_rushing(ps, settings)
         + _score_tds_only(ps, settings)
         # Passing intentionally excluded: xFP doesn't model passing

@@ -14,6 +14,11 @@ class GenerateRequest(BaseModel):
     bonus_100yd_rushing: bool = False
     bonus_100yd_receiving: bool = False
     bonus_first_downs: bool = False
+    # TE Premium (#525): bonus points per tight-end reception, additive on top of
+    # the base PPR/half-PPR reception value. Applies to TEs only in the engine.
+    # Default 0.0 = off (backward compatible). Bounded to a realistic [0.0, 2.0]
+    # range — Scott Fish Bowl and the common TEP formats sit at 0.5-1.0.
+    te_premium_bonus: float = Field(0.0, ge=0.0, le=2.0)
     weight_prior_year: float = Field(0.30, ge=0.0)
     weight_espn: float = Field(0.0, ge=0.0)
     weight_consensus: float = Field(0.70, ge=0.0)

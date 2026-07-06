@@ -53,6 +53,7 @@ def _build_league_settings(req: GenerateRequest) -> LeagueSettings:
         weight_prior_year=req.weight_prior_year,
         weight_espn=req.weight_espn,
         weight_consensus=req.weight_consensus,
+        te_premium_bonus=req.te_premium_bonus,
     )
 
 
@@ -243,7 +244,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
             pass_att=0, pass_yards=0.0, pass_tds=0, interceptions=0,
             games_played=sp.stat.games_played or 1,
         )
-        fp = _score_receiving(ps_for_gap, settings) + _score_rushing(ps_for_gap, settings) + _score_tds_only(ps_for_gap, settings)
+        fp = _score_receiving(ps_for_gap, settings, sp.position) + _score_rushing(ps_for_gap, settings) + _score_tds_only(ps_for_gap, settings)
         gaps_by_position.setdefault(sp.position, []).append(fp - xfp_val)
 
     position_sigmas = compute_per_position_sigmas(gaps_by_position)

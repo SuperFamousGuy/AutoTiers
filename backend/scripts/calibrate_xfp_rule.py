@@ -149,7 +149,7 @@ def calibrate(years: list[int]) -> dict:
                 rush_att=s.rush_att, rush_yards=s.rush_yards, rush_tds=s.rush_tds,
                 pass_att=0, pass_yards=0.0, pass_tds=0, interceptions=0, games_played=max(s.games_played, 1),
             )
-            fp = _score_receiving(ps, settings) + _score_rushing(ps, settings) + _score_tds_only(ps, settings)
+            fp = _score_receiving(ps, settings, s.position) + _score_rushing(ps, settings) + _score_tds_only(ps, settings)
             gaps_by_pos.setdefault(s.position, []).append(fp - xfp)
             per_player.append((s, fp, xfp))
 
