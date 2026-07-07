@@ -59,9 +59,10 @@ export function MobilePanelTabBar({ active, onChange, generateIsPending = false 
         })}
       </div>
       {/*
-        Screen-reader-only live region. The message is present only while a generate
-        is pending, so the polite announcement fires once when it starts and nothing
-        is announced when it clears on success or error (#563).
+        Screen-reader-only live region. The element stays mounted; only its text
+        content changes. The message is non-empty only while a generate is pending,
+        so the polite announcement fires once when it starts and nothing is
+        announced when the text clears on success or error (#563).
       */}
       <span
         aria-live="polite"
