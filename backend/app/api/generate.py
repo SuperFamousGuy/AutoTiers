@@ -120,13 +120,27 @@ def _get_projection(projections: list[Projection], source: str, fmt: str) -> Opt
     return None
 
 
+# The "espn" source is blended separately via ``weight_espn`` (#502), so it must
+# be excluded from the consensus average to keep the two weight budgets over
+# genuinely independent, non-overlapping source pools. Including it here would
+# double-count ESPN once the source is re-enabled: once as its own weighted term
+# and again folded into the consensus mean (#538).
+_CONSENSUS_EXCLUDED_SOURCES = frozenset({"espn"})
+
+
 def _avg_projection(projections: list[Projection], fmt: str) -> Optional[float]:
-    """Average all projection sources for a player at the given scoring format.
+    """Average the consensus projection sources for a player at the given format.
 
     Returns the mean of all source projections that exist for this player and
-    format. Each source counts equally. None if no projections exist.
+    format, EXCLUDING sources that are blended separately (currently "espn",
+    which has its own ``weight_espn`` term — see ``_CONSENSUS_EXCLUDED_SOURCES``).
+    Each remaining source counts equally. None if no consensus projections exist.
     """
-    values = [p.projected_points for p in projections if p.scoring_format == fmt]
+    values = [
+        p.projected_points
+        for p in projections
+        if p.scoring_format == fmt and p.source not in _CONSENSUS_EXCLUDED_SOURCES
+    ]
     if not values:
         return None
     return round(sum(values) / len(values), 2)
