@@ -10,6 +10,7 @@ const response = generateResponse as GenerateResponse;
 const tier7Response: GenerateResponse = {
   total: 1,
   data_as_of: null,
+  never_succeeded: [],
   players: [
     {
       overall_rank: 1,
