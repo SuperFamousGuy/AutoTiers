@@ -226,12 +226,18 @@ def assign_tiers(
     tiebreak_adp_attr: str = "adp_ppr",
     overall_tier_count: int = 10,
     qb_starters: int = 1,
+    compute_vbd: bool = True,
 ) -> list[TieredPlayer]:
     if not all_players:
         return []
 
     # Compute VBD first; subsequent ranking and clustering use vbd_score.
-    _compute_vbd(all_players, league_size, qb_starters)
+    # Callers that already computed VBD on the *full* (pre-cap) pool pass
+    # ``compute_vbd=False`` so the replacement baseline is not recomputed on the
+    # narrower capped pool (which can truncate a position below its replacement
+    # rank and distort vbd_score). See generate.py cap selection (#557).
+    if compute_vbd:
+        _compute_vbd(all_players, league_size, qb_starters)
 
     def _max_tiers(position: str) -> int:
         base = POSITION_MAX_TIERS.get(position, 3)

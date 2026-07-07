@@ -23,7 +23,7 @@ from app.engine.xfp import (
     _MIN_GAMES_PLAYED,
     _MIN_OPPORTUNITY_BY_POSITION,
 )
-from app.engine.tiers import TieredPlayer, assign_tiers
+from app.engine.tiers import TieredPlayer, assign_tiers, _compute_vbd
 from app.schemas.generate import GenerateRequest, GenerateResponse, TieredPlayerOut, RuleApplicationOut
 from app.data.matching import normalize_name
 from app.data.teams import DOME_TEAMS, ELEVATION_TEAM, COLD_WEATHER_TEAMS
@@ -472,10 +472,22 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
     #   1. Per-position floor: every position gets at least league_size * 2 players
     #      (so every team can draft 2). This prevents K/DST starvation when their
     #      adjusted scores are dwarfed by RB/WR/QB projections.
-    #   2. Fill remaining budget (cap - len(floor)) with the highest-scoring
+    #   2. Fill remaining budget (cap - len(floor)) with the highest-VBD
     #      not-yet-selected players regardless of position.
     # If floor exceeds cap (e.g., short draft_rounds), floor wins — better to
     # include extras than to miss a position.
+    #
+    # The cross-position "remaining budget" fill must rank on vbd_score, not raw
+    # adjusted_score: raw point totals are not comparable across positions (QB
+    # totals run structurally higher), so a raw-score fill over-includes marginal
+    # QBs and under-includes draftable RB/WR/TE depth. VBD (replacement-adjusted
+    # score) is the metric built for exactly this cross-position comparison, so we
+    # compute it here on the *full* pre-cap pool and reuse it inside assign_tiers
+    # (compute_vbd=False) rather than letting it recompute on the narrower capped
+    # pool. Within a single position vbd_score is a constant offset from
+    # adjusted_score, so the per-position floor ordering is unchanged. See #557.
+    _compute_vbd(tiered, req.league_size, req.qb_starters)
+
     POSITIONS = ("QB", "RB", "WR", "TE", "K", "DST")
     overall_cap = req.league_size * req.draft_rounds
     per_position_min = req.league_size * 2
@@ -485,23 +497,23 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
         if p.position in by_position:
             by_position[p.position].append(p)
     for pos in by_position:
-        by_position[pos].sort(key=lambda x: x.adjusted_score, reverse=True)
+        by_position[pos].sort(key=lambda x: x.vbd_score, reverse=True)
 
     # Floor: top per_position_min for each position
     guaranteed: list[TieredPlayer] = []
     for pos in POSITIONS:
         guaranteed.extend(by_position[pos][:per_position_min])
 
-    # Fill remaining budget with highest-scoring not-already-selected players
+    # Fill remaining budget with highest-VBD not-already-selected players
     guaranteed_ids = {p.player_id for p in guaranteed}
     remaining_pool = sorted(
         (p for p in tiered if p.player_id not in guaranteed_ids),
-        key=lambda p: p.adjusted_score,
+        key=lambda p: p.vbd_score,
         reverse=True,
     )
     remaining_budget = max(0, overall_cap - len(guaranteed))
     capped = guaranteed + remaining_pool[:remaining_budget]
-    capped.sort(key=lambda p: p.adjusted_score, reverse=True)
+    capped.sort(key=lambda p: p.vbd_score, reverse=True)
 
     overall_tier_count = req.overall_tier_count if req.overall_tier_count is not None else req.league_size
     return assign_tiers(
@@ -510,6 +522,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
         tiebreak_adp_attr=tiebreak_adp_attr,
         overall_tier_count=overall_tier_count,
         qb_starters=req.qb_starters,
+        compute_vbd=False,
     )
 
 
