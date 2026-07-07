@@ -49,13 +49,27 @@ function ProfileRequiredEmptyState({
   onCreateProfile?: () => void | Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
+  // Selecting or creating a profile flips `activeProfile` non-null in App, which
+  // swaps this empty state for the connect form and unmounts it before the
+  // awaited action settles. Track mount state so the `finally` doesn't set state
+  // on an unmounted component, and catch errors so this async click handler
+  // can't surface an unhandled promise rejection (#559 review).
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   async function run(fn: () => void | Promise<void>) {
     setBusy(true);
     try {
       await fn();
+    } catch {
+      // The parent owns surfacing action failures; here we only need to avoid
+      // an unhandled rejection escaping this event handler.
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   }
 
