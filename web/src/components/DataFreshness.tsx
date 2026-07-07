@@ -18,6 +18,7 @@ export function DataFreshness() {
     .filter((v): v is string => v !== null);
   const oldest = updates.length ? updates.reduce((a, b) => (Date.parse(a) < Date.parse(b) ? a : b)) : null;
   const level = freshnessLevel(oldest);
+  const oldestRelative = relativeTime(oldest);
 
   const colorClass = {
     fresh: "text-green-600",
@@ -46,7 +47,7 @@ export function DataFreshness() {
           */}
           <button
             type="button"
-            aria-label={`Data updated ${relativeTime(oldest)}`}
+            aria-label={`Data updated ${oldestRelative}`}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-md text-sm ring-offset-background",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
@@ -55,7 +56,7 @@ export function DataFreshness() {
           >
             <span aria-hidden="true" className={cn("h-2 w-2 shrink-0 rounded-full", dotClass)} />
             <span className="hidden lg:inline">Data updated&nbsp;</span>
-            {relativeTime(oldest)}
+            {oldestRelative}
           </button>
         </TooltipTrigger>
         <TooltipContent>
