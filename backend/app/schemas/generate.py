@@ -120,3 +120,8 @@ class GenerateResponse(BaseModel):
     players: list[TieredPlayerOut]
     total: int
     data_as_of: Optional[str] = None
+    # Sources that have been attempted but have never once succeeded
+    # (last_attempted set, last_updated still NULL). These are silently absent
+    # from data_as_of even though they contribute no data, so they are surfaced
+    # here for the frontend to warn on instead of showing a clean banner (#547).
+    never_succeeded: list[str] = Field(default_factory=list)

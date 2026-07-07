@@ -227,17 +227,59 @@ def assign_tiers(
     overall_tier_count: int = 10,
     qb_starters: int = 1,
     compute_vbd: bool = True,
+    replacement_pool: Optional[list[TieredPlayer]] = None,
 ) -> list[TieredPlayer]:
+    """Tier and rank ``all_players`` (the display set).
+
+    ``replacement_pool`` decouples *which players compute the VBD replacement
+    baseline* from *which players are tiered and returned*. When the caller has
+    trimmed ``all_players`` down to a capped roster for display, it must pass the
+    full, un-capped per-position pool here so ``compute_vbd_scores`` anchors each
+    position's replacement level on the position's true Nth-ranked player rather
+    than the worst survivor of the cap (issue #540). The pool must be a superset
+    of ``all_players`` (the same ``TieredPlayer`` objects) so the vbd_score it
+    writes onto each display player is the one used for clustering and ranking.
+
+    When ``replacement_pool`` is ``None`` (the default) VBD is computed against
+    ``all_players`` itself — the historical behaviour, unchanged.
+
+    Callers that already computed VBD on the full pre-cap pool (e.g. generate.py's
+    cap selection, which ranks the cross-position fill by vbd_score) pass
+    ``compute_vbd=False`` to skip recomputation entirely; the vbd_score already on
+    each object is reused for clustering and ranking (#557).
+    """
     if not all_players:
         return []
 
     # Compute VBD first; subsequent ranking and clustering use vbd_score.
+    #
     # Callers that already computed VBD on the *full* (pre-cap) pool pass
     # ``compute_vbd=False`` so the replacement baseline is not recomputed on the
     # narrower capped pool (which can truncate a position below its replacement
     # rank and distort vbd_score). See generate.py cap selection (#557).
+    #
+    # When ``compute_vbd`` is True and a ``replacement_pool`` is supplied, anchor
+    # the replacement level on that full pool so capping the display set does not
+    # inflate the replacement baseline (issue #540).
     if compute_vbd:
-        compute_vbd_scores(all_players, league_size, qb_starters)
+        if replacement_pool is not None:
+            # compute_vbd_scores writes vbd_score/position_replacement onto the
+            # pool's objects. Ranking and clustering below read those attributes
+            # off the display players, so every display player must be the *same
+            # object* present in the pool. If a caller passes copies or an
+            # incomplete pool, some display players keep their default vbd_score
+            # (0.0) and the tiers are silently wrong — fail fast instead
+            # (issue #540 review).
+            pool_ids = {id(p) for p in replacement_pool}
+            missing = [p for p in all_players if id(p) not in pool_ids]
+            if missing:
+                raise ValueError(
+                    "replacement_pool must be a superset of all_players containing the "
+                    f"same TieredPlayer objects; {len(missing)} display player(s) are "
+                    f"absent from the pool (e.g. player_id={missing[0].player_id!r}). "
+                    "Pass the same objects, not copies."
+                )
+        compute_vbd_scores(replacement_pool if replacement_pool is not None else all_players, league_size, qb_starters)
 
     def _max_tiers(position: str) -> int:
         base = POSITION_MAX_TIERS.get(position, 3)

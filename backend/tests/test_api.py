@@ -369,6 +369,78 @@ async def test_generate_data_as_of_uses_minimum_last_updated(async_client, test_
     assert resp.status_code == 200
     body = resp.json()
     assert body["data_as_of"].startswith("2026-05-15")  # the espn last_updated
+    # All sources succeeded -> nothing flagged as never-succeeded (#547).
+    assert body["never_succeeded"] == []
+
+
+@pytest.mark.asyncio
+async def test_generate_surfaces_never_succeeded_source(async_client, test_db):
+    """A source attempted but never once successful is surfaced distinctly (#547).
+
+    data_as_of still reflects only the healthy sources; the dead source is not
+    silently dropped but reported in never_succeeded so the frontend can warn.
+    """
+    test_db.add(DataSourceStatus(
+        source="sleeper",
+        last_updated=datetime(2026, 5, 20, 3, 0, 0),
+        last_attempted=datetime(2026, 5, 20, 3, 0, 0),
+        last_error=None, rows_upserted=1500,
+    ))
+    # Attempted every night but has NEVER succeeded: last_updated stays NULL.
+    test_db.add(DataSourceStatus(
+        source="cbs",
+        last_updated=None,
+        last_attempted=datetime(2026, 5, 20, 3, 0, 0),
+        last_error="HTTP 401", rows_upserted=0,
+    ))
+    await _seed(test_db)
+
+    resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
+    assert resp.status_code == 200
+    body = resp.json()
+    # data_as_of semantics unchanged: only the healthy source counts.
+    assert body["data_as_of"].startswith("2026-05-20")
+    assert body["never_succeeded"] == ["cbs"]
+
+
+@pytest.mark.asyncio
+async def test_compute_never_succeeded_flags_only_never_updated(test_db):
+    """Unit: helper reports the never-succeeded source, ignoring healthy ones."""
+    from app.api.generate import _compute_never_succeeded
+
+    test_db.add(DataSourceStatus(
+        source="espn",
+        last_updated=datetime(2026, 5, 20, 3, 0, 0),
+        last_attempted=datetime(2026, 5, 20, 3, 0, 0),
+        last_error=None, rows_upserted=600,
+    ))
+    test_db.add(DataSourceStatus(
+        source="cbs",
+        last_updated=None,
+        last_attempted=datetime(2026, 5, 20, 3, 0, 0),
+        last_error="boom", rows_upserted=0,
+    ))
+    await test_db.commit()
+
+    assert await _compute_never_succeeded(test_db) == ["cbs"]
+
+
+@pytest.mark.asyncio
+async def test_compute_never_succeeded_ignores_retired_sources(test_db):
+    """Retired sources (#402) are not surfaced as live failures (#547)."""
+    from app.api.generate import _compute_never_succeeded
+    from app.data.status import RETIRED_SOURCES
+
+    retired = RETIRED_SOURCES[0]
+    test_db.add(DataSourceStatus(
+        source=retired,
+        last_updated=None,
+        last_attempted=datetime(2026, 5, 20, 3, 0, 0),
+        last_error="gone", rows_upserted=0,
+    ))
+    await test_db.commit()
+
+    assert await _compute_never_succeeded(test_db) == []
 
 
 @pytest.mark.asyncio

@@ -41,6 +41,33 @@ async def _compute_data_as_of(db: AsyncSession) -> Optional[str]:
     return oldest.date().isoformat()
 
 
+async def _compute_never_succeeded(db: AsyncSession) -> list[str]:
+    """Return sorted source names that have been attempted but never succeeded.
+
+    A ``DataSourceStatus`` row with ``last_attempted`` set and ``last_updated``
+    still NULL means the scheduler has run for that source but every attempt has
+    failed since day one (broken credentials, a changed endpoint, …). Such a
+    source contributes nothing to ``blend_scores``/``_avg_projection`` yet is
+    silently dropped from the ``_compute_data_as_of`` ``min()``, so the banner
+    reports a fresh date from only the working sources. Surfacing these sources
+    separately lets the frontend warn ("CBS projections have never loaded")
+    instead of showing a falsely-clean banner (#547).
+
+    Retired sources (#402) are excluded: their rows are purged on refresh, and a
+    lingering one should read as noise, not a live failure.
+    """
+    from app.models import DataSourceStatus
+    from app.data.status import RETIRED_SOURCES
+    rows = (await db.scalars(
+        select(DataSourceStatus.source).where(
+            DataSourceStatus.last_attempted.is_not(None),
+            DataSourceStatus.last_updated.is_(None),
+            DataSourceStatus.source.not_in(RETIRED_SOURCES),
+        )
+    )).all()
+    return sorted(rows)
+
+
 def _build_league_settings(req: GenerateRequest) -> LeagueSettings:
     return LeagueSettings(
         scoring_format=req.scoring_format,
@@ -93,13 +120,27 @@ def _get_projection(projections: list[Projection], source: str, fmt: str) -> Opt
     return None
 
 
+# The "espn" source is blended separately via ``weight_espn`` (#502), so it must
+# be excluded from the consensus average to keep the two weight budgets over
+# genuinely independent, non-overlapping source pools. Including it here would
+# double-count ESPN once the source is re-enabled: once as its own weighted term
+# and again folded into the consensus mean (#538).
+_CONSENSUS_EXCLUDED_SOURCES = frozenset({"espn"})
+
+
 def _avg_projection(projections: list[Projection], fmt: str) -> Optional[float]:
-    """Average all projection sources for a player at the given scoring format.
+    """Average the consensus projection sources for a player at the given format.
 
     Returns the mean of all source projections that exist for this player and
-    format. Each source counts equally. None if no projections exist.
+    format, EXCLUDING sources that are blended separately (currently "espn",
+    which has its own ``weight_espn`` term — see ``_CONSENSUS_EXCLUDED_SOURCES``).
+    Each remaining source counts equally. None if no consensus projections exist.
     """
-    values = [p.projected_points for p in projections if p.scoring_format == fmt]
+    values = [
+        p.projected_points
+        for p in projections
+        if p.scoring_format == fmt and p.source not in _CONSENSUS_EXCLUDED_SOURCES
+    ]
     if not values:
         return None
     return round(sum(values) / len(values), 2)
@@ -468,29 +509,67 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
     else:
         tiebreak_adp_attr = "adp_standard"
 
-    # Cap selection. Two-pass:
-    #   1. Per-position floor: every position gets at least league_size * 2 players
-    #      (so every team can draft 2). This prevents K/DST starvation when their
-    #      adjusted scores are dwarfed by RB/WR/QB projections.
-    #   2. Fill remaining budget (cap - len(floor)) with the highest-VBD
-    #      not-yet-selected players regardless of position.
-    # If floor exceeds cap (e.g., short draft_rounds), floor wins — better to
-    # include extras than to miss a position.
-    #
-    # The cross-position "remaining budget" fill must rank on vbd_score, not raw
-    # adjusted_score: raw point totals are not comparable across positions (QB
-    # totals run structurally higher), so a raw-score fill over-includes marginal
-    # QBs and under-includes draftable RB/WR/TE depth. VBD (replacement-adjusted
-    # score) is the metric built for exactly this cross-position comparison, so we
-    # compute it here on the *full* pre-cap pool and reuse it inside assign_tiers
-    # (compute_vbd=False) rather than letting it recompute on the narrower capped
-    # pool. Within a single position vbd_score is a constant offset from
-    # adjusted_score, so the per-position floor ordering is unchanged. See #557.
-    compute_vbd_scores(tiered, req.league_size, req.qb_starters)
+    overall_tier_count = req.overall_tier_count if req.overall_tier_count is not None else req.league_size
+    return _cap_and_assign_tiers(
+        tiered,
+        league_size=req.league_size,
+        draft_rounds=req.draft_rounds,
+        tiebreak_adp_attr=tiebreak_adp_attr,
+        overall_tier_count=overall_tier_count,
+        qb_starters=req.qb_starters,
+    )
+
+
+def _cap_and_assign_tiers(
+    tiered: list[TieredPlayer],
+    *,
+    league_size: int,
+    draft_rounds: int,
+    tiebreak_adp_attr: str,
+    overall_tier_count: int,
+    qb_starters: int,
+) -> list[TieredPlayer]:
+    """Trim ``tiered`` to a draftable roster, then tier and rank that roster.
+
+    Cap selection. Two-pass:
+      1. Per-position floor: every position gets at least league_size * 2 players
+         (so every team can draft 2). This prevents K/DST starvation when their
+         adjusted scores are dwarfed by RB/WR/QB projections.
+      2. Fill remaining budget (cap - len(floor)) with the highest-VBD
+         not-yet-selected players regardless of position.
+    If floor exceeds cap (e.g., short draft_rounds), floor wins — better to
+    include extras than to miss a position.
+
+    The cross-position "remaining budget" fill ranks on vbd_score, not raw
+    adjusted_score: raw point totals are not comparable across positions (QB
+    totals run structurally higher), so a raw-score fill over-includes marginal
+    QBs and under-includes draftable RB/WR/TE depth. VBD (replacement-adjusted
+    score) is the metric built for exactly this cross-position comparison. We
+    compute it on the *full* pre-cap ``tiered`` pool below and reuse it inside
+    ``assign_tiers`` (``compute_vbd=False``) rather than letting it recompute on
+    the narrower capped pool. Within a single position vbd_score is a constant
+    offset from adjusted_score, so the per-position floor ordering is unchanged.
+    See #557.
+
+    The cap is display-only: it decides which players are returned, NOT which
+    players anchor the VBD replacement baseline. Because VBD is computed on the
+    full, un-capped ``tiered`` pool before the cap is applied, each position's
+    replacement level is anchored on the position's true Nth-ranked player rather
+    than the worst survivor of the cap. Without this, a short ``draft_rounds``
+    (where the floor alone exceeds the overall cap, e.g. league_size=12,
+    draft_rounds<=12) starves RB/WR groups below their 2.5x replacement rank and
+    silently inflates the replacement baseline (issue #540).
+    """
+    # Compute VBD on the full pre-cap pool so (a) the cross-position cap fill can
+    # rank by replacement-adjusted value (#557) and (b) the replacement baseline
+    # anchors on each position's true Nth-ranked player, not the worst cap
+    # survivor (#540). assign_tiers is then called with compute_vbd=False so it
+    # does not recompute on the narrower capped pool.
+    compute_vbd_scores(tiered, league_size, qb_starters)
 
     POSITIONS = ("QB", "RB", "WR", "TE", "K", "DST")
-    overall_cap = req.league_size * req.draft_rounds
-    per_position_min = req.league_size * 2
+    overall_cap = league_size * draft_rounds
+    per_position_min = league_size * 2
 
     by_position: dict[str, list[TieredPlayer]] = {p: [] for p in POSITIONS}
     for p in tiered:
@@ -515,13 +594,12 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
     capped = guaranteed + remaining_pool[:remaining_budget]
     capped.sort(key=lambda p: p.vbd_score, reverse=True)
 
-    overall_tier_count = req.overall_tier_count if req.overall_tier_count is not None else req.league_size
     return assign_tiers(
         capped,
-        league_size=req.league_size,
+        league_size=league_size,
         tiebreak_adp_attr=tiebreak_adp_attr,
         overall_tier_count=overall_tier_count,
-        qb_starters=req.qb_starters,
+        qb_starters=qb_starters,
         compute_vbd=False,
     )
 
@@ -534,6 +612,7 @@ async def generate_tiers(
 ) -> GenerateResponse:
     ranked = await _run_generate(req, db, current_user)
     data_as_of = await _compute_data_as_of(db)
+    never_succeeded = await _compute_never_succeeded(db)
     league_adp_normalized: dict[str, float] = (
         {normalize_name(k): v for k, v in req.league_adp.items()} if req.league_adp else {}
     )
@@ -548,4 +627,5 @@ async def generate_tiers(
         ],
         total=len(ranked),
         data_as_of=data_as_of,
+        never_succeeded=never_succeeded,
     )

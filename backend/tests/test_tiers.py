@@ -252,6 +252,61 @@ def test_vbd_ranking_top_rb_beats_top_qb():
     assert top.player_id == "rb_0", f"Expected top RB at #1, got {top.player_id}"
 
 
+class TestReplacementPoolDecoupling:
+    """Issue #540: VBD replacement level must anchor on the full player pool,
+    not on a display set that has been trimmed below the replacement rank."""
+
+    def test_replacement_pool_anchors_on_full_pool_not_display_set(self):
+        # 40 RBs, scores 300, 299, ... 261. RB replacement rank in a 12-team
+        # league is round(12 * 2.5) = 30 -> the 30th-best RB (index 29) = 271.
+        full = [_player(f"rb_{i}", "RB", 300.0 - i) for i in range(40)]
+        # Display set is trimmed to the top 24 RBs (below the rank-30 anchor).
+        display = full[:24]
+
+        ranked = assign_tiers(display, league_size=12, replacement_pool=full)
+
+        by_id = {p.player_id: p for p in ranked}
+        # Only the 24 display players are returned/tiered.
+        assert len(ranked) == 24
+        # Replacement is the true 30th-best RB (271.0), NOT the worst survivor
+        # of the trimmed display set (rb_23 = 277.0).
+        assert by_id["rb_0"].position_replacement == 271.0
+        assert by_id["rb_0"].vbd_score == round(300.0 - 271.0, 2)
+
+    def test_replacement_pool_none_matches_computing_on_display_set(self):
+        # With no replacement_pool, behaviour is unchanged: replacement is drawn
+        # from the (small) set passed in — here the worst of the 24 present.
+        full = [_player(f"rb_{i}", "RB", 300.0 - i) for i in range(40)]
+        display = [_player(f"rb_{i}", "RB", 300.0 - i) for i in range(24)]
+
+        ranked = assign_tiers(display, league_size=12)
+
+        by_id = {p.player_id: p for p in ranked}
+        # rank 30 clamps to len-1 = index 23 = 277.0 (the worst present).
+        assert by_id["rb_0"].position_replacement == 277.0
+
+    def test_replacement_pool_superset_leaves_display_ranking_intact(self):
+        # The extra pool-only players must not appear in the ranked output.
+        full = [_player(f"rb_{i}", "RB", 300.0 - i) for i in range(40)]
+        display = full[:24]
+        ranked = assign_tiers(display, league_size=12, replacement_pool=full)
+        returned_ids = {p.player_id for p in ranked}
+        assert returned_ids == {f"rb_{i}" for i in range(24)}
+        # overall_rank is sequential over the display set only.
+        assert sorted(p.overall_rank for p in ranked) == list(range(1, 25))
+
+    def test_replacement_pool_missing_display_object_fails_fast(self):
+        # If the pool does not contain the same TieredPlayer objects as the
+        # display set, VBD is never written onto the display players and the
+        # tiers would be silently wrong. assign_tiers must fail loudly instead.
+        full = [_player(f"rb_{i}", "RB", 300.0 - i) for i in range(40)]
+        # Same player_ids but distinct objects (copies), so identity differs.
+        display = [_player(f"rb_{i}", "RB", 300.0 - i) for i in range(24)]
+
+        with pytest.raises(ValueError, match="same TieredPlayer objects"):
+            assign_tiers(display, league_size=12, replacement_pool=full)
+
+
 def _kicker(pid: str, score: float, adp: float) -> TieredPlayer:
     return TieredPlayer(
         player_id=pid, name=f"K {pid}", position="K", team="X", age=27,
