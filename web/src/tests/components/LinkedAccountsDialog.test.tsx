@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { LinkedAccountsDialog } from "@/components/LinkedAccountsDialog";
 import type { User, Profile } from "@/api/types";
 
-// unlinkGoogle is spied so the Google tests can assert at the api-module level.
+// unlinkGoogle is mocked so the Google tests can assert at the api-module level.
 // unlinkYahoo is deliberately left as the REAL implementation so the Yahoo
 // tests can assert the fetch-level request (DELETE /api/auth/yahoo/link),
 // per issue #558's acceptance criteria.
