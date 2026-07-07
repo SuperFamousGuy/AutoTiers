@@ -187,7 +187,7 @@ def _cluster_position(players: list[TieredPlayer], position: str, max_tiers: int
         p.positional_tier = f"{position}{tier_num}"
 
 
-def _compute_vbd(
+def compute_vbd_scores(
     all_players: list[TieredPlayer], league_size: int, qb_starters: int = 1
 ) -> None:
     """Compute ``vbd_score`` and ``position_replacement`` for each player, in place.
@@ -237,7 +237,7 @@ def assign_tiers(
     # narrower capped pool (which can truncate a position below its replacement
     # rank and distort vbd_score). See generate.py cap selection (#557).
     if compute_vbd:
-        _compute_vbd(all_players, league_size, qb_starters)
+        compute_vbd_scores(all_players, league_size, qb_starters)
 
     def _max_tiers(position: str) -> int:
         base = POSITION_MAX_TIERS.get(position, 3)

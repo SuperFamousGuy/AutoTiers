@@ -23,7 +23,7 @@ from app.engine.xfp import (
     _MIN_GAMES_PLAYED,
     _MIN_OPPORTUNITY_BY_POSITION,
 )
-from app.engine.tiers import TieredPlayer, assign_tiers, _compute_vbd
+from app.engine.tiers import TieredPlayer, assign_tiers, compute_vbd_scores
 from app.schemas.generate import GenerateRequest, GenerateResponse, TieredPlayerOut, RuleApplicationOut
 from app.data.matching import normalize_name
 from app.data.teams import DOME_TEAMS, ELEVATION_TEAM, COLD_WEATHER_TEAMS
@@ -486,7 +486,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
     # (compute_vbd=False) rather than letting it recompute on the narrower capped
     # pool. Within a single position vbd_score is a constant offset from
     # adjusted_score, so the per-position floor ordering is unchanged. See #557.
-    _compute_vbd(tiered, req.league_size, req.qb_starters)
+    compute_vbd_scores(tiered, req.league_size, req.qb_starters)
 
     POSITIONS = ("QB", "RB", "WR", "TE", "K", "DST")
     overall_cap = req.league_size * req.draft_rounds
