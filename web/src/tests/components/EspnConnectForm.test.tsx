@@ -67,6 +67,26 @@ describe("EspnConnectForm", () => {
     expect(screen.getByRole("button", { name: /^connect$/i })).toBeEnabled();
   });
 
+  it("Connect stays disabled with a League ID + only SWID in private mode", async () => {
+    render(<EspnConnectForm profile={baseProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /^private league$/i }));
+    await u.type(screen.getByLabelText(/league id/i), "12345");
+    await u.type(screen.getByLabelText(/swid/i), "{{abc-123}");
+    // espn_s2 left blank — a half cookie pair must not be submittable.
+    expect(screen.getByRole("button", { name: /^connect$/i })).toBeDisabled();
+  });
+
+  it("Connect stays disabled with a League ID + only espn_s2 in private mode", async () => {
+    render(<EspnConnectForm profile={baseProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /^private league$/i }));
+    await u.type(screen.getByLabelText(/league id/i), "12345");
+    await u.type(screen.getByLabelText(/espn_s2/i), "blob");
+    // SWID left blank.
+    expect(screen.getByRole("button", { name: /^connect$/i })).toBeDisabled();
+  });
+
   it("reveals SWID + espn_s2 fields when Private League button is clicked", async () => {
     render(<EspnConnectForm profile={baseProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
     const u = userEvent.setup();
