@@ -42,6 +42,46 @@ const tier7Response: GenerateResponse = {
   ],
 };
 
+const qbOnlyResponse: GenerateResponse = {
+  total: 1,
+  data_as_of: null,
+  players: [
+    {
+      overall_rank: 1,
+      player_id: "1001",
+      name: "Solo Quarterback",
+      position: "QB",
+      team: "KC",
+      age: null,
+      overall_tier: 1,
+      positional_tier: "QB1",
+      adjusted_score: 90.0,
+      projected_score_raw: 90.0,
+      prior_year_actual: null,
+      espn_projection: null,
+      fantasypros_projection: null,
+      avg_projection: null,
+      adp_standard: null,
+      adp_ppr: null,
+      adp_dynasty: null,
+      league_adp: null,
+      vbd_score: 0.0,
+      position_replacement: 90.0,
+      flags: [],
+      rules_applied: [],
+      rule_applications: [],
+      is_favorite_player: null,
+      is_favorite_team: null,
+    },
+  ],
+};
+
+const emptyResponse: GenerateResponse = {
+  total: 0,
+  data_as_of: null,
+  players: [],
+};
+
 describe("TiersPanel", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -148,6 +188,47 @@ describe("TiersPanel", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /^download excel$/i }));
     expect(onDownload).toHaveBeenCalled();
+  });
+
+  describe("empty position filter", () => {
+    it("shows an empty-state message and reset button when the selected position has no players", async () => {
+      render(<TiersPanel result={qbOnlyResponse} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+
+      // Filtering to DST — a position absent from this QB-only list — must not
+      // leave a blank scroll area behind the filter row.
+      await user.click(screen.getByRole("button", { name: /^dst$/i }));
+
+      expect(screen.getByText(/no dst players in this tier list/i)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /show all positions/i })).toBeInTheDocument();
+      // The QB tier group must be gone while DST is selected.
+      expect(screen.queryByText("Solo Quarterback")).not.toBeInTheDocument();
+    });
+
+    it("clicking 'Show all positions' resets to ALL and repopulates the list", async () => {
+      render(<TiersPanel result={qbOnlyResponse} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /^dst$/i }));
+      expect(screen.getByText(/no dst players in this tier list/i)).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: /show all positions/i }));
+
+      // Back to the ALL view: the QB player and its overall tier group reappear,
+      // and the empty-state message is gone.
+      expect(screen.queryByText(/no dst players in this tier list/i)).not.toBeInTheDocument();
+      expect(screen.getByText("Solo Quarterback")).toBeInTheDocument();
+      expect(screen.getByText(/^Tier 1$/)).toBeInTheDocument();
+    });
+
+    it("does not show the empty-state message in the ALL view even when a list is empty", () => {
+      // The guard only fires for a position filter, never for ALL — an empty ALL
+      // list is a different (upstream) condition and keeps the existing render path.
+      // Render a genuinely empty players list under the default ALL filter so the
+      // assertion actually exercises the `filter === "ALL"` branch of the guard:
+      // groupedByTier is empty here, yet the empty-state message must stay hidden.
+      render(<TiersPanel result={emptyResponse} isPending={false} onDownloadXlsx={() => {}} />);
+      expect(screen.queryByText(/players in this tier list/i)).not.toBeInTheDocument();
+    });
   });
 
   describe("debug CSV button", () => {
