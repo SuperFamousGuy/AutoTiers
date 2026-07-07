@@ -354,13 +354,34 @@ async def post_yahoo(
             status_code=400,
             detail="Yahoo Fantasy is not connected. Re-authorize with Yahoo to enable Fantasy Sports access.",
         )
+    # Mirror the blank-field guard every sibling connect handler applies: reject an
+    # empty/whitespace league_key up front with a Yahoo-specific 400 rather than
+    # letting "" reach fetch_yahoo_league and surface as a generic provider error.
+    league_key = body.league_key.strip()
+    if not league_key:
+        raise HTTPException(status_code=400, detail="Select a Yahoo league to link.")
+
     profile = await _resolve_profile(profile_id, user, db)
     try:
-        data = await fetch_yahoo_league(body.league_key, user, db)
+        data = await fetch_yahoo_league(league_key, user, db)
     except YahooReauthRequired:
         raise HTTPException(status_code=400, detail=_YAHOO_REAUTH_DETAIL)
     except Exception as e:
         raise _provider_http_error("Yahoo", e)
+
+    # Yahoo's league_key already embeds the season (via its game key), so
+    # data.season is authoritative. body.season is therefore a confirmation the
+    # client sends from the league summary — consume it by validating it matches
+    # the fetched league, catching a stale/mismatched selection instead of
+    # silently discarding the field.
+    if body.season != data.season:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Season {body.season} doesn't match the selected Yahoo league "
+                f"(season {data.season}). Reselect the league and try again."
+            ),
+        )
 
     mapped = yahoo_to_settings(data.raw_scoring, league_size=data.league_size)
     ll = _upsert_linked_league(profile, db)
