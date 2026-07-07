@@ -509,17 +509,49 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
     else:
         tiebreak_adp_attr = "adp_standard"
 
-    # Cap selection. Two-pass:
-    #   1. Per-position floor: every position gets at least league_size * 2 players
-    #      (so every team can draft 2). This prevents K/DST starvation when their
-    #      adjusted scores are dwarfed by RB/WR/QB projections.
-    #   2. Fill remaining budget (cap - len(floor)) with the highest-scoring
-    #      not-yet-selected players regardless of position.
-    # If floor exceeds cap (e.g., short draft_rounds), floor wins — better to
-    # include extras than to miss a position.
+    overall_tier_count = req.overall_tier_count if req.overall_tier_count is not None else req.league_size
+    return _cap_and_assign_tiers(
+        tiered,
+        league_size=req.league_size,
+        draft_rounds=req.draft_rounds,
+        tiebreak_adp_attr=tiebreak_adp_attr,
+        overall_tier_count=overall_tier_count,
+        qb_starters=req.qb_starters,
+    )
+
+
+def _cap_and_assign_tiers(
+    tiered: list[TieredPlayer],
+    *,
+    league_size: int,
+    draft_rounds: int,
+    tiebreak_adp_attr: str,
+    overall_tier_count: int,
+    qb_starters: int,
+) -> list[TieredPlayer]:
+    """Trim ``tiered`` to a draftable roster, then tier and rank that roster.
+
+    Cap selection. Two-pass:
+      1. Per-position floor: every position gets at least league_size * 2 players
+         (so every team can draft 2). This prevents K/DST starvation when their
+         adjusted scores are dwarfed by RB/WR/QB projections.
+      2. Fill remaining budget (cap - len(floor)) with the highest-scoring
+         not-yet-selected players regardless of position.
+    If floor exceeds cap (e.g., short draft_rounds), floor wins — better to
+    include extras than to miss a position.
+
+    The cap is display-only: it decides which players are returned, NOT which
+    players anchor the VBD replacement baseline. The full, un-capped ``tiered``
+    pool is handed to ``assign_tiers`` as the ``replacement_pool`` so each
+    position's replacement level is computed from the position's true Nth-ranked
+    player rather than the worst survivor of the cap. Without this, a short
+    ``draft_rounds`` (where the floor alone exceeds the overall cap, e.g.
+    league_size=12, draft_rounds<=12) starves RB/WR groups below their 2.5x
+    replacement rank and silently inflates the replacement baseline (issue #540).
+    """
     POSITIONS = ("QB", "RB", "WR", "TE", "K", "DST")
-    overall_cap = req.league_size * req.draft_rounds
-    per_position_min = req.league_size * 2
+    overall_cap = league_size * draft_rounds
+    per_position_min = league_size * 2
 
     by_position: dict[str, list[TieredPlayer]] = {p: [] for p in POSITIONS}
     for p in tiered:
@@ -544,13 +576,13 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
     capped = guaranteed + remaining_pool[:remaining_budget]
     capped.sort(key=lambda p: p.adjusted_score, reverse=True)
 
-    overall_tier_count = req.overall_tier_count if req.overall_tier_count is not None else req.league_size
     return assign_tiers(
         capped,
-        league_size=req.league_size,
+        league_size=league_size,
         tiebreak_adp_attr=tiebreak_adp_attr,
         overall_tier_count=overall_tier_count,
-        qb_starters=req.qb_starters,
+        qb_starters=qb_starters,
+        replacement_pool=tiered,
     )
 
 
