@@ -26,13 +26,37 @@ export function DataFreshness() {
     unknown: "text-muted-foreground",
   }[level];
 
+  const dotClass = {
+    fresh: "bg-green-600",
+    stale: "bg-yellow-600",
+    old: "bg-red-600",
+    unknown: "bg-muted-foreground",
+  }[level];
+
   return (
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
-          <span className={cn("text-sm cursor-help", colorClass)}>
-            Data updated {relativeTime(oldest)}
-          </span>
+          {/*
+            A real <button> (not a bare <span>) so the indicator joins the tab
+            order and Radix's focus-triggered tooltip fires for keyboard and
+            screen-reader users. The dot + relative time stay visible at every
+            width; the "Data updated" prefix collapses on narrow screens so the
+            freshness signal is reachable on mobile without opening a menu.
+          */}
+          <button
+            type="button"
+            aria-label={`Data updated ${relativeTime(oldest)}`}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md text-sm ring-offset-background",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+              colorClass,
+            )}
+          >
+            <span aria-hidden="true" className={cn("h-2 w-2 shrink-0 rounded-full", dotClass)} />
+            <span className="hidden lg:inline">Data updated&nbsp;</span>
+            {relativeTime(oldest)}
+          </button>
         </TooltipTrigger>
         <TooltipContent>
           <div className="space-y-1 text-xs">
