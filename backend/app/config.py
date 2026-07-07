@@ -53,6 +53,19 @@ class Settings(BaseSettings):
     # app is directly internet-facing) — then XFF is fully untrusted and only the
     # socket peer is used. Override via TRUSTED_PROXY_COUNT.
     trusted_proxy_count: int = 1
+    # Sleeper's /v1/players/nfl is a multi-megabyte, non-user-specific static
+    # dictionary that Sleeper's own docs ask callers to "cache ... do not call
+    # more than once a day" (issue #560). We cache it process-locally under a
+    # single global key for this many seconds (default 12h, inside Sleeper's
+    # guidance) so repeated league links don't re-download it. Override via
+    # SLEEPER_PLAYERS_CACHE_TTL_SECONDS; set to 0 to disable caching.
+    sleeper_players_cache_ttl_seconds: float = 12 * 60 * 60
+    # The players dict is far larger than the tiny league/rosters/drafts calls,
+    # so it gets its own, larger timeout rather than sharing their blanket 10s
+    # (a slow-but-healthy multi-MB transfer would otherwise time out on the last
+    # call and look like a Sleeper outage). Override via
+    # SLEEPER_PLAYERS_TIMEOUT_SECONDS.
+    sleeper_players_timeout_seconds: float = 30.0
 
     @field_validator("trusted_proxy_count")
     @classmethod

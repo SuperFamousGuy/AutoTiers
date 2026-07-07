@@ -8,11 +8,27 @@ Sleeper has no auth: a username is enough. We use these endpoints:
   - /v1/league/{league_id}/drafts  (list, may be empty before draft happens)
   - /v1/draft/{draft_id}/picks  (only when a draft completed)
 """
+import time
+
 import httpx
+from app.config import settings
 from app.integrations.types import LeagueSummary, LeagueData
 
 
 BASE_URL = "https://api.sleeper.app"
+
+# Process-local cache for /v1/players/nfl (issue #560). The dict is static and
+# identical for every user/league, so it's keyed globally (a single slot), not
+# per-user. Guarded by a monotonic timestamp so it's immune to wall-clock jumps.
+_players_cache: dict | None = None
+_players_cached_at: float | None = None
+
+
+def clear_players_cache() -> None:
+    """Reset the global players-dict cache. Used by tests for hermetic isolation."""
+    global _players_cache, _players_cached_at
+    _players_cache = None
+    _players_cached_at = None
 
 
 class SleeperUserNotFound(Exception):
@@ -23,6 +39,37 @@ async def _get_json(client: httpx.AsyncClient, path: str) -> object:
     resp = await client.get(f"{BASE_URL}{path}")
     resp.raise_for_status()
     return resp.json()
+
+
+async def _get_players_dict(client: httpx.AsyncClient) -> dict:
+    """Return Sleeper's NFL player dictionary, served from a process-local cache.
+
+    A cache hit within the TTL avoids re-downloading the multi-MB payload on
+    every league link (Sleeper asks callers not to fetch it more than once a
+    day). The network request uses its own larger timeout, independent of the
+    blanket 10s the small league/rosters/drafts calls share, so a slow-but-
+    healthy transfer isn't mistaken for a Sleeper outage.
+    """
+    global _players_cache, _players_cached_at
+    ttl = settings.sleeper_players_cache_ttl_seconds
+    now = time.monotonic()
+    if (
+        _players_cache is not None
+        and _players_cached_at is not None
+        and ttl > 0
+        and now - _players_cached_at < ttl
+    ):
+        return _players_cache
+
+    resp = await client.get(
+        f"{BASE_URL}/v1/players/nfl",
+        timeout=settings.sleeper_players_timeout_seconds,
+    )
+    resp.raise_for_status()
+    players = resp.json()
+    _players_cache = players
+    _players_cached_at = now
+    return players
 
 
 async def list_user_leagues(username: str, season: int) -> list[LeagueSummary]:
@@ -45,7 +92,7 @@ async def fetch_league(league_id: str) -> LeagueData:
     async with httpx.AsyncClient(timeout=10.0) as client:
         league = await _get_json(client, f"/v1/league/{league_id}")
         rosters = await _get_json(client, f"/v1/league/{league_id}/rosters")
-        players_dict = await _get_json(client, "/v1/players/nfl")
+        players_dict = await _get_players_dict(client)
         drafts = await _get_json(client, f"/v1/league/{league_id}/drafts")
 
         keepers: list[dict] = []

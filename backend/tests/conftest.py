@@ -3,6 +3,7 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from httpx import AsyncClient, ASGITransport
 from app.auth.rate_limit import login_rate_limiter, reset_rate_limiter, verify_rate_limiter, feedback_rate_limiter
+from app.integrations.sleeper import clear_players_cache
 from app.config import settings
 from app.database import Base, get_db
 from app.email.fake_sender import FakeSender
@@ -20,11 +21,15 @@ def _reset_rate_limiters():
     reset_rate_limiter._attempts.clear()
     verify_rate_limiter._attempts.clear()
     feedback_rate_limiter._attempts.clear()
+    # The Sleeper players-dict cache (issue #560) is process-local and global;
+    # clear it so a fixture from one test can't satisfy another's fetch_league.
+    clear_players_cache()
     yield
     login_rate_limiter._attempts.clear()
     reset_rate_limiter._attempts.clear()
     verify_rate_limiter._attempts.clear()
     feedback_rate_limiter._attempts.clear()
+    clear_players_cache()
 
 # Tests run over plain HTTP (http://test). The auth cookie defaults to
 # secure=True when settings.debug=False, which would cause httpx to drop
