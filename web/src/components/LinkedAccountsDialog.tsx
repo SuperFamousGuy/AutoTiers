@@ -27,6 +27,87 @@ interface Props {
   onRefresh: () => Promise<void>;
   initialError: string | null;
   activeProfile?: Profile | null;
+  // The user's profiles plus in-dialog actions to resolve the "no active
+  // profile" dead-end (#559). The profile picker lives in the header, which is
+  // unreachable behind this modal, so the empty state offers the action here.
+  profiles?: Profile[];
+  onSelectProfile?: (id: string) => void | Promise<void>;
+  onCreateProfile?: () => void | Promise<void>;
+}
+
+// Shown in a tab panel when no profile is active. Instead of telling the user
+// to "select a profile above" — which they physically can't do while this
+// focus-trapping modal covers the header (#559) — it lets them pick an existing
+// profile or create one without leaving the dialog.
+function ProfileRequiredEmptyState({
+  profiles,
+  onSelectProfile,
+  onCreateProfile,
+}: {
+  profiles: Profile[];
+  onSelectProfile?: (id: string) => void | Promise<void>;
+  onCreateProfile?: () => void | Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  async function run(fn: () => void | Promise<void>) {
+    setBusy(true);
+    try {
+      await fn();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Profiles exist but none is active — let the user pick one right here.
+  if (profiles.length > 0 && onSelectProfile) {
+    return (
+      <div className="py-4 text-center">
+        <p className="text-xs text-muted-foreground">
+          Select a profile to connect a fantasy league.
+        </p>
+        <div className="mt-3 flex flex-wrap justify-center gap-2">
+          {profiles.map((p) => (
+            <Button
+              key={p.id}
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => run(() => onSelectProfile(p.id))}
+            >
+              {p.name}
+            </Button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // No profiles at all (e.g. every profile was deleted) — offer to create one.
+  if (profiles.length === 0 && onCreateProfile) {
+    return (
+      <div className="py-4 text-center">
+        <p className="text-xs text-muted-foreground">
+          Create a profile to connect a fantasy league.
+        </p>
+        <Button
+          size="sm"
+          className="mt-3"
+          disabled={busy}
+          onClick={() => run(onCreateProfile)}
+        >
+          Create a profile
+        </Button>
+      </div>
+    );
+  }
+
+  // Fallback when the dialog isn't wired with profile actions.
+  return (
+    <p className="py-4 text-center text-xs text-muted-foreground">
+      Select a profile above to connect a fantasy league.
+    </p>
+  );
 }
 
 type PlatformTab = "sleeper" | "espn" | "yahoo" | "nfl" | "cbs";
@@ -51,6 +132,9 @@ export function LinkedAccountsDialog({
   onRefresh,
   initialError,
   activeProfile,
+  profiles = [],
+  onSelectProfile,
+  onCreateProfile,
 }: Props) {
   const [error, setError] = useState<string | null>(initialError);
   const [activeTab, setActiveTab] = useState<PlatformTab>("sleeper");
@@ -97,14 +181,18 @@ export function LinkedAccountsDialog({
     window.location.href = `${googleAuthorizeUrl()}?intent=link`;
   }
 
+  const profileRequiredEmptyState = (
+    <ProfileRequiredEmptyState
+      profiles={profiles}
+      onSelectProfile={onSelectProfile}
+      onCreateProfile={onCreateProfile}
+    />
+  );
+
   function renderTabPanel() {
     // Sleeper and ESPN need an active profile for their API calls.
     if ((activeTab === "sleeper" || activeTab === "espn") && !activeProfile) {
-      return (
-        <p className="py-4 text-center text-xs text-muted-foreground">
-          Select a profile above to connect a fantasy league.
-        </p>
-      );
+      return profileRequiredEmptyState;
     }
 
     switch (activeTab) {
@@ -126,11 +214,7 @@ export function LinkedAccountsDialog({
         );
       case "yahoo":
         if (!activeProfile) {
-          return (
-            <p className="py-4 text-center text-xs text-muted-foreground">
-              Select a profile above to connect a fantasy league.
-            </p>
-          );
+          return profileRequiredEmptyState;
         }
         return (
           <YahooConnectForm
@@ -142,11 +226,7 @@ export function LinkedAccountsDialog({
         );
       case "cbs":
         if (!activeProfile) {
-          return (
-            <p className="py-4 text-center text-xs text-muted-foreground">
-              Select a profile above to connect a fantasy league.
-            </p>
-          );
+          return profileRequiredEmptyState;
         }
         return (
           <CbsConnectForm
@@ -157,11 +237,7 @@ export function LinkedAccountsDialog({
         );
       case "nfl":
         if (!activeProfile) {
-          return (
-            <p className="py-4 text-center text-xs text-muted-foreground">
-              Select a profile above to connect a fantasy league.
-            </p>
-          );
+          return profileRequiredEmptyState;
         }
         return (
           <NflConnectForm

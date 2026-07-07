@@ -125,6 +125,63 @@ describe("LinkedAccountsDialog", () => {
     expect(screen.getByText(/select a profile/i)).toBeInTheDocument();
   });
 
+  // --- In-dialog "no active profile" resolution (issue #559) ---
+  // The header profile picker is unreachable behind this focus-trapping modal,
+  // so the empty state must offer an action that actually resolves the blocker.
+  it("empty state lets the user pick an existing profile without leaving the dialog", async () => {
+    const onSelectProfile = vi.fn();
+    const profiles: Profile[] = [
+      { ...activeProfile, id: "p1", name: "Redraft" },
+      { ...activeProfile, id: "p2", name: "Dynasty" },
+    ];
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null}
+        profiles={profiles} onSelectProfile={onSelectProfile} onCreateProfile={noop} />,
+    );
+    // Sleeper is the default tab and needs a profile, so the empty state shows.
+    expect(screen.getByText(/select a profile to connect/i)).toBeInTheDocument();
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: "Dynasty" }));
+    expect(onSelectProfile).toHaveBeenCalledWith("p2");
+  });
+
+  it("empty state offers to create a profile when the user has none", async () => {
+    const onCreateProfile = vi.fn();
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null}
+        profiles={[]} onSelectProfile={noop} onCreateProfile={onCreateProfile} />,
+    );
+    expect(screen.getByText(/create a profile to connect/i)).toBeInTheDocument();
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /^create a profile$/i }));
+    expect(onCreateProfile).toHaveBeenCalled();
+  });
+
+  it("the in-dialog profile action is offered on every provider tab that needs a profile", async () => {
+    const onSelectProfile = vi.fn();
+    const profiles: Profile[] = [{ ...activeProfile, id: "p1", name: "Redraft" }];
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null}
+        profiles={profiles} onSelectProfile={onSelectProfile} onCreateProfile={noop} />,
+    );
+    const u = userEvent.setup();
+    for (const tab of [/^espn$/i, /^yahoo$/i, /^nfl fantasy$/i, /^cbs$/i]) {
+      await u.click(screen.getByRole("tab", { name: tab }));
+      expect(await screen.findByRole("button", { name: "Redraft" })).toBeInTheDocument();
+    }
+  });
+
+  it("falls back to the static message when no profile actions are wired", () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} />,
+    );
+    expect(screen.getByText(/select a profile above/i)).toBeInTheDocument();
+  });
+
   it("Google footer shows Link button when Google is not connected", () => {
     render(
       <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
