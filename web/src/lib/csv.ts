@@ -2,13 +2,29 @@ import type { ScoringFormat, TieredPlayer } from "@/api/types";
 import { getCustomTierLabel } from "@/lib/tiers";
 
 /**
+ * Neutralizes spreadsheet formula injection (OWASP "CSV Injection"): Excel,
+ * Google Sheets, and LibreOffice interpret a cell whose text begins with `=`,
+ * `+`, `-`, `@`, tab, or CR as the start of a formula/command when the .csv is
+ * opened. Tier labels are free text the user types (SettingsPanel.tsx), so a
+ * label like `=1+cmd|'/c calc'!A0` or `@SUM(A1:A2)` would otherwise execute on
+ * open. Prefixing a single apostrophe forces the cell to be read as text; the
+ * apostrophe is not shown by the spreadsheet once imported. Applied to the raw
+ * value before RFC 4180 quoting so the neutralized cell is still quoted when it
+ * also contains a comma/quote/newline.
+ */
+function neutralizeFormula(str: string): string {
+  return /^[=+\-@\t\r]/.test(str) ? `'${str}` : str;
+}
+
+/**
  * Escapes a CSV field per RFC 4180: if the value contains a comma, double-quote,
  * or newline, wrap it in double-quotes and escape internal double-quotes by
- * doubling them.
+ * doubling them. First neutralizes any leading formula trigger (see
+ * neutralizeFormula) so exported labels can't execute in a spreadsheet.
  */
 function csvField(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return "";
-  const str = String(value);
+  const str = neutralizeFormula(String(value));
   if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
     return `"${str.replace(/"/g, '""')}"`;
   }

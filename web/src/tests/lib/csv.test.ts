@@ -165,6 +165,51 @@ describe("generateDraftCsvString", () => {
     );
     expect(csv.split("\r\n")).toHaveLength(3);
   });
+
+  // CSV formula-injection mitigation (OWASP): a user-typed tier label that a
+  // spreadsheet would read as a formula is prefixed with a single apostrophe.
+  describe("formula injection in tier labels (#555)", () => {
+    const cases: [string, string][] = [
+      ["=2+2", "'=2+2"],
+      ["+1", "'+1"],
+      ["-1", "'-1"],
+      ["@SUM(A1:A2)", "'@SUM(A1:A2)"],
+    ];
+
+    it.each(cases)("neutralizes a tier label of %s with a leading apostrophe", (label, expected) => {
+      const csv = generateDraftCsvString([makePlayer({ overall_tier: 1 })], draftOpts("standard", { 1: label }));
+      const columns = csv.split("\r\n")[1].split(",");
+      expect(columns[6]).toBe(expected);
+    });
+
+    it("neutralizes a tab-led label", () => {
+      const csv = generateDraftCsvString([makePlayer({ overall_tier: 1 })], draftOpts("standard", { 1: "\tcmd" }));
+      const columns = csv.split("\r\n")[1].split(",");
+      expect(columns[6]).toBe("'\tcmd");
+    });
+
+    it("neutralizes a formula that also needs RFC 4180 quoting", () => {
+      // Leading '=' plus an embedded comma: apostrophe first, then quote-wrap.
+      const csv = generateDraftCsvString(
+        [makePlayer({ overall_tier: 1 })],
+        draftOpts("standard", { 1: "=HYPERLINK(1,2)" }),
+      );
+      const dataRow = csv.split("\r\n")[1];
+      expect(dataRow).toContain('"\'=HYPERLINK(1,2)"');
+    });
+
+    it("leaves a benign label untouched (no visible prefix)", () => {
+      const csv = generateDraftCsvString([makePlayer({ overall_tier: 1 })], draftOpts("standard", { 1: "Studs" }));
+      const columns = csv.split("\r\n")[1].split(",");
+      expect(columns[6]).toBe("Studs");
+    });
+
+    it("does not prefix a label that merely contains a trigger char mid-string", () => {
+      const csv = generateDraftCsvString([makePlayer({ overall_tier: 1 })], draftOpts("standard", { 1: "A+ Tier" }));
+      const columns = csv.split("\r\n")[1].split(",");
+      expect(columns[6]).toBe("A+ Tier");
+    });
+  });
 });
 
 describe("generateDebugCsvString", () => {
@@ -296,5 +341,11 @@ describe("generateDebugCsvString", () => {
     const dataRow = csv.split("\r\n")[1];
     const columns = dataRow.split(",");
     expect(columns[6]).toBe("Streamers / Deep Flex");
+  });
+
+  it("neutralizes a formula-injecting tier label (#555)", () => {
+    const csv = generateDebugCsvString([makePlayer({ overall_tier: 1 })], { 1: "=2+2" });
+    const columns = csv.split("\r\n")[1].split(",");
+    expect(columns[6]).toBe("'=2+2");
   });
 });
