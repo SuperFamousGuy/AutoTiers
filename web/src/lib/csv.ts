@@ -21,10 +21,15 @@ function neutralizeFormula(str: string): string {
  * or newline, wrap it in double-quotes and escape internal double-quotes by
  * doubling them. First neutralizes any leading formula trigger (see
  * neutralizeFormula) so exported labels can't execute in a spreadsheet.
+ *
+ * Formula neutralization only applies to string inputs (user-entered labels,
+ * player/team names, flags, etc.). Numeric inputs are exempt: a negative number
+ * like vbd_score = -5.2 starts with `-`, which would otherwise be apostrophe-
+ * prefixed and imported as text, breaking numeric sorting/calcs in spreadsheets.
  */
 function csvField(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return "";
-  const str = neutralizeFormula(String(value));
+  const str = typeof value === "string" ? neutralizeFormula(value) : String(value);
   if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
     return `"${str.replace(/"/g, '""')}"`;
   }

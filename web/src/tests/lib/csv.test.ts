@@ -348,4 +348,11 @@ describe("generateDebugCsvString", () => {
     const columns = csv.split("\r\n")[1].split(",");
     expect(columns[6]).toBe("'=2+2");
   });
+
+  it("negative numeric columns are not apostrophe-prefixed (stay numbers in spreadsheets)", () => {
+    const csv = generateDebugCsvString([makePlayer({ vbd_score: -5.2, adjusted_score: -1.5 })]);
+    const columns = csv.split("\r\n")[1].split(",");
+    expect(columns[8]).toBe("-1.5"); // adjusted_score
+    expect(columns[9]).toBe("-5.2"); // vbd_score
+  });
 });
