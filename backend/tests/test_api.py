@@ -479,8 +479,13 @@ async def test_generate_cap_fill_ranks_remaining_budget_by_vbd_not_raw(async_cli
         test_db.add(Player(id=pid, name=pid, position=pos, team="DAL"))
     await test_db.commit()
     for pid, _, pts in seed_data:
+        # weight_consensus=1.0 drives the scores below, so seed a consensus
+        # source. "espn" is intentionally excluded from the consensus average
+        # (it blends via its own weight_espn term — see _CONSENSUS_EXCLUDED_SOURCES
+        # / #549), so an espn-only seed would score to nothing here and collapse
+        # the VBD ordering this test exercises.
         test_db.add(Projection(
-            player_id=pid, source="espn", scoring_format="ppr",
+            player_id=pid, source="fantasypros", scoring_format="ppr",
             projected_points=pts, last_updated=date.today(),
         ))
     await test_db.commit()
