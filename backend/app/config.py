@@ -77,5 +77,25 @@ class Settings(BaseSettings):
             raise ValueError("trusted_proxy_count must be non-negative")
         return v
 
+    @field_validator("sleeper_players_cache_ttl_seconds")
+    @classmethod
+    def _non_negative_sleeper_cache_ttl(cls, v: float) -> float:
+        # A negative TTL is meaningless (the cache-freshness check compares
+        # elapsed time against it). 0 is valid — it disables caching. Anything
+        # below 0 is a misconfiguration; fail fast at startup.
+        if v < 0:
+            raise ValueError("sleeper_players_cache_ttl_seconds must be non-negative")
+        return v
+
+    @field_validator("sleeper_players_timeout_seconds")
+    @classmethod
+    def _positive_sleeper_timeout(cls, v: float) -> float:
+        # A timeout <= 0 would make the players fetch fail (or behave oddly)
+        # rather than allow the intended slow-but-healthy multi-MB transfer.
+        # Require a positive value; fail fast at startup.
+        if v <= 0:
+            raise ValueError("sleeper_players_timeout_seconds must be positive")
+        return v
+
 
 settings = Settings()

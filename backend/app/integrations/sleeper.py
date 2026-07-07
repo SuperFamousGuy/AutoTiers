@@ -67,8 +67,15 @@ async def _get_players_dict(client: httpx.AsyncClient) -> dict:
     )
     resp.raise_for_status()
     players = resp.json()
-    _players_cache = players
-    _players_cached_at = now
+    if ttl > 0:
+        _players_cache = players
+        _players_cached_at = now
+    else:
+        # Caching disabled (TTL <= 0): don't retain the multi-MB payload in the
+        # module-level cache — an operator disabling caching (often to save
+        # memory) would be surprised to see it linger. Drop any prior slot too.
+        _players_cache = None
+        _players_cached_at = None
     return players
 
 
