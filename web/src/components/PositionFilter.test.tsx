@@ -21,7 +21,7 @@ describe("PositionFilter", () => {
   });
 
   it("gives every chip a >=40px mobile tap target that condenses to h-9 on sm+", () => {
-    // Guards the live-draft mobile tap-target requirement (WCAG 2.5.5, issue #578):
+    // Guards issue #578's live-draft mobile tap-target requirement (>=40px):
     // 40px tall on touch, denser 36px from the sm breakpoint up.
     render(<PositionFilter value="ALL" onChange={vi.fn()} />);
     for (const btn of screen.getAllByRole("button")) {
@@ -39,7 +39,7 @@ describe("PositionFilter", () => {
     expect(wrapper).toHaveClass("flex", "flex-wrap");
   });
 
-  it("makes the active chip non-interactive so it can't be re-selected", () => {
+  it("applies pointer-events-none to the active chip", () => {
     render(<PositionFilter value="QB" onChange={vi.fn()} />);
     expect(screen.getByRole("button", { name: "QB" }).className).toContain("pointer-events-none");
   });
