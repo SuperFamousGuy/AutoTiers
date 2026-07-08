@@ -4,7 +4,7 @@ import logging
 import statistics
 import time
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Protocol, Sequence
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -184,8 +184,18 @@ async def _compute_bad_offense_teams(db: AsyncSession, current_year: int) -> set
     return {team for team, _ in sorted_teams[:8]}
 
 
+class _HasIdAndPosition(Protocol):
+    """Minimal structural type ``_compute_above_market_pids`` needs.
+
+    It only reads ``.id`` and ``.position``, so it accepts either an ORM
+    ``Player`` or a session-free ``_PlayerSnapshot`` (#577).
+    """
+    id: str
+    position: str
+
+
 async def _compute_above_market_pids(
-    db: AsyncSession, current_year: int, players: list[Player]
+    db: AsyncSession, current_year: int, players: Sequence[_HasIdAndPosition]
 ) -> set[str]:
     """Players whose cap hit exceeds 1.5× the median for their position.
 
@@ -285,9 +295,11 @@ class _PlayerSnapshot:
     team: Optional[str]
     age: Optional[int]
     years_exp: Optional[int]
-    stats: list[_StatSnapshot]
-    projections: list[_ProjSnapshot]
-    adp_entries: list[_AdpSnapshot]
+    # Immutable sequences so the frozen snapshot is thread-safe by construction:
+    # a worker thread can't mutate them in-place (shallow-freeze gap, #577).
+    stats: tuple[_StatSnapshot, ...]
+    projections: tuple[_ProjSnapshot, ...]
+    adp_entries: tuple[_AdpSnapshot, ...]
 
 
 def _snapshot_stat(s: PlayerStat) -> _StatSnapshot:
@@ -324,12 +336,12 @@ def _snapshot_player(p: Player) -> _PlayerSnapshot:
         team=p.team,
         age=p.age,
         years_exp=p.years_exp,
-        stats=[_snapshot_stat(s) for s in p.stats],
-        projections=[
+        stats=tuple(_snapshot_stat(s) for s in p.stats),
+        projections=tuple(
             _ProjSnapshot(pr.source, pr.scoring_format, pr.projected_points)
             for pr in p.projections
-        ],
-        adp_entries=[_AdpSnapshot(a.format, a.adp) for a in p.adp_entries],
+        ),
+        adp_entries=tuple(_AdpSnapshot(a.format, a.adp) for a in p.adp_entries),
     )
 
 

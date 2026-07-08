@@ -18,6 +18,7 @@ ORM rows into session-free snapshots. These tests prove:
    direct determinism check on the sync core.
 """
 import asyncio
+import contextlib
 import time
 
 import pytest
@@ -107,6 +108,10 @@ async def test_generate_keeps_event_loop_responsive_during_cpu_work(
         r = await async_client.post("/api/generate", json=_base_body())
     finally:
         hb.cancel()
+        # Await the cancellation so no pending task leaks past the test (avoids
+        # "Task was destroyed but it is pending" warnings under strict asyncio).
+        with contextlib.suppress(asyncio.CancelledError):
+            await hb
 
     assert r.status_code == 200, r.text
     # ~0.4s / 0.02s ≈ 20 ideal ticks. If the loop were blocked inline, ticks
@@ -118,26 +123,55 @@ async def test_generate_keeps_event_loop_responsive_during_cpu_work(
 
 
 @pytest.mark.asyncio
-async def test_two_overlapping_generate_calls_both_succeed(async_client, test_db):
-    """Two overlapping /generate requests both complete and agree with a
-    sequential run — the offload doesn't corrupt per-request state, and the
-    second request's DB I/O is no longer gated behind the first's CPU loop."""
+async def test_two_overlapping_generate_calls_both_succeed(
+    async_client, test_db, monkeypatch
+):
+    """Two overlapping /generate requests both complete, agree with a
+    sequential run, AND run concurrently rather than serialized.
+
+    We block the CPU core for a fixed interval. If the work is offloaded via
+    ``asyncio.to_thread`` (the fix) the two requests overlap on separate worker
+    threads and the pair finishes in ~1×hold. If the CPU work ran inline on the
+    event loop (the pre-fix bug) the second request would be gated behind the
+    first and the pair would take ~2×hold — so the wall-clock assertion below
+    fails, which the plain "both succeed" check could not catch (serialized
+    requests still both succeed)."""
     await _seed_pool(test_db)
+
+    original = gen._compute_ranked_players
+    hold = 0.3  # seconds of simulated CPU work per request
+
+    def slow_compute(*args, **kwargs):
+        time.sleep(hold)  # blocking — only overlaps if run off the event loop
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(gen, "_compute_ranked_players", slow_compute)
 
     seq = await async_client.post("/api/generate", json=_base_body())
     assert seq.status_code == 200, seq.text
     expected_total = seq.json()["total"]
 
+    t0 = time.perf_counter()
     a, b = await asyncio.gather(
         async_client.post("/api/generate", json=_base_body()),
         async_client.post("/api/generate", json=_base_body()),
     )
+    elapsed = time.perf_counter() - t0
+
     assert a.status_code == 200 and b.status_code == 200
     assert a.json()["total"] == expected_total
     assert b.json()["total"] == expected_total
     # Identical input → identical ranking (pure performance change).
     assert [p["player_id"] for p in a.json()["players"]] == \
            [p["player_id"] for p in b.json()["players"]]
+    # The two CPU phases overlapped on worker threads: total wall-clock is far
+    # closer to one hold than two. A generous 1.5× ceiling stays robust to CI
+    # jitter while still failing the serialized (~2×hold) inline-on-loop case.
+    assert elapsed < hold * 1.5, (
+        f"overlapping requests took {elapsed:.2f}s for a {hold}s CPU hold — "
+        "they appear serialized, i.e. the tiering is running inline on the "
+        "event loop instead of via asyncio.to_thread"
+    )
 
 
 def _snapshot_pool(n_per_position: int = 6) -> list[_PlayerSnapshot]:
@@ -154,9 +188,9 @@ def _snapshot_pool(n_per_position: int = 6) -> list[_PlayerSnapshot]:
             )
             pool.append(_PlayerSnapshot(
                 id=f"{pos.lower()}_{i}", name=f"{pos} Player {i}", position=pos,
-                team="NE", age=25, years_exp=3, stats=[stat],
-                projections=[_ProjSnapshot("fantasypros", "ppr", 250.0 - i * 3)],
-                adp_entries=[_AdpSnapshot("ppr", float(i + 1))],
+                team="NE", age=25, years_exp=3, stats=(stat,),
+                projections=(_ProjSnapshot("fantasypros", "ppr", 250.0 - i * 3),),
+                adp_entries=(_AdpSnapshot("ppr", float(i + 1)),),
             ))
     return pool
 
