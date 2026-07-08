@@ -14,7 +14,7 @@ from app.models import TeamSeason, PlayerContract, UserFavorites, User
 from app.auth.dependencies import _get_current_user_impl
 from app.engine.scoring import LeagueSettings, PlayerStats, calculate_fantasy_points, blend_scores, _score_receiving, _score_rushing, _score_tds_only
 from app.engine.rules import Rule, PlayerContext, apply_rules
-from app.engine.builtin_rules import BUILTIN_RULES, OVER_THE_HILL_AGE
+from app.engine.builtin_rules import BUILTIN_RULES, compute_is_over_the_hill
 from app.engine.xfp import (
     compute_league_averages,
     compute_per_position_sigmas,
@@ -369,9 +369,14 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
         elif projection_unavailable:
             flags_list.append("Projection Unavailable")
 
-        is_over_the_hill: Optional[bool] = None
-        if player.age is not None and player.position in OVER_THE_HILL_AGE:
-            is_over_the_hill = player.age >= OVER_THE_HILL_AGE[player.position]
+        # Prior-season rush attempts — the shared rushing-volume field. For QBs
+        # it drives the mobile-vs-pocket "Over the Hill" age cliff (#576); a QB
+        # with no prior stat row stays None and is classified as a pocket passer.
+        prior_rush_att: Optional[int] = stat.rush_att if stat is not None else None
+
+        is_over_the_hill = compute_is_over_the_hill(
+            player.position, player.age, prior_rush_att
+        )
 
         prior_touches: Optional[int] = None
         if player.position == "RB" and stat is not None:
@@ -461,6 +466,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
             is_over_the_hill=is_over_the_hill,
             projection_unavailable=projection_unavailable,
             prior_touches=prior_touches,
+            prior_rush_att=prior_rush_att,
             injured_two_years_ago=injured_two_years_ago,
             bad_offense_team=bad_offense_team,
             above_market_contract=above_market_contract,

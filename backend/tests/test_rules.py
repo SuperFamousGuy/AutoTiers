@@ -700,6 +700,91 @@ def test_wr_age_31_triggers_over_the_hill():
 
 
 # ---------------------------------------------------------------------------
+# QB rushing-volume-conditioned "Over the Hill" cliff (#576)
+# ---------------------------------------------------------------------------
+
+def test_qb_dropped_from_flat_age_dict():
+    """QB no longer has a single flat cliff — it's rushing-conditioned instead."""
+    from app.engine.builtin_rules import OVER_THE_HILL_AGE
+    assert "QB" not in OVER_THE_HILL_AGE
+
+
+def test_qb_mobile_thresholds_locked():
+    from app.engine.builtin_rules import (
+        QB_MOBILE_RUSH_ATT_THRESHOLD,
+        OVER_THE_HILL_AGE_QB_MOBILE,
+        OVER_THE_HILL_AGE_QB_POCKET,
+    )
+    assert QB_MOBILE_RUSH_ATT_THRESHOLD == 60
+    assert OVER_THE_HILL_AGE_QB_MOBILE == 31
+    assert OVER_THE_HILL_AGE_QB_POCKET == 38
+
+
+@pytest.mark.parametrize("position, prior_rush_att, expected", [
+    ("QB", 200, 31),   # heavy dual-threat -> mobile cliff
+    ("QB", 60, 31),    # exactly at the mobile threshold -> mobile
+    ("QB", 59, 38),    # one below the threshold -> pocket
+    ("QB", 0, 38),     # recorded zero rushes -> pocket
+    ("QB", None, 38),  # no prior stat row -> pocket (conservative)
+    ("RB", 300, 28),   # non-QB ignores rushing volume
+    ("WR", 5, 31),
+    ("TE", 5, 31),
+    ("K", 0, 40),
+    ("DST", 0, None),  # no cliff
+])
+def test_over_the_hill_age_by_position(position, prior_rush_att, expected):
+    from app.engine.builtin_rules import over_the_hill_age
+    assert over_the_hill_age(position, prior_rush_att) == expected
+
+
+@pytest.mark.parametrize("position, age, prior_rush_att, expected", [
+    # Acceptance criteria from #576:
+    ("QB", 32, 120, True),    # 32-yo high-rush QB NOW triggers (previously did not)
+    ("QB", 37, 10, False),    # 37-yo low-rush QB does NOT trigger (previously did)
+    # Boundaries.
+    ("QB", 31, 120, True),    # mobile at cliff
+    ("QB", 30, 120, False),   # mobile just under cliff
+    ("QB", 38, 10, True),     # pocket at cliff
+    ("QB", 37, None, False),  # unknown rush treated as pocket
+    ("QB", None, 120, None),  # unknown age -> skip
+    ("DST", 40, 0, None),     # no cliff -> skip
+])
+def test_compute_is_over_the_hill(position, age, prior_rush_att, expected):
+    from app.engine.builtin_rules import compute_is_over_the_hill
+    assert compute_is_over_the_hill(position, age, prior_rush_att) == expected
+
+
+def test_mobile_qb_over_the_hill_fires_end_to_end():
+    """A 32-yo dual-threat QB flows through the rule and gets penalized."""
+    import dataclasses
+    from app.engine.builtin_rules import compute_is_over_the_hill
+    is_oth = compute_is_over_the_hill("QB", 32, 120)
+    assert is_oth is True
+    rule = dataclasses.replace(
+        next(r for r in BUILTIN_RULES if r.name == "Over the Hill"), enabled=True
+    )
+    ctx = make_ctx(position="QB", age=32, prior_rush_att=120, is_over_the_hill=is_oth)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "Over the Hill" in result.rules_applied
+    assert result.adjusted_score < 100.0
+
+
+def test_pocket_qb_37_does_not_fire_end_to_end():
+    """A 37-yo pocket passer is NOT penalized where the old flat-36 cliff would have."""
+    import dataclasses
+    from app.engine.builtin_rules import compute_is_over_the_hill
+    is_oth = compute_is_over_the_hill("QB", 37, 8)
+    assert is_oth is False
+    rule = dataclasses.replace(
+        next(r for r in BUILTIN_RULES if r.name == "Over the Hill"), enabled=True
+    )
+    ctx = make_ctx(position="QB", age=37, prior_rush_att=8, is_over_the_hill=is_oth)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "Over the Hill" not in result.rules_applied
+    assert result.adjusted_score == 100.0
+
+
+# ---------------------------------------------------------------------------
 # FIX 2 — Sophomore Leap positional gate
 # ---------------------------------------------------------------------------
 
