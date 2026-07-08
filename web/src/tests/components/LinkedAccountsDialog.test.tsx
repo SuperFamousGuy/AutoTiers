@@ -4,12 +4,15 @@ import userEvent from "@testing-library/user-event";
 import { LinkedAccountsDialog } from "@/components/LinkedAccountsDialog";
 import type { User, Profile } from "@/api/types";
 
+// unlinkGoogle is mocked so the Google tests can assert at the api-module level.
+// unlinkYahoo is deliberately left as the REAL implementation so the Yahoo
+// tests can assert the fetch-level request (DELETE /api/auth/yahoo/link),
+// per issue #558's acceptance criteria.
 vi.mock("@/api/auth", async () => {
   const actual = await vi.importActual<typeof import("@/api/auth")>("@/api/auth");
   return {
     ...actual,
     unlinkGoogle: vi.fn(),
-    unlinkYahoo: vi.fn(),
     googleAuthorizeUrl: () => "http://localhost:8000/api/auth/google/authorize",
     yahooAuthorizeUrl: () => "http://localhost:8000/api/auth/yahoo/authorize",
   };
@@ -186,6 +189,94 @@ describe("LinkedAccountsDialog", () => {
     const u = userEvent.setup();
     await u.click(screen.getByRole("button", { name: /^link google$/i }));
     expect(assignedHref).toContain("/api/auth/google/authorize");
+    expect(assignedHref).toContain("intent=link");
+    Object.defineProperty(window, "location", { writable: true, value: { href: "" } });
+  });
+
+  // --- Yahoo sign-in identity row (issue #558) ---
+  // yahoo_subject is the OAuth SIGN-IN identity, distinct from a linked fantasy
+  // league. The Account section must expose Link/Unlink for it, mirroring Google.
+  it("Yahoo account row shows Link button when Yahoo sign-in is not connected", () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} />,
+    );
+    expect(screen.getByRole("button", { name: /^link yahoo$/i })).toBeInTheDocument();
+  });
+
+  it("Yahoo account row shows Unlink button when Yahoo sign-in is connected", () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop}
+        user={{ ...baseUser, yahoo_subject: "y-sub" }}
+        onRefresh={noop} initialError={null} />,
+    );
+    expect(screen.getByRole("button", { name: /disconnect yahoo/i })).toBeInTheDocument();
+  });
+
+  it("Unlink Yahoo fires DELETE /api/auth/yahoo/link then calls onRefresh", async () => {
+    // Fetch-level mock (not an api-module spy): asserts the real unlinkYahoo()
+    // hits the reachable backend endpoint, and that it is unlinkYahoo — NOT
+    // disconnectLink (the fantasy-league unlink) — that runs.
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 204,
+      text: () => Promise.resolve(""),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const refresh = vi.fn().mockResolvedValueOnce(undefined);
+    try {
+      render(
+        <LinkedAccountsDialog open={true} onOpenChange={noop}
+          user={{ ...baseUser, yahoo_subject: "y-sub" }}
+          onRefresh={refresh} initialError={null} />,
+      );
+      const u = userEvent.setup();
+      await u.click(screen.getByRole("button", { name: /disconnect yahoo/i }));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(String(url)).toContain("/api/auth/yahoo/link");
+      expect(init).toMatchObject({ method: "DELETE" });
+      await waitFor(() => expect(refresh).toHaveBeenCalled());
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("shows the API error message when unlinkYahoo fails", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      statusText: "Bad Request",
+      text: () => Promise.resolve("Cannot unlink last sign-in method"),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      render(
+        <LinkedAccountsDialog open={true} onOpenChange={noop}
+          user={{ ...baseUser, yahoo_subject: "y-sub" }}
+          onRefresh={noop} initialError={null} />,
+      );
+      const u = userEvent.setup();
+      await u.click(screen.getByRole("button", { name: /disconnect yahoo/i }));
+      expect(await screen.findByText(/last sign-in method/i)).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("Link Yahoo navigates to the authorize URL with intent=link", async () => {
+    let assignedHref = "";
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: { ...window.location, set href(v: string) { assignedHref = v; } },
+    });
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} />,
+    );
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /^link yahoo$/i }));
+    expect(assignedHref).toContain("/api/auth/yahoo/authorize");
     expect(assignedHref).toContain("intent=link");
     Object.defineProperty(window, "location", { writable: true, value: { href: "" } });
   });
