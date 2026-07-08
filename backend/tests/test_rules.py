@@ -149,9 +149,9 @@ def test_builtin_rules_is_nonempty_list_of_rules():
         assert rule.conditions
 
 
-def test_builtin_rules_count_is_24():
-    """Adding Cold-Weather Kicker rule (was 23)."""
-    assert len(BUILTIN_RULES) == 24
+def test_builtin_rules_count_is_25():
+    """Adding TE Year-3 Leap rule (was 24)."""
+    assert len(BUILTIN_RULES) == 25
 
 
 def test_opportunity_rules_categorized_as_regression():
@@ -713,14 +713,15 @@ def test_sophomore_leap_fires_on_wr():
     assert result.adjusted_score == pytest.approx(100.0 * 1.08)
 
 
-def test_sophomore_leap_fires_on_te():
-    """Second-year TE must receive the Sophomore Leap boost."""
+def test_sophomore_leap_does_not_fire_on_te():
+    """Second-year TE must NOT receive the Sophomore Leap boost — TE breakout is
+    a Year-3 phenomenon, handled by the separate 'TE Year-3 Leap' rule (issue #575)."""
     import dataclasses
     rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Sophomore Leap"), enabled=True)
     ctx = make_ctx(position="TE", years_exp=1)
     result = apply_rules(100.0, ctx, [rule])
-    assert "Sophomore Leap" in result.rules_applied
-    assert result.adjusted_score == pytest.approx(100.0 * 1.08)
+    assert "Sophomore Leap" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0)
 
 
 def test_sophomore_leap_fires_on_qb():
@@ -763,10 +764,65 @@ def test_sophomore_leap_does_not_fire_on_dst():
     assert result.adjusted_score == pytest.approx(100.0)
 
 
-def test_builtin_sophomore_leap_has_wr_te_qb_positions():
-    """Sophomore Leap must carry positions=["WR", "TE", "QB"] — no RB, K, or DST."""
+def test_builtin_sophomore_leap_has_wr_qb_positions():
+    """Sophomore Leap must carry positions=["WR", "QB"] — TE moved to the
+    'TE Year-3 Leap' rule; no RB, K, or DST (issue #575)."""
     rule = next(r for r in BUILTIN_RULES if r.name == "Sophomore Leap")
-    assert set(rule.positions) == {"WR", "TE", "QB"}
+    assert set(rule.positions) == {"WR", "QB"}
+
+
+# ---------------------------------------------------------------------------
+# TE Year-3 Leap — TE breakout lands on Year 3 (years_exp == 2), not Year 2 (#575)
+# ---------------------------------------------------------------------------
+
+def test_te_year3_leap_fires_on_third_year_te():
+    """Third-year TE (years_exp == 2) must receive the +10% Year-3 breakout boost."""
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "TE Year-3 Leap"), enabled=True)
+    ctx = make_ctx(position="TE", years_exp=2)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "TE Year-3 Leap" in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0 * 1.10)
+
+
+def test_te_year3_leap_does_not_fire_on_second_year_te():
+    """Second-year TE (years_exp == 1) must NOT receive the Year-3 boost."""
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "TE Year-3 Leap"), enabled=True)
+    ctx = make_ctx(position="TE", years_exp=1)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "TE Year-3 Leap" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0)
+
+
+def test_te_year3_leap_does_not_fire_on_wr():
+    """Third-year WR must NOT receive the TE Year-3 boost (TE-scoped only)."""
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "TE Year-3 Leap"), enabled=True)
+    ctx = make_ctx(position="WR", years_exp=2)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "TE Year-3 Leap" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0)
+
+
+def test_te_year3_leap_does_not_fire_on_qb():
+    """Third-year QB must NOT receive the TE Year-3 boost (TE-scoped only)."""
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "TE Year-3 Leap"), enabled=True)
+    ctx = make_ctx(position="QB", years_exp=2)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "TE Year-3 Leap" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0)
+
+
+def test_builtin_te_year3_leap_has_te_position_only():
+    """TE Year-3 Leap must carry positions=["TE"] and fire on years_exp == 2."""
+    rule = next(r for r in BUILTIN_RULES if r.name == "TE Year-3 Leap")
+    assert rule.positions == ["TE"]
+    assert rule.conditions[0].field == "years_exp"
+    assert rule.conditions[0].operator == "=="
+    assert rule.conditions[0].value == 2
+    assert rule.effect.value == pytest.approx(1.10)
 
 
 # ---------------------------------------------------------------------------
