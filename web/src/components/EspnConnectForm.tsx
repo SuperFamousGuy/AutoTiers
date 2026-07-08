@@ -125,10 +125,16 @@ export function EspnConnectForm({ profile, onLinked, onRefresh }: Props) {
 
   // Public: must have leagueId.
   // Private: leagueId OR (both cookies filled) — allows pre-linking with cookies only.
+  // In private mode a half cookie pair (exactly one of SWID/espn_s2 filled) is
+  // always invalid, even when a leagueId is present — the backend rejects it and
+  // it would otherwise round-trip a stale half-credential.
+  const halfCookiePair =
+    isPrivate && (swid.trim() === "") !== (espnS2.trim() === "");
   const connectDisabled =
     busy ||
     (!isPrivate && leagueId.trim() === "") ||
-    (isPrivate && leagueId.trim() === "" && (swid.trim() === "" || espnS2.trim() === ""));
+    (isPrivate && leagueId.trim() === "" && (swid.trim() === "" || espnS2.trim() === "")) ||
+    halfCookiePair;
 
   return (
     <div className="space-y-3">

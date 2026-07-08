@@ -301,6 +301,130 @@ async def test_post_yahoo_link_endpoint(async_client, test_db):
     assert body["linked_league"]["league_id"] == "423.l.99"
 
 
+async def _make_yahoo_connected_profile(test_db, email):
+    """Create a Yahoo-connected user + profile, returning (jwt, profile)."""
+    from app.models import User, Profile
+    from app.security.fernet import encrypt
+    from app.auth.jwt import encode_jwt
+
+    user = User(
+        email=email,
+        yahoo_subject=f"ysub-{email}",
+        yahoo_access_token=encrypt("acc"),
+        yahoo_refresh_token=encrypt("ref"),
+    )
+    test_db.add(user)
+    await test_db.flush()
+    profile = Profile(user_id=user.id, name="P", settings_json={}, rules_json=[])
+    test_db.add(profile)
+    await test_db.commit()
+    await test_db.refresh(profile)
+    return encode_jwt(str(user.id)), profile
+
+
+async def test_post_yahoo_rejects_blank_league_key(async_client, test_db):
+    """A blank league_key must be rejected with a Yahoo-specific 400 before the
+    provider is ever contacted — not a passthrough 502/400 provider error."""
+    from app.integrations.yahoo_fantasy import YahooLeagueData
+
+    jwt, profile = await _make_yahoo_connected_profile(test_db, "yf-blank@example.com")
+
+    called = False
+
+    with pytest.MonkeyPatch().context() as m:
+        async def fake_fetch(league_key, u, db):
+            nonlocal called
+            called = True
+            return YahooLeagueData(
+                league_id="x", name="x", season=2026, league_size=12,
+                raw_scoring={}, keepers=[], adp_json=None,
+            )
+        m.setattr("app.api.linked_league.fetch_yahoo_league", fake_fetch)
+
+        resp = await async_client.post(
+            f"/api/profiles/{profile.id}/link/yahoo",
+            json={"league_key": "", "season": 2026},
+            cookies={"autotiers_session": jwt},
+        )
+
+    assert resp.status_code == 400
+    detail = resp.json()["detail"]
+    assert "Yahoo league" in detail  # Yahoo-specific copy, not a generic provider error
+    assert called is False  # guard fires before the provider is contacted
+
+
+async def test_post_yahoo_rejects_whitespace_league_key(async_client, test_db):
+    """Whitespace-only league_key is treated the same as blank (stripped)."""
+    jwt, profile = await _make_yahoo_connected_profile(test_db, "yf-ws@example.com")
+
+    resp = await async_client.post(
+        f"/api/profiles/{profile.id}/link/yahoo",
+        json={"league_key": "   ", "season": 2026},
+        cookies={"autotiers_session": jwt},
+    )
+
+    assert resp.status_code == 400
+    assert "Yahoo league" in resp.json()["detail"]
+
+
+async def test_post_yahoo_rejects_season_mismatch(async_client, test_db):
+    """body.season is consumed: it must match the fetched league's season, else
+    a 400 is returned instead of silently persisting the fetched season."""
+    from app.integrations.yahoo_fantasy import YahooLeagueData
+
+    jwt, profile = await _make_yahoo_connected_profile(test_db, "yf-season@example.com")
+
+    fake_data = YahooLeagueData(
+        league_id="423.l.99", name="Test League", season=2024, league_size=12,
+        raw_scoring={"stat": [{"stat_id": "11", "value": "1"}]},
+        keepers=[], adp_json=None,
+    )
+
+    with pytest.MonkeyPatch().context() as m:
+        async def fake_fetch(league_key, u, db):
+            return fake_data
+        m.setattr("app.api.linked_league.fetch_yahoo_league", fake_fetch)
+
+        resp = await async_client.post(
+            f"/api/profiles/{profile.id}/link/yahoo",
+            json={"league_key": "423.l.99", "season": 2026},  # mismatches data.season=2024
+            cookies={"autotiers_session": jwt},
+        )
+
+    assert resp.status_code == 400
+    detail = resp.json()["detail"]
+    assert "2026" in detail and "2024" in detail
+
+
+async def test_post_yahoo_accepts_matching_season(async_client, test_db):
+    """A season that matches the fetched league links successfully."""
+    from app.integrations.yahoo_fantasy import YahooLeagueData
+
+    jwt, profile = await _make_yahoo_connected_profile(test_db, "yf-match@example.com")
+
+    fake_data = YahooLeagueData(
+        league_id="423.l.99", name="Test League", season=2024, league_size=12,
+        raw_scoring={"stat": [{"stat_id": "11", "value": "1"}]},
+        keepers=[], adp_json=None,
+    )
+
+    with pytest.MonkeyPatch().context() as m:
+        async def fake_fetch(league_key, u, db):
+            return fake_data
+        m.setattr("app.api.linked_league.fetch_yahoo_league", fake_fetch)
+
+        resp = await async_client.post(
+            f"/api/profiles/{profile.id}/link/yahoo",
+            json={"league_key": "423.l.99", "season": 2024},
+            cookies={"autotiers_session": jwt},
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["linked_league"]["league_id"] == "423.l.99"
+    assert body["linked_league"]["league_metadata_json"]["season"] == 2024
+
+
 # --- Refresh-token-revoked reconnect-prompt endpoint tests ---------------------
 #
 # These drive the real integration path (no monkeypatch of the client) with

@@ -269,10 +269,23 @@ async def post_espn(
     user: User = require_user,
     db: AsyncSession = Depends(get_db),
 ) -> LinkedLeagueResponse:
+    # SWID and espn_s2 are a matched pair — one without the other authenticates
+    # nothing. Reject a half-pair (exactly one present) up front, before any DB
+    # mutation, so a supplied league_id can't smuggle a lone cookie past the
+    # empty-body guard below and persist a useless half-credential row. Treat
+    # blank/whitespace as absent to match the frontend, which trims before send.
+    swid = (body.swid or "").strip() or None
+    espn_s2 = (body.espn_s2 or "").strip() or None
+    if (swid is None) != (espn_s2 is None):
+        raise HTTPException(
+            status_code=400,
+            detail="Provide both SWID and espn_s2, or neither.",
+        )
+
     # Either a league_id (public or about to be paired with cookies) or a
     # full SWID + espn_s2 cookie pair is required. An empty body would
     # produce a row with nothing useful in it.
-    if not body.league_id and not (body.swid and body.espn_s2):
+    if not body.league_id and not (swid and espn_s2):
         raise HTTPException(
             status_code=400,
             detail="Provide a league ID, or paste your ESPN SWID + espn_s2 cookies. Nothing to link without either.",
@@ -281,13 +294,13 @@ async def post_espn(
     profile = await _resolve_profile(profile_id, user, db)
     ll = _upsert_linked_league(profile, db)
     ll.provider = "espn"
-    ll.username_or_swid = body.swid or ""
-    ll.credentials_encrypted = encrypt(body.espn_s2) if body.espn_s2 else None
+    ll.username_or_swid = swid or ""
+    ll.credentials_encrypted = encrypt(espn_s2) if espn_s2 else None
     ll.last_synced_at = datetime.now(timezone.utc)
 
     if body.league_id and body.season is not None:
         try:
-            data = await fetch_espn_league(body.league_id, body.season, body.swid, body.espn_s2)
+            data = await fetch_espn_league(body.league_id, body.season, swid, espn_s2)
         except EspnAuthRequired:
             raise HTTPException(
                 status_code=400,
@@ -354,13 +367,34 @@ async def post_yahoo(
             status_code=400,
             detail="Yahoo Fantasy is not connected. Re-authorize with Yahoo to enable Fantasy Sports access.",
         )
+    # Mirror the blank-field guard every sibling connect handler applies: reject an
+    # empty/whitespace league_key up front with a Yahoo-specific 400 rather than
+    # letting "" reach fetch_yahoo_league and surface as a generic provider error.
+    league_key = body.league_key.strip()
+    if not league_key:
+        raise HTTPException(status_code=400, detail="Select a Yahoo league to link.")
+
     profile = await _resolve_profile(profile_id, user, db)
     try:
-        data = await fetch_yahoo_league(body.league_key, user, db)
+        data = await fetch_yahoo_league(league_key, user, db)
     except YahooReauthRequired:
         raise HTTPException(status_code=400, detail=_YAHOO_REAUTH_DETAIL)
     except Exception as e:
         raise _provider_http_error("Yahoo", e)
+
+    # Yahoo's league_key already embeds the season (via its game key), so
+    # data.season is authoritative. body.season is therefore a confirmation the
+    # client sends from the league summary — consume it by validating it matches
+    # the fetched league, catching a stale/mismatched selection instead of
+    # silently discarding the field.
+    if body.season != data.season:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Season {body.season} doesn't match the selected Yahoo league "
+                f"(season {data.season}). Reselect the league and try again."
+            ),
+        )
 
     mapped = yahoo_to_settings(data.raw_scoring, league_size=data.league_size)
     ll = _upsert_linked_league(profile, db)

@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { googleAuthorizeUrl, unlinkGoogle } from "@/api/auth";
+import {
+  googleAuthorizeUrl,
+  unlinkGoogle,
+  yahooAuthorizeUrl,
+  unlinkYahoo,
+} from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { SleeperConnectForm } from "@/components/SleeperConnectForm";
 import { EspnConnectForm } from "@/components/EspnConnectForm";
@@ -153,6 +158,7 @@ export function LinkedAccountsDialog({
   const [error, setError] = useState<string | null>(initialError);
   const [activeTab, setActiveTab] = useState<PlatformTab>("sleeper");
   const [googleBusy, setGoogleBusy] = useState(false);
+  const [yahooBusy, setYahooBusy] = useState(false);
   const tabRefs = useRef<Partial<Record<PlatformTab, HTMLButtonElement | null>>>({});
 
   // WAI-ARIA APG tab pattern: Left/Right move focus and selection between
@@ -202,6 +208,23 @@ export function LinkedAccountsDialog({
       onCreateProfile={onCreateProfile}
     />
   );
+
+  async function handleYahooDisconnect() {
+    setError(null);
+    setYahooBusy(true);
+    try {
+      await unlinkYahoo();
+      await onRefresh();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Disconnect failed. Please try again.");
+    } finally {
+      setYahooBusy(false);
+    }
+  }
+
+  function handleYahooConnect() {
+    window.location.href = `${yahooAuthorizeUrl()}?intent=link`;
+  }
 
   function renderTabPanel() {
     // Sleeper and ESPN need an active profile for their API calls.
@@ -306,6 +329,36 @@ export function LinkedAccountsDialog({
                 className="h-7 text-xs"
                 aria-label="Link Google"
                 onClick={handleGoogleConnect}
+              >
+                Link
+              </Button>
+            )}
+          </div>
+
+          {/* Yahoo row — sign-in identity (fantasy leagues are linked in the tab below) */}
+          <div className="flex items-center justify-between border-t border-border px-4 py-3">
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <YahooIcon />
+              Yahoo · Sign-in identity
+            </span>
+            {user.yahoo_subject ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs"
+                disabled={yahooBusy}
+                aria-label="Disconnect Yahoo"
+                onClick={handleYahooDisconnect}
+              >
+                Unlink
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs"
+                aria-label="Link Yahoo"
+                onClick={handleYahooConnect}
               >
                 Link
               </Button>
