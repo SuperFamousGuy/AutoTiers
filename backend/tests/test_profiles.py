@@ -95,7 +95,12 @@ async def test_create_profile_rejects_duplicate_name(async_client):
         "name": "My League ", "settings_json": {}, "rules_json": {},
     })
     assert r.status_code == 409
-    assert "already have a profile" in r.json()["detail"].lower()
+    detail = r.json()["detail"]
+    assert "already have a profile" in detail.lower()
+    # The 409 names the conflicting profile, and uses the trimmed name — not
+    # the raw trailing-whitespace input the client sent.
+    assert "'My League'" in detail
+    assert "'My League '" not in detail
 
     # No extra row was persisted.
     listing = await async_client.get("/api/profiles")
@@ -116,7 +121,10 @@ async def test_patch_profile_rejects_duplicate_name(async_client):
     # Rename Beta -> Alpha collides.
     r = await async_client.patch(f"/api/profiles/{b_id}", json={"name": "Alpha"})
     assert r.status_code == 409
-    assert "already have a profile" in r.json()["detail"].lower()
+    detail = r.json()["detail"]
+    assert "already have a profile" in detail.lower()
+    # The 409 names the conflicting profile so the message is actionable.
+    assert "'Alpha'" in detail
 
     # Beta is unchanged; still two distinctly-named profiles.
     listing = await async_client.get("/api/profiles")

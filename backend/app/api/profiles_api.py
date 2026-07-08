@@ -33,6 +33,22 @@ def _validate_and_normalize_name(name: str) -> str:
     return trimmed
 
 
+def _is_duplicate_name_violation(exc: IntegrityError) -> bool:
+    """True only when the IntegrityError is the (user_id, name) uniqueness
+    violation — not some unrelated constraint.
+
+    Matches both dialects: Postgres surfaces the constraint name
+    (``uq_profiles_user_name``) in the error text; SQLite reports the offending
+    column list (``profiles.user_id, profiles.name``). Any other integrity
+    failure must not be masked behind a misleading duplicate-name 409.
+    """
+    message = str(getattr(exc, "orig", None) or exc)
+    return (
+        "uq_profiles_user_name" in message
+        or "profiles.user_id, profiles.name" in message
+    )
+
+
 def _duplicate_name_error(name: str) -> HTTPException:
     """The 409 raised when a user already has a profile with this name.
 
@@ -101,9 +117,13 @@ async def create_profile(
     db.add(profile)
     try:
         await db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         # Lost the race against a concurrent create with the same name.
         await db.rollback()
+        if not _is_duplicate_name_violation(exc):
+            # A different constraint failed — surface the real error as a 500
+            # rather than a misleading duplicate-name 409.
+            raise
         raise _duplicate_name_error(name)
     # Eager-load linked_league before serializing — a freshly-created profile
     # has none, but ProfileOut still needs the attribute populated (vs. an
@@ -151,9 +171,13 @@ async def update_profile(
 
     try:
         await db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         # Lost the race against a concurrent rename to the same name.
         await db.rollback()
+        if not _is_duplicate_name_violation(exc):
+            # A different constraint failed — surface the real error as a 500
+            # rather than a misleading duplicate-name 409.
+            raise
         raise _duplicate_name_error(attempted_name)
     await db.refresh(profile, attribute_names=["linked_league"])
     return ProfileOut.model_validate(profile)
