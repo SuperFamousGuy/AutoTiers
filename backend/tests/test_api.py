@@ -608,11 +608,11 @@ async def test_generate_rejects_out_of_range_qb_td_points(async_client):
     # Below range -> 422 naming qb_td_points
     resp = await async_client.post("/api/generate", json={**base_payload, "qb_td_points": -1})
     assert resp.status_code == 422
-    assert "qb_td_points" in resp.text
+    assert any("qb_td_points" in err["loc"] for err in resp.json()["detail"])
     # Above range -> 422
     resp = await async_client.post("/api/generate", json={**base_payload, "qb_td_points": 11})
     assert resp.status_code == 422
-    assert "qb_td_points" in resp.text
+    assert any("qb_td_points" in err["loc"] for err in resp.json()["detail"])
     # Boundary values accepted and produce output
     resp = await async_client.post("/api/generate", json={**base_payload, "qb_td_points": 0})
     assert resp.status_code == 200
