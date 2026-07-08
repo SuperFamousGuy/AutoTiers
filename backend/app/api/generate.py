@@ -27,14 +27,27 @@ from app.engine.tiers import TieredPlayer, assign_tiers
 from app.schemas.generate import GenerateRequest, GenerateResponse, TieredPlayerOut, RuleApplicationOut
 from app.data.matching import normalize_name
 from app.data.teams import DOME_TEAMS, ELEVATION_TEAM, COLD_WEATHER_TEAMS
+from app.data.status import RETIRED_SOURCES
 
 router = APIRouter()
 
 
 async def _compute_data_as_of(db: AsyncSession) -> Optional[str]:
-    """Return ISO date of the oldest successful source refresh, or None if no source has succeeded."""
+    """Return ISO date of the oldest successful source refresh, or None if no source has succeeded.
+
+    Retired sources (#402) are excluded. ``purge_retired_status()`` normally
+    deletes their rows on the first post-retirement refresh, but a multi-day
+    scheduler outage spanning a retirement (see ``freshness.py``) can leave a
+    stale row behind whose old ``last_updated`` would win the ``min()`` and make
+    the banner report a date from a source no longer feeding any projection (#579).
+    """
     from app.models import DataSourceStatus
-    rows = (await db.scalars(select(DataSourceStatus).where(DataSourceStatus.last_updated.is_not(None)))).all()
+    rows = (await db.scalars(
+        select(DataSourceStatus).where(
+            DataSourceStatus.last_updated.is_not(None),
+            DataSourceStatus.source.not_in(RETIRED_SOURCES),
+        )
+    )).all()
     if not rows:
         return None
     oldest = min(r.last_updated for r in rows)
@@ -57,7 +70,6 @@ async def _compute_never_succeeded(db: AsyncSession) -> list[str]:
     lingering one should read as noise, not a live failure.
     """
     from app.models import DataSourceStatus
-    from app.data.status import RETIRED_SOURCES
     rows = (await db.scalars(
         select(DataSourceStatus.source).where(
             DataSourceStatus.last_attempted.is_not(None),

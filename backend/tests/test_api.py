@@ -444,6 +444,60 @@ async def test_compute_never_succeeded_ignores_retired_sources(test_db):
 
 
 @pytest.mark.asyncio
+async def test_compute_data_as_of_ignores_retired_sources(test_db):
+    """A retired source's stale row must not win the data_as_of min() (#579).
+
+    Mirrors ``test_compute_never_succeeded_ignores_retired_sources``: a retired
+    source can linger with an old ``last_updated`` if a scheduler outage spans
+    its retirement (``purge_retired_status`` never got to delete it). That old
+    date must not surface in the banner over the live sources' fresher data.
+    """
+    from app.api.generate import _compute_data_as_of
+    from app.data.status import RETIRED_SOURCES
+
+    retired = RETIRED_SOURCES[0]
+    # Retired source has the OLDEST last_updated — it would win a naive min().
+    test_db.add(DataSourceStatus(
+        source=retired,
+        last_updated=datetime(2026, 1, 1, 3, 0, 0),
+        last_attempted=datetime(2026, 1, 1, 3, 0, 0),
+        last_error=None, rows_upserted=100,
+    ))
+    test_db.add(DataSourceStatus(
+        source="sleeper",
+        last_updated=datetime(2026, 5, 20, 3, 0, 0),
+        last_attempted=datetime(2026, 5, 20, 3, 0, 0),
+        last_error=None, rows_upserted=1500,
+    ))
+    await test_db.commit()
+
+    # The live source wins; the retired source's older date is excluded.
+    assert await _compute_data_as_of(test_db) == "2026-05-20"
+
+
+@pytest.mark.asyncio
+async def test_compute_data_as_of_min_across_non_retired(test_db):
+    """Non-retired behavior unchanged: the oldest live source still wins (#579)."""
+    from app.api.generate import _compute_data_as_of
+
+    test_db.add(DataSourceStatus(
+        source="sleeper",
+        last_updated=datetime(2026, 5, 20, 3, 0, 0),
+        last_attempted=datetime(2026, 5, 20, 3, 0, 0),
+        last_error=None, rows_upserted=1500,
+    ))
+    test_db.add(DataSourceStatus(
+        source="fantasypros",
+        last_updated=datetime(2026, 5, 12, 3, 0, 0),  # oldest live source
+        last_attempted=datetime(2026, 5, 12, 3, 0, 0),
+        last_error=None, rows_upserted=580,
+    ))
+    await test_db.commit()
+
+    assert await _compute_data_as_of(test_db) == "2026-05-12"
+
+
+@pytest.mark.asyncio
 async def test_generate_caps_players_by_draft_rounds(async_client, test_db):
     """Generate response should be capped at league_size * draft_rounds."""
     from app.models import Player, Projection
