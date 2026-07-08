@@ -23,6 +23,18 @@ describe("ProfilePicker", () => {
     expect(onSelect).toHaveBeenCalledWith("p2");
   });
 
+  it("marks the active profile with aria-current and leaves others unset", async () => {
+    render(<ProfilePicker profiles={profiles} activeId="p1" onSelect={() => {}} onNew={() => {}} onManage={() => {}} canCreate />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /PPR 12-team/ }));
+
+    const activeItem = screen.getByRole("menuitem", { name: /PPR 12-team/ });
+    expect(activeItem).toHaveAttribute("aria-current", "true");
+
+    const otherItem = screen.getByRole("menuitem", { name: /Standard Keeper/ });
+    expect(otherItem).not.toHaveAttribute("aria-current");
+  });
+
   it("disables + New profile when canCreate is false", async () => {
     render(<ProfilePicker profiles={profiles} activeId="p1" onSelect={() => {}} onNew={() => {}} onManage={() => {}} canCreate={false} />);
     const user = userEvent.setup();

@@ -79,15 +79,19 @@ describe("PlayerCard", () => {
     expect(screen.queryByText("Score breakdown")).not.toBeInTheDocument();
   });
 
-  it("shows gold star when is_favorite_player is true", () => {
+  it("shows gold star with accessible name when is_favorite_player is true", () => {
     render(<PlayerCard player={{ ...basePlayer, is_favorite_player: true }} />);
-    expect(screen.getByText("⭐")).toBeInTheDocument();
+    const star = screen.getByRole("img", { name: "Favorite player" });
+    expect(star).toBeInTheDocument();
+    expect(star).toHaveTextContent("⭐");
   });
 
   it("does not show gold star when is_favorite_player is null or false", () => {
     const { rerender } = render(<PlayerCard player={basePlayer} />);
+    expect(screen.queryByRole("img", { name: "Favorite player" })).not.toBeInTheDocument();
     expect(screen.queryByText("⭐")).not.toBeInTheDocument();
     rerender(<PlayerCard player={{ ...basePlayer, is_favorite_player: false }} />);
+    expect(screen.queryByRole("img", { name: "Favorite player" })).not.toBeInTheDocument();
     expect(screen.queryByText("⭐")).not.toBeInTheDocument();
   });
 

@@ -118,7 +118,11 @@ export function PlayerCard({ player, draftMode, drafted, onToggleDraft }: Player
           <div className="flex-1 min-w-0">
             <div className="font-bold text-sm flex items-center gap-1 flex-wrap">
               <span className={cn("truncate", isDrafted && "line-through")}>{player.name}</span>
-              {isFavPlayer && <span className="shrink-0">⭐</span>}
+              {isFavPlayer && (
+                <span role="img" aria-label="Favorite player" className="shrink-0">
+                  ⭐
+                </span>
+              )}
               {isFavTeam && player.team && (
                 <img
                   src={teamLogoUrl(player.team)}
