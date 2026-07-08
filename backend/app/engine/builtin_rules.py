@@ -54,11 +54,12 @@ BUILTIN_RULES: list[Rule] = [
         conditions=[RuleCondition(field="years_exp", operator="==", value=2)],
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=1.10),
         description=(
-            "Boosts third-year TEs for the expected breakout. Unlike WRs (whose "
-            "breakout peaks in Year 2), TE breakout is a Year-3 phenomenon: "
-            "first-time-TE1 rates for TEs drafted in the first two rounds jump from "
-            "~11% (Year 1) to ~17% (Year 2) to ~38% (Year 3) per Footballguys "
-            "hit-rate data. +10% at default weight."
+            "Boosts all third-year TEs for the expected breakout (not draft-capital "
+            "gated). Unlike WRs (whose breakout peaks in Year 2), TE breakout is a "
+            "Year-3 phenomenon. Supporting evidence subset: first-time-TE1 rates for "
+            "TEs drafted in the first two rounds jump from ~11% (Year 1) to ~17% "
+            "(Year 2) to ~38% (Year 3) per Footballguys hit-rate data. +10% at "
+            "default weight."
         ),
         positions=["TE"],
     ),
