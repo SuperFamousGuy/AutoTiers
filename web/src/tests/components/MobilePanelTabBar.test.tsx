@@ -55,4 +55,38 @@ describe("MobilePanelTabBar", () => {
     expect(screen.getByRole("tab", { name: "Tiers" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: "Settings" })).toHaveAttribute("aria-selected", "false");
   });
+
+  it("shows no busy affordance when generateIsPending is false", () => {
+    render(<MobilePanelTabBar active="settings" onChange={() => {}} generateIsPending={false} />);
+    expect(screen.getByRole("tab", { name: "Tiers" })).not.toHaveAttribute("aria-busy", "true");
+    expect(screen.queryByTestId("tiers-busy-indicator")).not.toBeInTheDocument();
+  });
+
+  it("marks the Tiers tab aria-busy and shows a visible indicator while pending", () => {
+    render(<MobilePanelTabBar active="settings" onChange={() => {}} generateIsPending />);
+    const tiersTab = screen.getByRole("tab", { name: /Tiers/ });
+    expect(tiersTab).toHaveAttribute("aria-busy", "true");
+    // The affordance is a visible element, not just a color change.
+    expect(screen.getByTestId("tiers-busy-indicator")).toBeInTheDocument();
+  });
+
+  it("only the Tiers tab gets the busy affordance while pending", () => {
+    render(<MobilePanelTabBar active="settings" onChange={() => {}} generateIsPending />);
+    expect(screen.getByRole("tab", { name: "Settings" })).not.toHaveAttribute("aria-busy", "true");
+    expect(screen.getByRole("tab", { name: "Rules" })).not.toHaveAttribute("aria-busy", "true");
+  });
+
+  it("announces via a live region while pending and clears it afterward", () => {
+    const { rerender } = render(
+      <MobilePanelTabBar active="settings" onChange={() => {}} generateIsPending />,
+    );
+    const status = screen.getByTestId("tiers-live-region");
+    expect(status).toHaveAttribute("aria-live", "polite");
+    expect(status).toHaveTextContent("Generating tiers…");
+
+    // On success/error the pending flag clears; the affordance and message disappear.
+    rerender(<MobilePanelTabBar active="settings" onChange={() => {}} generateIsPending={false} />);
+    expect(screen.getByTestId("tiers-live-region")).toHaveTextContent("");
+    expect(screen.queryByTestId("tiers-busy-indicator")).not.toBeInTheDocument();
+  });
 });

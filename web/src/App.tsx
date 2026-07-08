@@ -445,7 +445,11 @@ export default function App() {
           />
         )
       )}
-      <MobilePanelTabBar active={mobilePanel} onChange={setMobilePanel} />
+      <MobilePanelTabBar
+        active={mobilePanel}
+        onChange={setMobilePanel}
+        generateIsPending={generate.isPending}
+      />
       <main className="flex-1 grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_minmax(0,1.5fr)] lg:grid-rows-1 overflow-hidden">
         <div
           id="panel-settings"
