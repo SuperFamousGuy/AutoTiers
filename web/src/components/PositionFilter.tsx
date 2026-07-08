@@ -16,15 +16,18 @@ interface PositionFilterProps {
 }
 
 export function PositionFilter({ value, onChange }: PositionFilterProps) {
+  // Mobile-first tap targets: on small screens (live-draft-on-a-phone) the chips
+  // are 40px tall with 6px gaps to clear the WCAG 2.5.5 tap-target guidance; from
+  // the `sm` breakpoint up we restore the denser desktop sizing (h-9 / 4px gap).
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="flex flex-wrap gap-1.5 sm:gap-1">
       {POSITION_FILTER_OPTIONS.map((opt) => (
         <Button
           key={opt}
           variant={value === opt ? "default" : "outline"}
           size="sm"
           onClick={() => onChange(opt)}
-          className={cn(value === opt && "pointer-events-none")}
+          className={cn("h-10 sm:h-9", value === opt && "pointer-events-none")}
         >
           {opt === "ALL" ? "All" : opt}
         </Button>
