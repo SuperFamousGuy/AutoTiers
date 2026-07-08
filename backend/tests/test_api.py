@@ -91,7 +91,9 @@ async def test_generate_response_is_json_content_type(async_client, test_db):
     await _seed(test_db)
     resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
     assert resp.status_code == 200
-    assert resp.headers["content-type"] == "application/json"
+    # Assert the media type only; frameworks may append parameters such as
+    # "; charset=utf-8", so exact string equality would be brittle across versions.
+    assert resp.headers["content-type"].split(";")[0].strip() == "application/json"
     # Body is still valid JSON with the unchanged shape.
     assert resp.json()["total"] == 3
 
