@@ -21,7 +21,9 @@ export function setWeight(
 
 /**
  * Set `key` to `newValue` (clamped to [0, 100]) and auto-complement the other
- * weight to `100 - newValue`. Because there are exactly two weights, any change
+ * weight to `100 - clamped` (the complement is taken against the clamped value,
+ * so out-of-range inputs still yield a valid pair). Because there are exactly
+ * two weights, any change
  * has one unambiguous complement, so the result always sums to 100 — keeping the
  * pair valid by construction. Use this for user-driven edits (slider drag, input
  * blur) so the invalid "Sums X%" state is unreachable via normal interaction.

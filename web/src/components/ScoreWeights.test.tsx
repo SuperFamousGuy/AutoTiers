@@ -87,7 +87,8 @@ describe("ScoreWeights", () => {
     await user.type(priorInput, "150");
 
     const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1][0];
-    expect(lastCall.prior).toBeLessThanOrEqual(100);
+    expect(lastCall.prior).toBe(100);
+    expect(lastCall.consensus).toBe(0);
     expect(lastCall.prior + lastCall.consensus).toBe(100);
   });
 });
