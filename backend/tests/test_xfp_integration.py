@@ -24,10 +24,15 @@ async def test_over_producer_rule_fires_in_generate(test_db: AsyncSession):
     With only two WRs, the σ across the two would be small/degenerate; we
     add a few more middle-of-the-road WRs to anchor the distribution.
     """
+    from datetime import datetime
+
     from app.models.player import Player, PlayerStat
     from app.models.projection import Projection
 
-    season = 2025
+    # Stats must land on the prior season (current_year - 1); _get_stat only
+    # reads that exact season now (#608), so a hardcoded year would be treated
+    # as stale and dropped.
+    season = datetime.utcnow().year
     players_data = [
         # (player_id, targets, rec, yds, tds, rz_looks)
         ("A_overproducer", 80, 50, 600.0, 12, 10),  # 12 TDs, only 10 RZ looks → high z

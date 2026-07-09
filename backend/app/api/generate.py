@@ -107,10 +107,23 @@ def _build_rules_for_position(position: str, req: "GenerateRequest") -> list[Rul
     return result
 
 
-def _get_stat(stats: list[PlayerStat]) -> Optional[PlayerStat]:
-    if not stats:
-        return None
-    return max(stats, key=lambda s: s.season)
+def _get_stat(stats: list[PlayerStat], season: int) -> Optional[PlayerStat]:
+    """Return the stat row for exactly ``season``, or ``None``.
+
+    Deliberately does NOT fall back to an older season. ``NflDataFetcher``
+    retains up to three prior seasons and never deletes rows
+    (``data/sources/nfl_data.py``), so a player who missed last season (injury,
+    retirement, out of the league) still has an older row on file. Returning
+    that stale row would feed a full ~16-game workload into ``blend_scores``'s
+    prior-year games ramp (``engine/scoring.py``), hiding the missed season and
+    blending a 2-3-year-old season in at full prior-year weight — the exact case
+    the ramp exists to catch (#608). Callers pass ``current_year - 1`` so the
+    "prior year" everywhere in generate means genuinely last season.
+    """
+    for s in stats:
+        if s.season == season:
+            return s
+    return None
 
 
 def _get_projection(projections: list[Projection], source: str, fmt: str) -> Optional[float]:
@@ -253,9 +266,10 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
     # using the SAME settings that determine each player's actual FP. Then
     # compute per-position σ_gap from (FP - xFP) distributions. Both feed
     # into per-player z-scores below.
+    prior_season = current_year - 1
     prior_stats_with_pos = []
     for p in players:
-        s = _get_stat(p.stats)
+        s = _get_stat(p.stats, prior_season)
         if s is None:
             continue
         prior_stats_with_pos.append(_StatWithPosition(stat=s, position=p.position))
@@ -318,7 +332,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
     for player in players:
         if keepers_normalized and normalize_name(player.name) in keepers_normalized:
             continue
-        stat = _get_stat(player.stats)
+        stat = _get_stat(player.stats, prior_season)
         avg_proj = _avg_projection(player.projections, scoring_fmt)
         espn_pts = _get_projection(player.projections, "espn", scoring_fmt)
         fp_pts = _get_projection(player.projections, "fantasypros", scoring_fmt)
