@@ -71,10 +71,10 @@ export function ManageProfilesDialog({ open, onOpenChange, profiles, activeProfi
                 ) : (
                   <>
                     <span
-                      className="flex-1 flex items-center gap-2 truncate"
+                      className="flex-1 flex items-center gap-2 min-w-0"
                       aria-label={p.id === activeProfileId ? `${p.name} (active profile)` : undefined}
                     >
-                      <span className="truncate">{p.name}</span>
+                      <span className="min-w-0 truncate">{p.name}</span>
                       {p.id === activeProfileId && (
                         <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
                           Active

@@ -238,7 +238,7 @@ describe("App (authenticated integration)", () => {
     const deleteIcons = await screen.findAllByRole("button", { name: /delete PPR 12-team/i });
     await user.click(deleteIcons[0]);
     // p1 is the active profile here, so the confirm copy names that consequence.
-    await user.click(screen.getByRole("button", { name: /delete active profile|confirm delete/i }));
+    await user.click(screen.getByRole("button", { name: /delete active profile/i }));
 
     await waitFor(() => expect(deletedId).toBe("p1"));
   });
