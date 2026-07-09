@@ -735,6 +735,30 @@ async def test_generate_validates_te_premium_bonus(async_client):
     assert resp.status_code == 200
 
 
+@pytest.mark.asyncio
+async def test_generate_rejects_out_of_range_qb_td_points(async_client):
+    """#582: qb_td_points must be within [0.0, 10.0]; boundaries accepted, else 422."""
+    base_payload = {
+        "scoring_format": "ppr", "league_type": "standard", "league_size": 12,
+        "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
+        "bonus_first_downs": False, "weight_prior_year": 0.40, "weight_espn": 0.30,
+        "weight_consensus": 0.30, "rules": {},
+    }
+    # Below range -> 422 naming qb_td_points
+    resp = await async_client.post("/api/generate", json={**base_payload, "qb_td_points": -1})
+    assert resp.status_code == 422
+    assert any("qb_td_points" in err["loc"] for err in resp.json()["detail"])
+    # Above range -> 422
+    resp = await async_client.post("/api/generate", json={**base_payload, "qb_td_points": 11})
+    assert resp.status_code == 422
+    assert any("qb_td_points" in err["loc"] for err in resp.json()["detail"])
+    # Boundary values accepted and produce output
+    resp = await async_client.post("/api/generate", json={**base_payload, "qb_td_points": 0})
+    assert resp.status_code == 200
+    resp = await async_client.post("/api/generate", json={**base_payload, "qb_td_points": 10})
+    assert resp.status_code == 200
+
+
 async def test_generate_prior_year_knobs_change_blended_score(async_client, test_db):
     """#315: full_season_games and prior_year_ramp must actually reach blend_scores.
 

@@ -10,7 +10,12 @@ class GenerateRequest(BaseModel):
     league_type: LeagueType
     league_size: int
     qb_starters: int = 1  # 1 = standard, 2 = superflex / 2-QB
-    qb_td_points: float = 4.0
+    # Points awarded per passing TD (#582). Multiplied against stats.pass_tds in
+    # app/engine/scoring.py with no downstream clamp, so it is bounded here like
+    # every other scoring knob. 0.0 covers leagues that don't reward passing TDs;
+    # standard is 4, TD-heavy formats go up to 6, and 10 caps any realistic
+    # custom league.
+    qb_td_points: float = Field(4.0, ge=0.0, le=10.0)
     bonus_100yd_rushing: bool = False
     bonus_100yd_receiving: bool = False
     bonus_first_downs: bool = False
