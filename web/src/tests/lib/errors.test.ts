@@ -14,7 +14,45 @@ describe("describeGenerateError", () => {
     expect(msg).not.toMatch(/<html>/);
   });
 
-  it("passes a 4xx message through (weight-tolerance / validation rejections are meant to be read)", () => {
+  it("unwraps a Pydantic 4xx validation body (no raw JSON reaches the user)", () => {
+    // The real shape apiFetch stores for a generate weight-sum rejection:
+    // FastAPI/Pydantic returns {"detail": [{loc, msg, type}]}.
+    const body = JSON.stringify({
+      detail: [
+        {
+          loc: ["body", "weight_consensus"],
+          msg: "Value error, Score weights must sum to 1.0, got 1.20",
+          type: "value_error",
+        },
+      ],
+    });
+    const msg = describeGenerateError(new ApiError(422, body));
+    expect(msg).toBe("Value error, Score weights must sum to 1.0, got 1.20");
+    // The JSON envelope must not leak through.
+    expect(msg).not.toMatch(/[{}[\]]|detail/);
+  });
+
+  it("joins multiple Pydantic validation messages", () => {
+    const body = JSON.stringify({
+      detail: [
+        { loc: ["body", "league_size"], msg: "league_size must be one of: 8, 10, 12, 14, 16" },
+        { loc: ["body", "draft_rounds"], msg: "draft_rounds must be between 1 and 30" },
+      ],
+    });
+    const msg = describeGenerateError(new ApiError(422, body));
+    expect(msg).toBe(
+      "league_size must be one of: 8, 10, 12, 14, 16 draft_rounds must be between 1 and 30",
+    );
+  });
+
+  it("unwraps a string HTTPException detail", () => {
+    const body = JSON.stringify({ detail: "No projection data available yet." });
+    expect(describeGenerateError(new ApiError(400, body))).toBe(
+      "No projection data available yet.",
+    );
+  });
+
+  it("passes a non-JSON 4xx body through unchanged", () => {
     const msg = describeGenerateError(new ApiError(422, "weights must sum to 100"));
     expect(msg).toBe("weights must sum to 100");
   });
