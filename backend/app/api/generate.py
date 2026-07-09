@@ -1,7 +1,10 @@
+import asyncio
 import dataclasses
+import logging
 import statistics
+import time
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Protocol, Sequence
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -30,6 +33,8 @@ from app.data.teams import DOME_TEAMS, ELEVATION_TEAM, COLD_WEATHER_TEAMS
 from app.data.status import RETIRED_SOURCES
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 
 async def _compute_data_as_of(db: AsyncSession) -> Optional[str]:
@@ -191,8 +196,18 @@ async def _compute_bad_offense_teams(db: AsyncSession, current_year: int) -> set
     return {team for team, _ in sorted_teams[:8]}
 
 
+class _HasIdAndPosition(Protocol):
+    """Minimal structural type ``_compute_above_market_pids`` needs.
+
+    It only reads ``.id`` and ``.position``, so it accepts either an ORM
+    ``Player`` or a session-free ``_PlayerSnapshot`` (#577).
+    """
+    id: str
+    position: str
+
+
 async def _compute_above_market_pids(
-    db: AsyncSession, current_year: int, players: list[Player]
+    db: AsyncSession, current_year: int, players: Sequence[_HasIdAndPosition]
 ) -> set[str]:
     """Players whose cap hit exceeds 1.5× the median for their position.
 
@@ -237,6 +252,111 @@ class _StatWithPosition:
         return getattr(self.stat, name)
 
 
+# ---- Plain snapshots handed to the CPU-bound worker thread (#577) -----------
+# The tiering computation runs off the event loop via ``asyncio.to_thread``.
+# A worker thread must NOT touch the ORM session (accessing an unloaded attr
+# would trigger lazy I/O against the async connection from the wrong thread and
+# crash). So every field the computation reads is copied into these frozen,
+# session-free structures while we are still on the event loop. Attribute names
+# mirror the ORM models so the existing pure helpers (`_get_stat`,
+# `_get_projection`, `_avg_projection`, `_get_adp`, the `xfp.*` functions, and
+# `_StatWithPosition`) operate on snapshots unchanged.
+
+
+@dataclasses.dataclass(frozen=True)
+class _StatSnapshot:
+    season: int
+    games_played: Optional[int]
+    targets: Optional[int]
+    receptions: Optional[int]
+    rec_yards: Optional[float]
+    rec_tds: Optional[int]
+    rush_att: Optional[int]
+    rush_yards: Optional[float]
+    rush_tds: Optional[int]
+    pass_att: Optional[int]
+    pass_yards: Optional[float]
+    pass_tds: Optional[int]
+    interceptions: Optional[int]
+    snap_pct: Optional[float]
+    carry_share: Optional[float]
+    target_share: Optional[float]
+    actual_tds: Optional[int]
+    expected_tds: Optional[float]
+    red_zone_looks: Optional[int]
+
+
+@dataclasses.dataclass(frozen=True)
+class _ProjSnapshot:
+    source: str
+    scoring_format: str
+    projected_points: float
+
+
+@dataclasses.dataclass(frozen=True)
+class _AdpSnapshot:
+    format: str
+    adp: float
+
+
+@dataclasses.dataclass(frozen=True)
+class _PlayerSnapshot:
+    id: str
+    name: str
+    position: str
+    team: Optional[str]
+    age: Optional[int]
+    years_exp: Optional[int]
+    # Immutable sequences so the frozen snapshot is thread-safe by construction:
+    # a worker thread can't mutate them in-place (shallow-freeze gap, #577).
+    stats: tuple[_StatSnapshot, ...]
+    projections: tuple[_ProjSnapshot, ...]
+    adp_entries: tuple[_AdpSnapshot, ...]
+
+
+def _snapshot_stat(s: PlayerStat) -> _StatSnapshot:
+    return _StatSnapshot(
+        season=s.season,
+        games_played=s.games_played,
+        targets=s.targets,
+        receptions=s.receptions,
+        rec_yards=s.rec_yards,
+        rec_tds=s.rec_tds,
+        rush_att=s.rush_att,
+        rush_yards=s.rush_yards,
+        rush_tds=s.rush_tds,
+        pass_att=s.pass_att,
+        pass_yards=s.pass_yards,
+        pass_tds=s.pass_tds,
+        interceptions=s.interceptions,
+        snap_pct=s.snap_pct,
+        carry_share=s.carry_share,
+        target_share=s.target_share,
+        actual_tds=s.actual_tds,
+        expected_tds=s.expected_tds,
+        red_zone_looks=s.red_zone_looks,
+    )
+
+
+def _snapshot_player(p: Player) -> _PlayerSnapshot:
+    """Copy the eager-loaded ORM player (and its stats/projections/adp) into a
+    plain, session-free snapshot the worker thread can safely read (#577)."""
+    return _PlayerSnapshot(
+        id=p.id,
+        name=p.name,
+        position=p.position,
+        team=p.team,
+        age=p.age,
+        years_exp=p.years_exp,
+        stats=tuple(_snapshot_stat(s) for s in p.stats),
+        projections=tuple(
+            _ProjSnapshot(pr.source, pr.scoring_format, pr.projected_points)
+            for pr in p.projections
+        ),
+        adp_entries=tuple(_AdpSnapshot(a.format, a.adp) for a in p.adp_entries),
+    )
+
+
 async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Optional[User] = None) -> list[TieredPlayer]:
     settings = _build_league_settings(req)
     scoring_fmt = req.scoring_format.value
@@ -256,10 +376,74 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
             selectinload(Player.adp_entries),
         )
     )
-    players = result.scalars().all()
+    # Copy the ORM rows into plain snapshots *now*, on the event loop, so the
+    # CPU-bound tiering below can run in a worker thread without ever touching
+    # the async session (#577).
+    players = [_snapshot_player(p) for p in result.scalars().all()]
 
     above_market_pids = await _compute_above_market_pids(db, current_year, players)
 
+    # Server-side favorites lookup. Anonymous calls: empty sets, is_favorite
+    # is None per player, the Favorites rule silently no-ops. Done here (on the
+    # event loop) so the worker thread below needs no DB access.
+    favorite_pids_set: set[str] = set()
+    favorite_teams_set: set[str] = set()
+    if current_user is not None:
+        fav_row = (await db.scalars(
+            select(UserFavorites).where(UserFavorites.user_id == current_user.id)
+        )).one_or_none()
+        if fav_row is not None:
+            favorite_pids_set = set(fav_row.favorite_player_ids or [])
+            favorite_teams_set = set(fav_row.favorite_teams or [])
+
+    # All DB I/O is done. Hand the pure-Python CPU work (per-player scoring +
+    # rules + VBD + Jenks clustering) to a worker thread so it stops blocking
+    # the single event loop that also serves other /generate requests,
+    # /api/data/health, and the in-process scheduler callbacks (#577). The
+    # request-level timing log makes any regression in this cost visible before
+    # it becomes an incident.
+    t0 = time.perf_counter()
+    ranked = await asyncio.to_thread(
+        _compute_ranked_players,
+        players,
+        settings=settings,
+        req=req,
+        scoring_fmt=scoring_fmt,
+        keepers_normalized=keepers_normalized,
+        bad_offense_teams=bad_offense_teams,
+        above_market_pids=above_market_pids,
+        favorite_pids_set=favorite_pids_set,
+        favorite_teams_set=favorite_teams_set,
+        current_year=current_year,
+    )
+    logger.info(
+        "generate: tiered %d/%d players off-loop in %.1fms",
+        len(ranked), len(players), (time.perf_counter() - t0) * 1000,
+    )
+    return ranked
+
+
+def _compute_ranked_players(
+    players: list[_PlayerSnapshot],
+    *,
+    settings: LeagueSettings,
+    req: GenerateRequest,
+    scoring_fmt: str,
+    keepers_normalized: set[str],
+    bad_offense_teams: set[str],
+    above_market_pids: set[str],
+    favorite_pids_set: set[str],
+    favorite_teams_set: set[str],
+    current_year: int,
+) -> list[TieredPlayer]:
+    """Pure-Python tiering: per-player scoring/rules + VBD + Jenks clustering.
+
+    No DB access and no ``await`` — this runs on a worker thread via
+    ``asyncio.to_thread`` (#577) and reads only the plain snapshots and
+    pre-fetched sets passed in, never the ORM session. Keeping it a standalone
+    sync function (rather than a closure) makes it directly unit-testable and
+    keeps the event-loop/worker boundary explicit.
+    """
     # ---- Opportunity-score (xFP) pre-pass ----------------------------------
     # Compute per-position league averages of pts/target, pts/carry, pts/RZ
     # using the SAME settings that determine each player's actual FP. Then
@@ -303,17 +487,8 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
     position_sigmas = compute_per_position_sigmas(gaps_by_position)
     # ------------------------------------------------------------------------
 
-    # Server-side favorites lookup. Anonymous calls: empty sets, is_favorite
-    # is None per player, the Favorites rule silently no-ops.
-    favorite_pids_set: set[str] = set()
-    favorite_teams_set: set[str] = set()
-    if current_user is not None:
-        fav_row = (await db.scalars(
-            select(UserFavorites).where(UserFavorites.user_id == current_user.id)
-        )).one_or_none()
-        if fav_row is not None:
-            favorite_pids_set = set(fav_row.favorite_player_ids or [])
-            favorite_teams_set = set(fav_row.favorite_teams or [])
+    # ``favorite_pids_set`` / ``favorite_teams_set`` were resolved on the event
+    # loop (see ``_run_generate``) and passed in — no DB access from this thread.
     has_any_favorites = bool(favorite_pids_set or favorite_teams_set)
 
     # Pre-compute per-position rule lists once before the player loop.
@@ -404,7 +579,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
 
         injured_two_years_ago: Optional[bool] = None
         if player.position in ("QB", "RB", "WR", "TE", "K"):
-            two_seasons_ago = datetime.utcnow().year - 2
+            two_seasons_ago = current_year - 2
             two_yrs_ago_stat = next(
                 (s for s in player.stats if s.season == two_seasons_ago),
                 None,
