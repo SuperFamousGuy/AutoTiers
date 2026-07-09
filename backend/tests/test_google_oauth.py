@@ -330,6 +330,77 @@ async def test_callback_backfills_email_when_linking_and_user_has_none(async_cli
 
 
 @pytest.mark.asyncio
+async def test_callback_seeds_default_profile_on_first_login(async_client, test_db):
+    """A brand-new Google user must land with exactly one profile and a
+    non-null last_active_profile_id, so autosave has somewhere to persist (#606)."""
+    from app.models import Profile
+    from app.defaults import DEFAULT_PROFILE_SETTINGS
+
+    state = "abc123"
+    async_client.cookies.set("autotiers_google_oauth_state", state)
+    with respx.mock() as router:
+        router.post("https://oauth2.googleapis.com/token").mock(
+            return_value=Response(200, json={"access_token": "tok"}),
+        )
+        router.get("https://openidconnect.googleapis.com/v1/userinfo").mock(
+            return_value=Response(200, json={
+                "sub": "google-seed", "email": "seed@example.com", "email_verified": True,
+            }),
+        )
+        r = await async_client.get(
+            f"/api/auth/google/callback?code=the-code&state={state}",
+            follow_redirects=False,
+        )
+    assert r.status_code == 302
+
+    users = (await test_db.scalars(select(User))).all()
+    assert len(users) == 1
+    profiles = (await test_db.scalars(select(Profile).where(Profile.user_id == users[0].id))).all()
+    assert len(profiles) == 1
+    assert profiles[0].name == "My setup"
+    assert profiles[0].settings_json == DEFAULT_PROFILE_SETTINGS
+    assert profiles[0].rules_json == {}
+    assert users[0].last_active_profile_id == profiles[0].id
+
+    # /me exposes the seeded profile and a non-null active id.
+    me = (await async_client.get("/api/auth/me")).json()
+    assert len(me["profiles"]) == 1
+    assert me["profiles"][0]["name"] == "My setup"
+    assert me["user"]["last_active_profile_id"] == str(profiles[0].id)
+
+
+@pytest.mark.asyncio
+async def test_repeat_login_does_not_seed_a_second_profile(async_client, test_db):
+    """Only first login seeds a profile; a returning user keeps their single one."""
+    from app.models import Profile
+
+    state = "abc123"
+    identity = {"sub": "google-repeat", "email": "repeat@example.com", "email_verified": True}
+
+    async def _do_login():
+        async_client.cookies.set("autotiers_google_oauth_state", state)
+        with respx.mock() as router:
+            router.post("https://oauth2.googleapis.com/token").mock(
+                return_value=Response(200, json={"access_token": "tok"}),
+            )
+            router.get("https://openidconnect.googleapis.com/v1/userinfo").mock(
+                return_value=Response(200, json=identity),
+            )
+            return await async_client.get(
+                f"/api/auth/google/callback?code=the-code&state={state}",
+                follow_redirects=False,
+            )
+
+    await _do_login()
+    await _do_login()
+
+    users = (await test_db.scalars(select(User))).all()
+    assert len(users) == 1
+    profiles = (await test_db.scalars(select(Profile).where(Profile.user_id == users[0].id))).all()
+    assert len(profiles) == 1  # no duplicate seeded on repeat login
+
+
+@pytest.mark.asyncio
 async def test_me_returns_null_linked_league_when_profile_has_none(async_client, test_db):
     """Profile without a linked league must serialize linked_league=null."""
     from app.auth.hashing import hash_password

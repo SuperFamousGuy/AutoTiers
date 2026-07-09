@@ -14,6 +14,7 @@ import { MobilePanelTabBar, type MobilePanel } from "@/components/MobilePanelTab
 import { AdSlot } from "@/components/AdSlot";
 import { PasswordResetPanel } from "@/components/PasswordResetPanel";
 import { EmailVerificationBanner, shouldShowVerificationBanner, dismissVerificationBanner } from "@/components/EmailVerificationBanner";
+import { NoProfileBanner } from "@/components/NoProfileBanner";
 import { AuthDialog } from "@/components/AuthDialog";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
@@ -412,6 +413,11 @@ export default function App() {
           </div>
         ) : null}
       />
+      {/* Zero-profile banner — a logged-in user with no profile has autosave
+          silently disabled, so warn them and offer a one-click fix (#606). */}
+      {user && profiles.length === 0 && (
+        <NoProfileBanner onCreateProfile={handleNewProfile} />
+      )}
       {/* Email verification banner — shown below header when email is unverified */}
       {showVerifyBanner && user?.email && (
         <EmailVerificationBanner
