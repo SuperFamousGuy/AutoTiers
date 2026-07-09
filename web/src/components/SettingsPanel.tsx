@@ -22,6 +22,9 @@ export interface SettingsState {
   bonus_100yd_rushing: boolean;
   bonus_100yd_receiving: boolean;
   bonus_first_downs: boolean;
+  // TE Premium (#525): bonus points per tight-end reception, additive on top of
+  // the PPR/half-PPR value. Optional — omitted profiles use the backend default 0.0.
+  te_premium_bonus?: number;
   weights: Weights;
   tier_labels?: TierLabelOverrides;
   // Per-scoring-format tier label overrides (#164). When the active scoring
@@ -65,6 +68,10 @@ export const TIER_COUNT_OPTIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
 export const FULL_SEASON_GAMES_OPTIONS = [10, 11, 12, 13, 14, 15, 16, 17] as const;
 export const DEFAULT_FULL_SEASON_GAMES = 14;
 export const DEFAULT_PRIOR_YEAR_RAMP = "linear" as const;
+// TE Premium bonus per tight-end reception (#525). Backend validates [0.0, 2.0];
+// we offer the common TEP steps. 0 = off (default).
+export const TE_PREMIUM_OPTIONS = [0, 0.5, 1, 1.5, 2] as const;
+export const DEFAULT_TE_PREMIUM = 0;
 
 export function SettingsPanel({ value, onChange, linkedLeague, profileId, onRefreshLink }: SettingsPanelProps) {
   const set = <K extends keyof SettingsState>(key: K, v: SettingsState[K]) =>
@@ -241,6 +248,31 @@ export function SettingsPanel({ value, onChange, linkedLeague, profileId, onRefr
             aria-disabled="true"
           />
         </div>
+      </div>
+
+      <div className="space-y-2">
+        <div className="space-y-0.5">
+          <Label htmlFor="te-premium-select">TE Premium</Label>
+          <p className="text-xs text-muted-foreground">
+            Bonus points per tight-end reception, added on top of your base
+            reception value in any scoring format.
+          </p>
+        </div>
+        <Select
+          value={String(value.te_premium_bonus ?? DEFAULT_TE_PREMIUM)}
+          onValueChange={(v) => set("te_premium_bonus", Number(v))}
+        >
+          <SelectTrigger id="te-premium-select" aria-label="TE Premium">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {TE_PREMIUM_OPTIONS.map((n) => (
+              <SelectItem key={n} value={String(n)}>
+                {n === 0 ? "None" : `+${n.toFixed(1)} / reception`}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="space-y-3">

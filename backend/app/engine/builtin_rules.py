@@ -1,3 +1,5 @@
+from typing import Optional
+
 from app.engine.rules import Rule, RuleCondition, RuleEffect, EffectType
 
 
@@ -5,7 +7,65 @@ from app.engine.rules import Rule, RuleCondition, RuleEffect, EffectType
 # Players at or above these ages are considered past their production peak.
 # DST excluded (no individual age). K threshold is 40 — elite kickers play
 # into their late 30s but accuracy typically begins declining around age 40.
-OVER_THE_HILL_AGE = {"RB": 28, "WR": 31, "TE": 31, "QB": 36, "K": 40}
+# QB is intentionally ABSENT from this dict: its cliff is not a single age but
+# is conditioned on prior-season rushing volume — see over_the_hill_age().
+OVER_THE_HILL_AGE = {"RB": 28, "WR": 31, "TE": 31, "K": 40}
+
+# QB aging is bimodal (#576). Dual-threat/rushing QBs lean on a rushing floor
+# that erodes as mid-20s lower-body explosiveness fades, so they decline early
+# (sell window 27-28; rushing falls off after ~29). Pocket passers ride arm
+# talent and a supporting cast and sustain elite production much later
+# (Stafford top-3 at 37, Rodgers mid-30s, Brady at 44). We therefore split the
+# QB cliff on prior-season rush attempts instead of applying a flat age 36.
+#
+# Thresholds locked by the mathematician against nfl_data_py rushing-attempt
+# curves (Vick/Wilson/Newton decline onset for mobile; Stafford/Rodgers/Brady
+# longevity for pocket):
+#   - 60 rush attempts (~3.5/game) is where rushing stops being incidental
+#     scramble yardage and becomes a real, legs-dependent fantasy floor.
+#   - Mobile QBs go over the hill at 31 (one year ahead of the observed 32
+#     Wilson/Newton cliff, matching Vick's earlier onset).
+#   - Pocket passers go over the hill at 38 (past the old flat 36, matching the
+#     Stafford/Rodgers/Brady evidence).
+QB_MOBILE_RUSH_ATT_THRESHOLD = 60
+OVER_THE_HILL_AGE_QB_MOBILE = 31
+OVER_THE_HILL_AGE_QB_POCKET = 38
+
+
+def over_the_hill_age(position: str, prior_rush_att: Optional[int]) -> Optional[int]:
+    """Age at/above which a player at ``position`` is 'over the hill'.
+
+    Returns ``None`` for positions with no cliff (e.g. DST, or an unknown
+    position). QB is rushing-volume-conditioned: a QB whose prior-season rush
+    attempts reach ``QB_MOBILE_RUSH_ATT_THRESHOLD`` is treated as a dual-threat
+    and gets the earlier mobile cliff; everyone else — including a QB with no
+    prior stat row (``prior_rush_att is None``) or a recorded zero — is treated
+    as a pocket passer and gets the later cliff. Treating unknown rushing volume
+    as pocket is the conservative failure mode: we would rather under-penalize an
+    unknown-mobility QB than false-positive an aging pocket passer.
+    """
+    if position == "QB":
+        if prior_rush_att is not None and prior_rush_att >= QB_MOBILE_RUSH_ATT_THRESHOLD:
+            return OVER_THE_HILL_AGE_QB_MOBILE
+        return OVER_THE_HILL_AGE_QB_POCKET
+    return OVER_THE_HILL_AGE.get(position)
+
+
+def compute_is_over_the_hill(
+    position: str, age: Optional[int], prior_rush_att: Optional[int] = None
+) -> Optional[bool]:
+    """Whether a player is past their position's decline age.
+
+    Returns ``None`` (rule skipped) when age is unknown or the position has no
+    cliff; otherwise ``age >= threshold`` where the threshold comes from
+    :func:`over_the_hill_age`.
+    """
+    if age is None:
+        return None
+    threshold = over_the_hill_age(position, prior_rush_att)
+    if threshold is None:
+        return None
+    return age >= threshold
 
 
 BUILTIN_RULES: list[Rule] = [
@@ -46,8 +106,22 @@ BUILTIN_RULES: list[Rule] = [
         name="Sophomore Leap",
         conditions=[RuleCondition(field="years_exp", operator="==", value=1)],
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=1.08),
-        description="Boosts second-year WR/TE/QB for the expected sophomore leap. +8% at default weight.",
-        positions=["WR", "TE", "QB"],
+        description="Boosts second-year WR/QB for the expected sophomore leap. +8% at default weight.",
+        positions=["WR", "QB"],
+    ),
+    Rule(
+        name="TE Year-3 Leap",
+        conditions=[RuleCondition(field="years_exp", operator="==", value=2)],
+        effect=RuleEffect(type=EffectType.MULTIPLIER, value=1.10),
+        description=(
+            "Boosts all third-year TEs for the expected breakout (not draft-capital "
+            "gated). Unlike WRs (whose breakout peaks in Year 2), TE breakout is a "
+            "Year-3 phenomenon. Supporting evidence subset: first-time-TE1 rates for "
+            "TEs drafted in the first two rounds jump from ~11% (Year 1) to ~17% "
+            "(Year 2) to ~38% (Year 3) per Footballguys hit-rate data. +10% at "
+            "default weight."
+        ),
+        positions=["TE"],
     ),
     Rule(
         name="Contract Year Flag",
@@ -110,7 +184,7 @@ BUILTIN_RULES: list[Rule] = [
         name="Over the Hill",
         conditions=[RuleCondition(field="is_over_the_hill", operator="==", value=True)],
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=0.85),
-        description="Penalizes players past their position's typical decline age: RB >=28, WR >=31, TE >=31, QB >=36, K >=40. DST excluded. -15% at default weight.",
+        description="Penalizes players past their position's typical decline age: RB >=28, WR >=31, TE >=31, K >=40. QB depends on rushing volume — dual-threat QBs (60+ prior-season rush attempts) >=31, pocket passers >=38. DST excluded. -15% at default weight.",
         positions=["QB", "RB", "WR", "TE", "K"],
     ),
     Rule(

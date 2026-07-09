@@ -1,0 +1,177 @@
+name: weekly-release
+
+# Cuts a GitHub release every Monday, bumping the MINOR component of the
+# two-component vX.Y scheme (latest v3.15 -> v3.16). A MAJOR bump (v4.0) is a
+# human-only act and is never produced here. (Locked decisions: 2026-07-06.)
+#
+# A published release is NOT inert: deploy.yml fires on `release: published` and
+# force-deploys prod ECS (backend + scheduler) and the frontend. So this weekly
+# cut is, by explicit choice, a weekly AUTO-DEPLOY. Two consequences drive the
+# design:
+#
+#   1. TOKEN (correctness-critical): the release MUST be created with
+#      PR_AUTHOR_PAT, not the built-in GITHUB_TOKEN. GitHub's recursion guard
+#      means an event created with GITHUB_TOKEN does NOT start a new workflow
+#      run -- a GITHUB_TOKEN `gh release create` would succeed yet deploy.yml
+#      would never fire, so the weekly release would ship no deploy. (Same
+#      behavior documented in claude-orphan-issue-sweeper.yml and in repo
+#      memory: "GITHUB_TOKEN merges suppress workflow runs".) The release step
+#      below runs with GH_TOKEN=PR_AUTHOR_PAT for exactly this reason.
+#
+#   2. GUARDS: an empty week (no commits since the latest tag) is SKIPPED -- an
+#      identical release would re-trigger a prod deploy for nothing. A repo with
+#      NO base vX.Y tag FAILS LOUDLY and cuts nothing -- we never invent a
+#      baseline that would deploy a wrong first release. Both guards live in the
+#      unit-tested core (backend/scripts/weekly_release_version.py), not here.
+#
+# SHIPS DRY_RUN (DRY_RUN: "true"): this run COMPUTES the next version and LOGS
+# what it WOULD create, but creates NO release and triggers NO deploy. To ARM,
+# flip DRY_RUN to "false" in a one-line commit (or pass dry_run=false to a
+# single workflow_dispatch run). Arming makes the Monday cut create a REAL
+# release, which triggers deploy.yml -> prod ECS + frontend deploy. Re-safe by
+# flipping DRY_RUN back to "true".
+#
+# Version core is unit-tested: backend/tests/test_weekly_release_version.py.
+
+on:
+  schedule:
+    # Mondays at 15:23 UTC. Off-minute (23) to dodge the cron-collision gotcha:
+    # a cron fires AT its minute field regardless of the hour/step field, so the
+    # MINUTE must be unique among scheduled workflows. Taken minutes are
+    # copilot-review=0, recommender(6:10)=10, sweeper-health=17, fix-checks=30,
+    # orphan-sweeper=40, resolve-conflicts=45, auto-merge=50 -- minute 23 is
+    # free. Weekly (day-of-week=1) is ample for a release cadence.
+    - cron: "23 15 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Override DRY_RUN for a single manual run (true/false)."
+        required: false
+        type: string
+
+concurrency:
+  # Serialize ticks so two runs never both compute + cut the same version.
+  group: weekly-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write # create the tag + GitHub release (dry-run creates neither)
+
+env:
+  # Ship SAFE: compute-and-log only until a human confirms the next version and
+  # the deploy coupling against a real Monday, then flip to "false" in a
+  # one-line commit to arm the real release (which triggers deploy.yml).
+  DRY_RUN: "true"
+
+jobs:
+  cut:
+    name: compute and cut the weekly release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history + tags: the version core reads `git tag -l 'v*'` and
+          # counts commits since the latest tag. A shallow clone would hide
+          # tags and miscount, breaking both the increment and the empty-week
+          # guard.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Compute next version (and empty-week / no-base-tag guards)
+        id: version
+        env:
+          # Read-only steps may use the built-in token.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Latest release tag by NUMERIC order (the core resolves this; here we
+          # only need a ref to count commits from). `git tag -l 'v*'` lists all
+          # candidate tags; the core filters to well-formed vX.Y and picks the
+          # numeric max.
+          git tag -l 'v*' > tags.txt
+          echo "candidate tags:"; cat tags.txt || true
+
+          # Determine the latest well-formed tag for the commit-count range. If
+          # none exists the core will fail loudly regardless of the count, so a
+          # placeholder 0 is safe here.
+          latest="$(git tag -l 'v*' \
+            | grep -E '^v[0-9]+\.[0-9]+$' \
+            | sort -t. -k1.2,1n -k2,2n \
+            | tail -1 || true)"
+
+          if [ -n "$latest" ]; then
+            commit_count="$(git rev-list --count "${latest}..HEAD")"
+          else
+            commit_count=0
+          fi
+          echo "latest tag: '${latest:-<none>}', commits since: ${commit_count}"
+
+          # The core owns the decision + exit code. `set -e` lets a non-zero
+          # exit (no base tag) fail the job loudly.
+          out="$(python3 backend/scripts/weekly_release_version.py \
+            --tags-file tags.txt --commit-count "${commit_count}")"
+          echo "core says: ${out}"
+
+          case "$out" in
+            next=*)
+              echo "next=${out#next=}" >> "$GITHUB_OUTPUT"
+              echo "action=cut" >> "$GITHUB_OUTPUT"
+              ;;
+            skip=*)
+              echo "::notice::empty week -- ${out}"
+              echo "action=skip" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::unexpected core output: ${out}"
+              exit 1
+              ;;
+          esac
+
+      - name: Cut the release (or log the dry-run)
+        if: steps.version.outputs.action == 'cut'
+        env:
+          # ARM/DRY_RUN resolution (repo convention): the manual dispatch input
+          # overrides the shipped DRY_RUN for a single run.
+          DRY_RUN_OVERRIDE: ${{ github.event.inputs.dry_run }}
+          # The release MUST be created with the PAT so deploy.yml's on:release
+          # actually fires (recursion guard -- see header).
+          GH_TOKEN: ${{ secrets.PR_AUTHOR_PAT }}
+        run: |
+          set -euo pipefail
+          next="${{ steps.version.outputs.next }}"
+          dry_run="${DRY_RUN_OVERRIDE:-$DRY_RUN}"
+          # Arm ONLY on an EXACT, case-sensitive "false". Every other value --
+          # "true", "False", "0", "", a typo -- stays dry. This deliberately
+          # does NOT lowercase (matches the hardened auto-merge arm-guard, issue
+          # #382): a future hand-edit to DRY_RUN "False" must FAIL SAFE (no
+          # release), not silently arm a prod deploy.
+          if [ "$dry_run" != "false" ]; then
+            echo "(dry-run) would create release ${next} with auto-generated" \
+                 "notes; deploy.yml would then deploy it to prod. Set" \
+                 "DRY_RUN=false to arm."
+            exit 0
+          fi
+
+          # Branch guard (armed path only): a published release fires deploy.yml,
+          # which force-deploys whatever commit the release targets to prod. The
+          # scheduled tick always runs on the default branch, but a
+          # workflow_dispatch can target ANY ref -- an armed dispatch from a
+          # feature branch would deploy non-main code to prod. Refuse to cut a
+          # real release unless we are on refs/heads/main. (The dry-run path
+          # above is intentionally allowed from any branch for testing.)
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "::error::refusing to cut a real release from '${GITHUB_REF}';" \
+                 "arming is only permitted on refs/heads/main"
+            exit 1
+          fi
+
+          echo "creating release ${next}"
+          gh release create "${next}" \
+            --title "${next}" \
+            --generate-notes \
+            --target "${GITHUB_SHA}"

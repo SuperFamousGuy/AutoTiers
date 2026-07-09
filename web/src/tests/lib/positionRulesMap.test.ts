@@ -63,6 +63,22 @@ describe("positionRulesMap", () => {
     }
   });
 
+  it("TE Year-3 Leap appears only in the TE tab (issue #575)", () => {
+    expect(POSITION_RULES_MAP["TE"]).toContain("TE Year-3 Leap");
+    expect(POSITION_RULES_MAP["QB"]).not.toContain("TE Year-3 Leap");
+    expect(POSITION_RULES_MAP["RB"]).not.toContain("TE Year-3 Leap");
+    expect(POSITION_RULES_MAP["WR"]).not.toContain("TE Year-3 Leap");
+    expect(POSITION_RULES_MAP["K"]).not.toContain("TE Year-3 Leap");
+    expect(POSITION_RULES_MAP["DST"]).not.toContain("TE Year-3 Leap");
+  });
+
+  it("Sophomore Leap no longer appears in the TE tab (moved to TE Year-3 Leap)", () => {
+    expect(POSITION_RULES_MAP["TE"]).not.toContain("Sophomore Leap");
+    // WR/QB still carry the Year-2 Sophomore Leap.
+    expect(POSITION_RULES_MAP["WR"]).toContain("Sophomore Leap");
+    expect(POSITION_RULES_MAP["QB"]).toContain("Sophomore Leap");
+  });
+
   it("Declining Snap% appears in RB, WR, TE but not QB, K, DST", () => {
     expect(POSITION_RULES_MAP["RB"]).toContain("Declining Snap%");
     expect(POSITION_RULES_MAP["WR"]).toContain("Declining Snap%");

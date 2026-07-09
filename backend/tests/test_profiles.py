@@ -37,6 +37,33 @@ async def test_create_profile_persists_and_returns(async_client):
 
 
 @pytest.mark.asyncio
+async def test_create_profile_rejects_whitespace_only_name(async_client):
+    await _signup(async_client)
+    r = await async_client.post("/api/profiles", json={
+        "name": "  ",
+        "settings_json": {},
+        "rules_json": {},
+    })
+    assert r.status_code == 422
+    assert "blank" in r.json()["detail"].lower()
+    # Nothing was persisted.
+    listing = await async_client.get("/api/profiles")
+    assert listing.json()["profiles"] == []
+
+
+@pytest.mark.asyncio
+async def test_create_profile_trims_surrounding_whitespace(async_client):
+    await _signup(async_client)
+    r = await async_client.post("/api/profiles", json={
+        "name": "  Trimmed  ",
+        "settings_json": {},
+        "rules_json": {},
+    })
+    assert r.status_code == 201
+    assert r.json()["name"] == "Trimmed"
+
+
+@pytest.mark.asyncio
 async def test_create_profile_rejects_when_at_cap(async_client):
     await _signup(async_client)
     for i in range(5):
@@ -53,6 +80,139 @@ async def test_create_profile_rejects_when_at_cap(async_client):
     })
     assert r.status_code == 409
     assert "limit" in r.json()["detail"].lower() or "max" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_create_profile_rejects_duplicate_name(async_client):
+    await _signup(async_client)
+    first = await async_client.post("/api/profiles", json={
+        "name": "My League", "settings_json": {}, "rules_json": {},
+    })
+    assert first.status_code == 201
+
+    # Duplicate name — including the strip() normalization of a trailing space.
+    r = await async_client.post("/api/profiles", json={
+        "name": "My League ", "settings_json": {}, "rules_json": {},
+    })
+    assert r.status_code == 409
+    detail = r.json()["detail"]
+    assert "already have a profile" in detail.lower()
+    # The 409 names the conflicting profile, and uses the trimmed name — not
+    # the raw trailing-whitespace input the client sent.
+    assert "'My League'" in detail
+    assert "'My League '" not in detail
+
+    # No extra row was persisted.
+    listing = await async_client.get("/api/profiles")
+    assert len(listing.json()["profiles"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_patch_profile_rejects_duplicate_name(async_client):
+    await _signup(async_client)
+    a = await async_client.post("/api/profiles", json={
+        "name": "Alpha", "settings_json": {}, "rules_json": {},
+    })
+    b = await async_client.post("/api/profiles", json={
+        "name": "Beta", "settings_json": {}, "rules_json": {},
+    })
+    b_id = b.json()["id"]
+
+    # Rename Beta -> Alpha collides.
+    r = await async_client.patch(f"/api/profiles/{b_id}", json={"name": "Alpha"})
+    assert r.status_code == 409
+    detail = r.json()["detail"]
+    assert "already have a profile" in detail.lower()
+    # The 409 names the conflicting profile so the message is actionable.
+    assert "'Alpha'" in detail
+
+    # Beta is unchanged; still two distinctly-named profiles.
+    listing = await async_client.get("/api/profiles")
+    names = sorted(p["name"] for p in listing.json()["profiles"])
+    assert names == ["Alpha", "Beta"]
+
+
+@pytest.mark.asyncio
+async def test_patch_profile_allows_renaming_to_same_name(async_client):
+    await _signup(async_client)
+    create = await async_client.post("/api/profiles", json={
+        "name": "Keep Me", "settings_json": {}, "rules_json": {},
+    })
+    pid = create.json()["id"]
+
+    # No-op rename to its own current name must not self-collide.
+    r = await async_client.patch(f"/api/profiles/{pid}", json={"name": "Keep Me"})
+    assert r.status_code == 200
+    assert r.json()["name"] == "Keep Me"
+
+
+async def _always_free(*args, **kwargs):
+    """Stand-in for _name_taken that reports every name free — used to simulate
+    the TOCTOU race where the pre-check passes but the DB constraint fires."""
+    return False
+
+
+@pytest.mark.asyncio
+async def test_create_profile_race_falls_back_to_db_constraint(async_client, monkeypatch):
+    from app.api import profiles_api
+    await _signup(async_client)
+    first = await async_client.post("/api/profiles", json={
+        "name": "Racy", "settings_json": {}, "rules_json": {},
+    })
+    assert first.status_code == 201
+
+    # Pre-check reports the name free even though the row exists, so the
+    # unique constraint is the guard that must convert IntegrityError -> 409.
+    monkeypatch.setattr(profiles_api, "_name_taken", _always_free)
+    r = await async_client.post("/api/profiles", json={
+        "name": "Racy", "settings_json": {}, "rules_json": {},
+    })
+    assert r.status_code == 409
+    assert "already have a profile" in r.json()["detail"].lower()
+
+    # Rollback means no orphan row survived the failed commit.
+    listing = await async_client.get("/api/profiles")
+    assert len(listing.json()["profiles"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_patch_profile_race_falls_back_to_db_constraint(async_client, monkeypatch):
+    from app.api import profiles_api
+    await _signup(async_client)
+    await async_client.post("/api/profiles", json={
+        "name": "Aaa", "settings_json": {}, "rules_json": {},
+    })
+    b = await async_client.post("/api/profiles", json={
+        "name": "Bbb", "settings_json": {}, "rules_json": {},
+    })
+    b_id = b.json()["id"]
+
+    monkeypatch.setattr(profiles_api, "_name_taken", _always_free)
+    r = await async_client.patch(f"/api/profiles/{b_id}", json={"name": "Aaa"})
+    assert r.status_code == 409
+    assert "already have a profile" in r.json()["detail"].lower()
+
+    # Both rows intact after the rolled-back rename.
+    listing = await async_client.get("/api/profiles")
+    names = sorted(p["name"] for p in listing.json()["profiles"])
+    assert names == ["Aaa", "Bbb"]
+
+
+@pytest.mark.asyncio
+async def test_duplicate_name_allowed_across_different_users(async_client):
+    # Two users may each own a profile named the same thing.
+    await _signup(async_client, "alice@x.com")
+    a = await async_client.post("/api/profiles", json={
+        "name": "My League", "settings_json": {}, "rules_json": {},
+    })
+    assert a.status_code == 201
+
+    await async_client.post("/api/auth/logout")
+    await _signup(async_client, "bob@x.com")
+    b = await async_client.post("/api/profiles", json={
+        "name": "My League", "settings_json": {}, "rules_json": {},
+    })
+    assert b.status_code == 201
 
 
 @pytest.mark.asyncio
@@ -74,6 +234,38 @@ async def test_patch_profile_updates_fields(async_client):
     assert body["name"] == "Renamed"
     assert body["settings_json"]["league_size"] == 14
     assert body["rules_json"] == {}
+
+
+@pytest.mark.asyncio
+async def test_patch_profile_rejects_whitespace_only_name(async_client):
+    await _signup(async_client)
+    create = await async_client.post("/api/profiles", json={
+        "name": "Original",
+        "settings_json": {},
+        "rules_json": {},
+    })
+    pid = create.json()["id"]
+
+    r = await async_client.patch(f"/api/profiles/{pid}", json={"name": " "})
+    assert r.status_code == 422
+    assert "blank" in r.json()["detail"].lower()
+
+    # The stored row is unchanged — name still "Original".
+    listing = await async_client.get("/api/profiles")
+    assert listing.json()["profiles"][0]["name"] == "Original"
+
+
+@pytest.mark.asyncio
+async def test_patch_profile_trims_surrounding_whitespace(async_client):
+    await _signup(async_client)
+    create = await async_client.post("/api/profiles", json={
+        "name": "Original", "settings_json": {}, "rules_json": {},
+    })
+    pid = create.json()["id"]
+
+    r = await async_client.patch(f"/api/profiles/{pid}", json={"name": "  Renamed  "})
+    assert r.status_code == 200
+    assert r.json()["name"] == "Renamed"
 
 
 @pytest.mark.asyncio

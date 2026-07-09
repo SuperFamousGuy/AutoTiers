@@ -147,6 +147,39 @@ async def test_post_sleeper_pre_link_stores_username_with_no_league(async_client
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("username", ["", "   "])
+async def test_post_sleeper_rejects_blank_username(async_client, test_db, username):
+    """Blank/whitespace username → 400 and no LinkedLeague row is persisted."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    # No respx mock — a blank username must be rejected before any Sleeper call.
+    r = await async_client.post(
+        f"/api/profiles/{p.id}/link/sleeper",
+        json={"username": username},
+    )
+    assert r.status_code == 400, r.text
+    assert "username" in r.json()["detail"].lower()
+    # Verify at the DB level: the guard must run before the row is created/committed.
+    rows = (await test_db.scalars(select(LinkedLeague))).all()
+    assert rows == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("username", ["", "   "])
+async def test_get_sleeper_leagues_rejects_blank_username(async_client, test_db, username):
+    """Blank/whitespace username query param → 400 before hitting Sleeper."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    # No respx mock — a blank username must be rejected before any Sleeper call.
+    r = await async_client.get(
+        f"/api/profiles/{p.id}/link/sleeper/leagues",
+        params={"username": username, "season": 2026},
+    )
+    assert r.status_code == 400, r.text
+    assert "username" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
 async def test_pre_linked_sleeper_survives_profile_patch_and_me_refetch(async_client, test_db):
     """Regression: user reported pre-linking Sleeper, then closing the modal,
     refreshing, and seeing the link gone. Replays the exact sequence:
@@ -224,6 +257,39 @@ async def test_post_espn_rejects_swid_without_espn_s2(async_client, test_db):
         json={"swid": "{abc-123}"},
     )
     assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_post_espn_rejects_half_cookies_even_with_league_id(async_client, test_db):
+    """A league_id must not let a lone cookie past the guard: exactly one of
+    swid/espn_s2 → 400, and no LinkedLeague row is created (no half-credential)."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    r = await async_client.post(
+        f"/api/profiles/{p.id}/link/espn",
+        json={"league_id": "12345", "season": 2026, "swid": "abc", "espn_s2": None},
+    )
+    assert r.status_code == 400
+    assert "both" in r.json()["detail"].lower()
+    from sqlalchemy import select as sql_select
+    rows = (await test_db.scalars(sql_select(LinkedLeague))).all()
+    assert rows == [], "no half-credential row should be persisted on the 400 path"
+
+
+@pytest.mark.asyncio
+async def test_post_espn_rejects_espn_s2_without_swid_with_league_id(async_client, test_db):
+    """The mirror case: espn_s2 present, swid blank, league_id supplied → 400."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    r = await async_client.post(
+        f"/api/profiles/{p.id}/link/espn",
+        json={"league_id": "12345", "season": 2026, "swid": "   ", "espn_s2": "blob"},
+    )
+    assert r.status_code == 400
+    assert "both" in r.json()["detail"].lower()
+    from sqlalchemy import select as sql_select
+    rows = (await test_db.scalars(sql_select(LinkedLeague))).all()
+    assert rows == []
 
 
 @pytest.mark.asyncio

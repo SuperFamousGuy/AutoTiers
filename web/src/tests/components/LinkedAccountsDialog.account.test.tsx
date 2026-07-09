@@ -120,10 +120,10 @@ describe("LinkedAccountsDialog — Account section", () => {
     render(
       <LinkedAccountsDialog open user={baseUser} onOpenChange={noop} onRefresh={noop} initialError={null} />,
     );
-    expect(screen.getByRole("button", { name: /^sleeper$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^espn$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^yahoo$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^nfl fantasy$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^cbs$/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^sleeper$/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^espn$/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^yahoo$/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^nfl fantasy$/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^cbs$/i })).toBeInTheDocument();
   });
 });

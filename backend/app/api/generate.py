@@ -1,7 +1,10 @@
+import asyncio
 import dataclasses
+import logging
 import statistics
+import time
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Protocol, Sequence
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -14,7 +17,7 @@ from app.models import TeamSeason, PlayerContract, UserFavorites, User
 from app.auth.dependencies import _get_current_user_impl
 from app.engine.scoring import LeagueSettings, PlayerStats, calculate_fantasy_points, blend_scores, _score_receiving, _score_rushing, _score_tds_only
 from app.engine.rules import Rule, PlayerContext, apply_rules
-from app.engine.builtin_rules import BUILTIN_RULES, OVER_THE_HILL_AGE
+from app.engine.builtin_rules import BUILTIN_RULES, compute_is_over_the_hill
 from app.engine.xfp import (
     compute_league_averages,
     compute_per_position_sigmas,
@@ -23,22 +26,63 @@ from app.engine.xfp import (
     _MIN_GAMES_PLAYED,
     _MIN_OPPORTUNITY_BY_POSITION,
 )
-from app.engine.tiers import TieredPlayer, assign_tiers
+from app.engine.tiers import TieredPlayer, assign_tiers, compute_vbd_scores
 from app.schemas.generate import GenerateRequest, GenerateResponse, TieredPlayerOut, RuleApplicationOut
 from app.data.matching import normalize_name
 from app.data.teams import DOME_TEAMS, ELEVATION_TEAM, COLD_WEATHER_TEAMS
+from app.data.status import RETIRED_SOURCES
 
 router = APIRouter()
 
+logger = logging.getLogger(__name__)
+
 
 async def _compute_data_as_of(db: AsyncSession) -> Optional[str]:
-    """Return ISO date of the oldest successful source refresh, or None if no source has succeeded."""
+    """Return ISO date of the oldest successful source refresh, or None if no source has succeeded.
+
+    Retired sources (#402) are excluded. ``purge_retired_status()`` normally
+    deletes their rows on the first post-retirement refresh, but a multi-day
+    scheduler outage spanning a retirement (see ``freshness.py``) can leave a
+    stale row behind whose old ``last_updated`` would win the ``min()`` and make
+    the banner report a date from a source no longer feeding any projection (#579).
+    """
     from app.models import DataSourceStatus
-    rows = (await db.scalars(select(DataSourceStatus).where(DataSourceStatus.last_updated.is_not(None)))).all()
+    rows = (await db.scalars(
+        select(DataSourceStatus).where(
+            DataSourceStatus.last_updated.is_not(None),
+            DataSourceStatus.source.not_in(RETIRED_SOURCES),
+        )
+    )).all()
     if not rows:
         return None
     oldest = min(r.last_updated for r in rows)
     return oldest.date().isoformat()
+
+
+async def _compute_never_succeeded(db: AsyncSession) -> list[str]:
+    """Return sorted source names that have been attempted but never succeeded.
+
+    A ``DataSourceStatus`` row with ``last_attempted`` set and ``last_updated``
+    still NULL means the scheduler has run for that source but every attempt has
+    failed since day one (broken credentials, a changed endpoint, …). Such a
+    source contributes nothing to ``blend_scores``/``_avg_projection`` yet is
+    silently dropped from the ``_compute_data_as_of`` ``min()``, so the banner
+    reports a fresh date from only the working sources. Surfacing these sources
+    separately lets the frontend warn ("CBS projections have never loaded")
+    instead of showing a falsely-clean banner (#547).
+
+    Retired sources (#402) are excluded: their rows are purged on refresh, and a
+    lingering one should read as noise, not a live failure.
+    """
+    from app.models import DataSourceStatus
+    rows = (await db.scalars(
+        select(DataSourceStatus.source).where(
+            DataSourceStatus.last_attempted.is_not(None),
+            DataSourceStatus.last_updated.is_(None),
+            DataSourceStatus.source.not_in(RETIRED_SOURCES),
+        )
+    )).all()
+    return sorted(rows)
 
 
 def _build_league_settings(req: GenerateRequest) -> LeagueSettings:
@@ -53,6 +97,7 @@ def _build_league_settings(req: GenerateRequest) -> LeagueSettings:
         weight_prior_year=req.weight_prior_year,
         weight_espn=req.weight_espn,
         weight_consensus=req.weight_consensus,
+        te_premium_bonus=req.te_premium_bonus,
     )
 
 
@@ -92,13 +137,27 @@ def _get_projection(projections: list[Projection], source: str, fmt: str) -> Opt
     return None
 
 
+# The "espn" source is blended separately via ``weight_espn`` (#502), so it must
+# be excluded from the consensus average to keep the two weight budgets over
+# genuinely independent, non-overlapping source pools. Including it here would
+# double-count ESPN once the source is re-enabled: once as its own weighted term
+# and again folded into the consensus mean (#538).
+_CONSENSUS_EXCLUDED_SOURCES = frozenset({"espn"})
+
+
 def _avg_projection(projections: list[Projection], fmt: str) -> Optional[float]:
-    """Average all projection sources for a player at the given scoring format.
+    """Average the consensus projection sources for a player at the given format.
 
     Returns the mean of all source projections that exist for this player and
-    format. Each source counts equally. None if no projections exist.
+    format, EXCLUDING sources that are blended separately (currently "espn",
+    which has its own ``weight_espn`` term — see ``_CONSENSUS_EXCLUDED_SOURCES``).
+    Each remaining source counts equally. None if no consensus projections exist.
     """
-    values = [p.projected_points for p in projections if p.scoring_format == fmt]
+    values = [
+        p.projected_points
+        for p in projections
+        if p.scoring_format == fmt and p.source not in _CONSENSUS_EXCLUDED_SOURCES
+    ]
     if not values:
         return None
     return round(sum(values) / len(values), 2)
@@ -137,8 +196,18 @@ async def _compute_bad_offense_teams(db: AsyncSession, current_year: int) -> set
     return {team for team, _ in sorted_teams[:8]}
 
 
+class _HasIdAndPosition(Protocol):
+    """Minimal structural type ``_compute_above_market_pids`` needs.
+
+    It only reads ``.id`` and ``.position``, so it accepts either an ORM
+    ``Player`` or a session-free ``_PlayerSnapshot`` (#577).
+    """
+    id: str
+    position: str
+
+
 async def _compute_above_market_pids(
-    db: AsyncSession, current_year: int, players: list[Player]
+    db: AsyncSession, current_year: int, players: Sequence[_HasIdAndPosition]
 ) -> set[str]:
     """Players whose cap hit exceeds 1.5× the median for their position.
 
@@ -183,6 +252,111 @@ class _StatWithPosition:
         return getattr(self.stat, name)
 
 
+# ---- Plain snapshots handed to the CPU-bound worker thread (#577) -----------
+# The tiering computation runs off the event loop via ``asyncio.to_thread``.
+# A worker thread must NOT touch the ORM session (accessing an unloaded attr
+# would trigger lazy I/O against the async connection from the wrong thread and
+# crash). So every field the computation reads is copied into these frozen,
+# session-free structures while we are still on the event loop. Attribute names
+# mirror the ORM models so the existing pure helpers (`_get_stat`,
+# `_get_projection`, `_avg_projection`, `_get_adp`, the `xfp.*` functions, and
+# `_StatWithPosition`) operate on snapshots unchanged.
+
+
+@dataclasses.dataclass(frozen=True)
+class _StatSnapshot:
+    season: int
+    games_played: Optional[int]
+    targets: Optional[int]
+    receptions: Optional[int]
+    rec_yards: Optional[float]
+    rec_tds: Optional[int]
+    rush_att: Optional[int]
+    rush_yards: Optional[float]
+    rush_tds: Optional[int]
+    pass_att: Optional[int]
+    pass_yards: Optional[float]
+    pass_tds: Optional[int]
+    interceptions: Optional[int]
+    snap_pct: Optional[float]
+    carry_share: Optional[float]
+    target_share: Optional[float]
+    actual_tds: Optional[int]
+    expected_tds: Optional[float]
+    red_zone_looks: Optional[int]
+
+
+@dataclasses.dataclass(frozen=True)
+class _ProjSnapshot:
+    source: str
+    scoring_format: str
+    projected_points: float
+
+
+@dataclasses.dataclass(frozen=True)
+class _AdpSnapshot:
+    format: str
+    adp: float
+
+
+@dataclasses.dataclass(frozen=True)
+class _PlayerSnapshot:
+    id: str
+    name: str
+    position: str
+    team: Optional[str]
+    age: Optional[int]
+    years_exp: Optional[int]
+    # Immutable sequences so the frozen snapshot is thread-safe by construction:
+    # a worker thread can't mutate them in-place (shallow-freeze gap, #577).
+    stats: tuple[_StatSnapshot, ...]
+    projections: tuple[_ProjSnapshot, ...]
+    adp_entries: tuple[_AdpSnapshot, ...]
+
+
+def _snapshot_stat(s: PlayerStat) -> _StatSnapshot:
+    return _StatSnapshot(
+        season=s.season,
+        games_played=s.games_played,
+        targets=s.targets,
+        receptions=s.receptions,
+        rec_yards=s.rec_yards,
+        rec_tds=s.rec_tds,
+        rush_att=s.rush_att,
+        rush_yards=s.rush_yards,
+        rush_tds=s.rush_tds,
+        pass_att=s.pass_att,
+        pass_yards=s.pass_yards,
+        pass_tds=s.pass_tds,
+        interceptions=s.interceptions,
+        snap_pct=s.snap_pct,
+        carry_share=s.carry_share,
+        target_share=s.target_share,
+        actual_tds=s.actual_tds,
+        expected_tds=s.expected_tds,
+        red_zone_looks=s.red_zone_looks,
+    )
+
+
+def _snapshot_player(p: Player) -> _PlayerSnapshot:
+    """Copy the eager-loaded ORM player (and its stats/projections/adp) into a
+    plain, session-free snapshot the worker thread can safely read (#577)."""
+    return _PlayerSnapshot(
+        id=p.id,
+        name=p.name,
+        position=p.position,
+        team=p.team,
+        age=p.age,
+        years_exp=p.years_exp,
+        stats=tuple(_snapshot_stat(s) for s in p.stats),
+        projections=tuple(
+            _ProjSnapshot(pr.source, pr.scoring_format, pr.projected_points)
+            for pr in p.projections
+        ),
+        adp_entries=tuple(_AdpSnapshot(a.format, a.adp) for a in p.adp_entries),
+    )
+
+
 async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Optional[User] = None) -> list[TieredPlayer]:
     settings = _build_league_settings(req)
     scoring_fmt = req.scoring_format.value
@@ -202,10 +376,74 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
             selectinload(Player.adp_entries),
         )
     )
-    players = result.scalars().all()
+    # Copy the ORM rows into plain snapshots *now*, on the event loop, so the
+    # CPU-bound tiering below can run in a worker thread without ever touching
+    # the async session (#577).
+    players = [_snapshot_player(p) for p in result.scalars().all()]
 
     above_market_pids = await _compute_above_market_pids(db, current_year, players)
 
+    # Server-side favorites lookup. Anonymous calls: empty sets, is_favorite
+    # is None per player, the Favorites rule silently no-ops. Done here (on the
+    # event loop) so the worker thread below needs no DB access.
+    favorite_pids_set: set[str] = set()
+    favorite_teams_set: set[str] = set()
+    if current_user is not None:
+        fav_row = (await db.scalars(
+            select(UserFavorites).where(UserFavorites.user_id == current_user.id)
+        )).one_or_none()
+        if fav_row is not None:
+            favorite_pids_set = set(fav_row.favorite_player_ids or [])
+            favorite_teams_set = set(fav_row.favorite_teams or [])
+
+    # All DB I/O is done. Hand the pure-Python CPU work (per-player scoring +
+    # rules + VBD + Jenks clustering) to a worker thread so it stops blocking
+    # the single event loop that also serves other /generate requests,
+    # /api/data/health, and the in-process scheduler callbacks (#577). The
+    # request-level timing log makes any regression in this cost visible before
+    # it becomes an incident.
+    t0 = time.perf_counter()
+    ranked = await asyncio.to_thread(
+        _compute_ranked_players,
+        players,
+        settings=settings,
+        req=req,
+        scoring_fmt=scoring_fmt,
+        keepers_normalized=keepers_normalized,
+        bad_offense_teams=bad_offense_teams,
+        above_market_pids=above_market_pids,
+        favorite_pids_set=favorite_pids_set,
+        favorite_teams_set=favorite_teams_set,
+        current_year=current_year,
+    )
+    logger.info(
+        "generate: tiered %d/%d players off-loop in %.1fms",
+        len(ranked), len(players), (time.perf_counter() - t0) * 1000,
+    )
+    return ranked
+
+
+def _compute_ranked_players(
+    players: list[_PlayerSnapshot],
+    *,
+    settings: LeagueSettings,
+    req: GenerateRequest,
+    scoring_fmt: str,
+    keepers_normalized: set[str],
+    bad_offense_teams: set[str],
+    above_market_pids: set[str],
+    favorite_pids_set: set[str],
+    favorite_teams_set: set[str],
+    current_year: int,
+) -> list[TieredPlayer]:
+    """Pure-Python tiering: per-player scoring/rules + VBD + Jenks clustering.
+
+    No DB access and no ``await`` — this runs on a worker thread via
+    ``asyncio.to_thread`` (#577) and reads only the plain snapshots and
+    pre-fetched sets passed in, never the ORM session. Keeping it a standalone
+    sync function (rather than a closure) makes it directly unit-testable and
+    keeps the event-loop/worker boundary explicit.
+    """
     # ---- Opportunity-score (xFP) pre-pass ----------------------------------
     # Compute per-position league averages of pts/target, pts/carry, pts/RZ
     # using the SAME settings that determine each player's actual FP. Then
@@ -243,23 +481,14 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
             pass_att=0, pass_yards=0.0, pass_tds=0, interceptions=0,
             games_played=sp.stat.games_played or 1,
         )
-        fp = _score_receiving(ps_for_gap, settings) + _score_rushing(ps_for_gap, settings) + _score_tds_only(ps_for_gap, settings)
+        fp = _score_receiving(ps_for_gap, settings, sp.position) + _score_rushing(ps_for_gap, settings) + _score_tds_only(ps_for_gap, settings)
         gaps_by_position.setdefault(sp.position, []).append(fp - xfp_val)
 
     position_sigmas = compute_per_position_sigmas(gaps_by_position)
     # ------------------------------------------------------------------------
 
-    # Server-side favorites lookup. Anonymous calls: empty sets, is_favorite
-    # is None per player, the Favorites rule silently no-ops.
-    favorite_pids_set: set[str] = set()
-    favorite_teams_set: set[str] = set()
-    if current_user is not None:
-        fav_row = (await db.scalars(
-            select(UserFavorites).where(UserFavorites.user_id == current_user.id)
-        )).one_or_none()
-        if fav_row is not None:
-            favorite_pids_set = set(fav_row.favorite_player_ids or [])
-            favorite_teams_set = set(fav_row.favorite_teams or [])
+    # ``favorite_pids_set`` / ``favorite_teams_set`` were resolved on the event
+    # loop (see ``_run_generate``) and passed in — no DB access from this thread.
     has_any_favorites = bool(favorite_pids_set or favorite_teams_set)
 
     # Pre-compute per-position rule lists once before the player loop.
@@ -302,9 +531,16 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
         league_type_val = req.league_type.value if hasattr(req.league_type, "value") else req.league_type
         player_adp = _get_adp(player.adp_entries, scoring_fmt, league_type_val)
 
+        # Pass the ESPN projection (if any) through to the blend so weight_espn
+        # is not a validated-but-inert field (#502). espn_pts is None in
+        # production today because EspnFetcher is intentionally not invoked
+        # (see sources/fetcher.py), making this a no-op — but if the "espn"
+        # source is ever re-enabled the schema, response field, and blend math
+        # stay in agreement instead of silently absorbing weight_espn into the
+        # prior_year/consensus ratio.
         blended = blend_scores(
             prior_year_actual=prior_actual,
-            espn_projection=None,
+            espn_projection=espn_pts,
             consensus_projection=avg_proj,
             settings=settings,
             prior_year_games=(stat.games_played if stat is not None else None),
@@ -320,9 +556,14 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
         elif projection_unavailable:
             flags_list.append("Projection Unavailable")
 
-        is_over_the_hill: Optional[bool] = None
-        if player.age is not None and player.position in OVER_THE_HILL_AGE:
-            is_over_the_hill = player.age >= OVER_THE_HILL_AGE[player.position]
+        # Prior-season rush attempts — the shared rushing-volume field. For QBs
+        # it drives the mobile-vs-pocket "Over the Hill" age cliff (#576); a QB
+        # with no prior stat row stays None and is classified as a pocket passer.
+        prior_rush_att: Optional[int] = stat.rush_att if stat is not None else None
+
+        is_over_the_hill = compute_is_over_the_hill(
+            player.position, player.age, prior_rush_att
+        )
 
         prior_touches: Optional[int] = None
         if player.position == "RB" and stat is not None:
@@ -338,7 +579,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
 
         injured_two_years_ago: Optional[bool] = None
         if player.position in ("QB", "RB", "WR", "TE", "K"):
-            two_seasons_ago = datetime.utcnow().year - 2
+            two_seasons_ago = current_year - 2
             two_yrs_ago_stat = next(
                 (s for s in player.stats if s.season == two_seasons_ago),
                 None,
@@ -412,6 +653,7 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
             is_over_the_hill=is_over_the_hill,
             projection_unavailable=projection_unavailable,
             prior_touches=prior_touches,
+            prior_rush_att=prior_rush_att,
             injured_two_years_ago=injured_two_years_ago,
             bad_offense_team=bad_offense_team,
             above_market_contract=above_market_contract,
@@ -460,48 +702,98 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
     else:
         tiebreak_adp_attr = "adp_standard"
 
-    # Cap selection. Two-pass:
-    #   1. Per-position floor: every position gets at least league_size * 2 players
-    #      (so every team can draft 2). This prevents K/DST starvation when their
-    #      adjusted scores are dwarfed by RB/WR/QB projections.
-    #   2. Fill remaining budget (cap - len(floor)) with the highest-scoring
-    #      not-yet-selected players regardless of position.
-    # If floor exceeds cap (e.g., short draft_rounds), floor wins — better to
-    # include extras than to miss a position.
+    overall_tier_count = req.overall_tier_count if req.overall_tier_count is not None else req.league_size
+    return _cap_and_assign_tiers(
+        tiered,
+        league_size=req.league_size,
+        draft_rounds=req.draft_rounds,
+        tiebreak_adp_attr=tiebreak_adp_attr,
+        overall_tier_count=overall_tier_count,
+        qb_starters=req.qb_starters,
+    )
+
+
+def _cap_and_assign_tiers(
+    tiered: list[TieredPlayer],
+    *,
+    league_size: int,
+    draft_rounds: int,
+    tiebreak_adp_attr: str,
+    overall_tier_count: int,
+    qb_starters: int,
+) -> list[TieredPlayer]:
+    """Trim ``tiered`` to a draftable roster, then tier and rank that roster.
+
+    Cap selection. Two-pass:
+      1. Per-position floor: every position gets at least league_size * 2 players
+         (so every team can draft 2). This prevents K/DST starvation when their
+         adjusted scores are dwarfed by RB/WR/QB projections.
+      2. Fill remaining budget (cap - len(floor)) with the highest-VBD
+         not-yet-selected players regardless of position.
+    If floor exceeds cap (e.g., short draft_rounds), floor wins — better to
+    include extras than to miss a position.
+
+    The cross-position "remaining budget" fill ranks on vbd_score, not raw
+    adjusted_score: raw point totals are not comparable across positions (QB
+    totals run structurally higher), so a raw-score fill over-includes marginal
+    QBs and under-includes draftable RB/WR/TE depth. VBD (replacement-adjusted
+    score) is the metric built for exactly this cross-position comparison. We
+    compute it on the *full* pre-cap ``tiered`` pool below and reuse it inside
+    ``assign_tiers`` (``compute_vbd=False``) rather than letting it recompute on
+    the narrower capped pool. Within a single position vbd_score is a constant
+    offset from adjusted_score, so the per-position floor ordering is unchanged.
+    See #557.
+
+    The cap is display-only: it decides which players are returned, NOT which
+    players anchor the VBD replacement baseline. Because VBD is computed on the
+    full, un-capped ``tiered`` pool before the cap is applied, each position's
+    replacement level is anchored on the position's true Nth-ranked player rather
+    than the worst survivor of the cap. Without this, a short ``draft_rounds``
+    (where the floor alone exceeds the overall cap, e.g. league_size=12,
+    draft_rounds<=12) starves RB/WR groups below their 2.5x replacement rank and
+    silently inflates the replacement baseline (issue #540).
+    """
+    # Compute VBD on the full pre-cap pool so (a) the cross-position cap fill can
+    # rank by replacement-adjusted value (#557) and (b) the replacement baseline
+    # anchors on each position's true Nth-ranked player, not the worst cap
+    # survivor (#540). assign_tiers is then called with compute_vbd=False so it
+    # does not recompute on the narrower capped pool.
+    compute_vbd_scores(tiered, league_size, qb_starters)
+
     POSITIONS = ("QB", "RB", "WR", "TE", "K", "DST")
-    overall_cap = req.league_size * req.draft_rounds
-    per_position_min = req.league_size * 2
+    overall_cap = league_size * draft_rounds
+    per_position_min = league_size * 2
 
     by_position: dict[str, list[TieredPlayer]] = {p: [] for p in POSITIONS}
     for p in tiered:
         if p.position in by_position:
             by_position[p.position].append(p)
     for pos in by_position:
-        by_position[pos].sort(key=lambda x: x.adjusted_score, reverse=True)
+        by_position[pos].sort(key=lambda x: x.vbd_score, reverse=True)
 
     # Floor: top per_position_min for each position
     guaranteed: list[TieredPlayer] = []
     for pos in POSITIONS:
         guaranteed.extend(by_position[pos][:per_position_min])
 
-    # Fill remaining budget with highest-scoring not-already-selected players
+    # Fill remaining budget with highest-VBD not-already-selected players
     guaranteed_ids = {p.player_id for p in guaranteed}
     remaining_pool = sorted(
         (p for p in tiered if p.player_id not in guaranteed_ids),
-        key=lambda p: p.adjusted_score,
+        key=lambda p: p.vbd_score,
         reverse=True,
     )
     remaining_budget = max(0, overall_cap - len(guaranteed))
     capped = guaranteed + remaining_pool[:remaining_budget]
-    capped.sort(key=lambda p: p.adjusted_score, reverse=True)
+    capped.sort(key=lambda p: p.vbd_score, reverse=True)
 
-    overall_tier_count = req.overall_tier_count if req.overall_tier_count is not None else req.league_size
     return assign_tiers(
         capped,
-        league_size=req.league_size,
+        league_size=league_size,
         tiebreak_adp_attr=tiebreak_adp_attr,
         overall_tier_count=overall_tier_count,
-        qb_starters=req.qb_starters,
+        qb_starters=qb_starters,
+        compute_vbd=False,
     )
 
 
@@ -513,6 +805,7 @@ async def generate_tiers(
 ) -> GenerateResponse:
     ranked = await _run_generate(req, db, current_user)
     data_as_of = await _compute_data_as_of(db)
+    never_succeeded = await _compute_never_succeeded(db)
     league_adp_normalized: dict[str, float] = (
         {normalize_name(k): v for k, v in req.league_adp.items()} if req.league_adp else {}
     )
@@ -527,4 +820,5 @@ async def generate_tiers(
         ],
         total=len(ranked),
         data_as_of=data_as_of,
+        never_succeeded=never_succeeded,
     )

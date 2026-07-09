@@ -149,9 +149,9 @@ def test_builtin_rules_is_nonempty_list_of_rules():
         assert rule.conditions
 
 
-def test_builtin_rules_count_is_25():
-    """Splitting flat '370 Touches' into two age bands (was 24)."""
-    assert len(BUILTIN_RULES) == 25
+def test_builtin_rules_count_is_26():
+    """Splitting flat '370 Touches' into two age bands and adding TE Year-3 Leap rule (was 24)."""
+    assert len(BUILTIN_RULES) == 26
 
 
 def test_opportunity_rules_categorized_as_regression():
@@ -750,6 +750,91 @@ def test_wr_age_31_triggers_over_the_hill():
 
 
 # ---------------------------------------------------------------------------
+# QB rushing-volume-conditioned "Over the Hill" cliff (#576)
+# ---------------------------------------------------------------------------
+
+def test_qb_dropped_from_flat_age_dict():
+    """QB no longer has a single flat cliff — it's rushing-conditioned instead."""
+    from app.engine.builtin_rules import OVER_THE_HILL_AGE
+    assert "QB" not in OVER_THE_HILL_AGE
+
+
+def test_qb_mobile_thresholds_locked():
+    from app.engine.builtin_rules import (
+        QB_MOBILE_RUSH_ATT_THRESHOLD,
+        OVER_THE_HILL_AGE_QB_MOBILE,
+        OVER_THE_HILL_AGE_QB_POCKET,
+    )
+    assert QB_MOBILE_RUSH_ATT_THRESHOLD == 60
+    assert OVER_THE_HILL_AGE_QB_MOBILE == 31
+    assert OVER_THE_HILL_AGE_QB_POCKET == 38
+
+
+@pytest.mark.parametrize("position, prior_rush_att, expected", [
+    ("QB", 200, 31),   # heavy dual-threat -> mobile cliff
+    ("QB", 60, 31),    # exactly at the mobile threshold -> mobile
+    ("QB", 59, 38),    # one below the threshold -> pocket
+    ("QB", 0, 38),     # recorded zero rushes -> pocket
+    ("QB", None, 38),  # no prior stat row -> pocket (conservative)
+    ("RB", 300, 28),   # non-QB ignores rushing volume
+    ("WR", 5, 31),
+    ("TE", 5, 31),
+    ("K", 0, 40),
+    ("DST", 0, None),  # no cliff
+])
+def test_over_the_hill_age_by_position(position, prior_rush_att, expected):
+    from app.engine.builtin_rules import over_the_hill_age
+    assert over_the_hill_age(position, prior_rush_att) == expected
+
+
+@pytest.mark.parametrize("position, age, prior_rush_att, expected", [
+    # Acceptance criteria from #576:
+    ("QB", 32, 120, True),    # 32-yo high-rush QB NOW triggers (previously did not)
+    ("QB", 37, 10, False),    # 37-yo low-rush QB does NOT trigger (previously did)
+    # Boundaries.
+    ("QB", 31, 120, True),    # mobile at cliff
+    ("QB", 30, 120, False),   # mobile just under cliff
+    ("QB", 38, 10, True),     # pocket at cliff
+    ("QB", 37, None, False),  # unknown rush treated as pocket
+    ("QB", None, 120, None),  # unknown age -> skip
+    ("DST", 40, 0, None),     # no cliff -> skip
+])
+def test_compute_is_over_the_hill(position, age, prior_rush_att, expected):
+    from app.engine.builtin_rules import compute_is_over_the_hill
+    assert compute_is_over_the_hill(position, age, prior_rush_att) == expected
+
+
+def test_mobile_qb_over_the_hill_fires_end_to_end():
+    """A 32-yo dual-threat QB flows through the rule and gets penalized."""
+    import dataclasses
+    from app.engine.builtin_rules import compute_is_over_the_hill
+    is_oth = compute_is_over_the_hill("QB", 32, 120)
+    assert is_oth is True
+    rule = dataclasses.replace(
+        next(r for r in BUILTIN_RULES if r.name == "Over the Hill"), enabled=True
+    )
+    ctx = make_ctx(position="QB", age=32, prior_rush_att=120, is_over_the_hill=is_oth)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "Over the Hill" in result.rules_applied
+    assert result.adjusted_score < 100.0
+
+
+def test_pocket_qb_37_does_not_fire_end_to_end():
+    """A 37-yo pocket passer is NOT penalized where the old flat-36 cliff would have."""
+    import dataclasses
+    from app.engine.builtin_rules import compute_is_over_the_hill
+    is_oth = compute_is_over_the_hill("QB", 37, 8)
+    assert is_oth is False
+    rule = dataclasses.replace(
+        next(r for r in BUILTIN_RULES if r.name == "Over the Hill"), enabled=True
+    )
+    ctx = make_ctx(position="QB", age=37, prior_rush_att=8, is_over_the_hill=is_oth)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "Over the Hill" not in result.rules_applied
+    assert result.adjusted_score == 100.0
+
+
+# ---------------------------------------------------------------------------
 # FIX 2 — Sophomore Leap positional gate
 # ---------------------------------------------------------------------------
 
@@ -763,14 +848,15 @@ def test_sophomore_leap_fires_on_wr():
     assert result.adjusted_score == pytest.approx(100.0 * 1.08)
 
 
-def test_sophomore_leap_fires_on_te():
-    """Second-year TE must receive the Sophomore Leap boost."""
+def test_sophomore_leap_does_not_fire_on_te():
+    """Second-year TE must NOT receive the Sophomore Leap boost — TE breakout is
+    a Year-3 phenomenon, handled by the separate 'TE Year-3 Leap' rule (issue #575)."""
     import dataclasses
     rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Sophomore Leap"), enabled=True)
     ctx = make_ctx(position="TE", years_exp=1)
     result = apply_rules(100.0, ctx, [rule])
-    assert "Sophomore Leap" in result.rules_applied
-    assert result.adjusted_score == pytest.approx(100.0 * 1.08)
+    assert "Sophomore Leap" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0)
 
 
 def test_sophomore_leap_fires_on_qb():
@@ -813,10 +899,65 @@ def test_sophomore_leap_does_not_fire_on_dst():
     assert result.adjusted_score == pytest.approx(100.0)
 
 
-def test_builtin_sophomore_leap_has_wr_te_qb_positions():
-    """Sophomore Leap must carry positions=["WR", "TE", "QB"] — no RB, K, or DST."""
+def test_builtin_sophomore_leap_has_wr_qb_positions():
+    """Sophomore Leap must carry positions=["WR", "QB"] — TE moved to the
+    'TE Year-3 Leap' rule; no RB, K, or DST (issue #575)."""
     rule = next(r for r in BUILTIN_RULES if r.name == "Sophomore Leap")
-    assert set(rule.positions) == {"WR", "TE", "QB"}
+    assert set(rule.positions) == {"WR", "QB"}
+
+
+# ---------------------------------------------------------------------------
+# TE Year-3 Leap — TE breakout lands on Year 3 (years_exp == 2), not Year 2 (#575)
+# ---------------------------------------------------------------------------
+
+def test_te_year3_leap_fires_on_third_year_te():
+    """Third-year TE (years_exp == 2) must receive the +10% Year-3 breakout boost."""
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "TE Year-3 Leap"), enabled=True)
+    ctx = make_ctx(position="TE", years_exp=2)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "TE Year-3 Leap" in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0 * 1.10)
+
+
+def test_te_year3_leap_does_not_fire_on_second_year_te():
+    """Second-year TE (years_exp == 1) must NOT receive the Year-3 boost."""
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "TE Year-3 Leap"), enabled=True)
+    ctx = make_ctx(position="TE", years_exp=1)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "TE Year-3 Leap" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0)
+
+
+def test_te_year3_leap_does_not_fire_on_wr():
+    """Third-year WR must NOT receive the TE Year-3 boost (TE-scoped only)."""
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "TE Year-3 Leap"), enabled=True)
+    ctx = make_ctx(position="WR", years_exp=2)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "TE Year-3 Leap" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0)
+
+
+def test_te_year3_leap_does_not_fire_on_qb():
+    """Third-year QB must NOT receive the TE Year-3 boost (TE-scoped only)."""
+    import dataclasses
+    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "TE Year-3 Leap"), enabled=True)
+    ctx = make_ctx(position="QB", years_exp=2)
+    result = apply_rules(100.0, ctx, [rule])
+    assert "TE Year-3 Leap" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(100.0)
+
+
+def test_builtin_te_year3_leap_has_te_position_only():
+    """TE Year-3 Leap must carry positions=["TE"] and fire on years_exp == 2."""
+    rule = next(r for r in BUILTIN_RULES if r.name == "TE Year-3 Leap")
+    assert rule.positions == ["TE"]
+    assert rule.conditions[0].field == "years_exp"
+    assert rule.conditions[0].operator == "=="
+    assert rule.conditions[0].value == 2
+    assert rule.effect.value == pytest.approx(1.10)
 
 
 # ---------------------------------------------------------------------------

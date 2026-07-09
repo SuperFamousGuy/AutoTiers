@@ -1,6 +1,7 @@
-import { ChevronDown } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { Profile } from "@/api/types";
 
 interface ProfilePickerProps {
@@ -25,8 +26,13 @@ export function ProfilePicker({ profiles, activeId, onSelect, onNew, onManage, c
       </DropdownMenuTrigger>
       <DropdownMenuContent>
         {profiles.map((p) => (
-          <DropdownMenuItem key={p.id} onSelect={() => onSelect(p.id)}>
-            {p.id === activeId ? "✓ " : "  "}{p.name}
+          <DropdownMenuItem
+            key={p.id}
+            onSelect={() => onSelect(p.id)}
+            aria-current={p.id === activeId ? "true" : undefined}
+          >
+            <Check className={cn("mr-2 h-4 w-4 shrink-0", p.id === activeId ? "opacity-100" : "opacity-0")} />
+            {p.name}
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />

@@ -56,6 +56,11 @@ class PlayerContext:
     is_over_the_hill: Optional[bool] = None
     projection_unavailable: Optional[bool] = None
     prior_touches: Optional[int] = None
+    # Prior-season rush attempts. Shared rushing-volume field: it feeds the QB
+    # mobile-vs-pocket "Over the Hill" classification (computed upstream in
+    # generate.py) and is the field the tracked "QB rushing floor" rule should
+    # reuse rather than adding a duplicate (#576).
+    prior_rush_att: Optional[int] = None
     injured_two_years_ago: Optional[bool] = None
     bad_offense_team: Optional[bool] = None
     above_market_contract: Optional[bool] = None

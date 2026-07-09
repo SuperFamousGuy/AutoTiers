@@ -25,14 +25,33 @@ interface TiersPanelProps {
   onDownloadDebugCsv?: () => void;
   /** Stable id for the linked league (or "default"), used to scope Draft Mode persistence per league + scoring format. */
   leagueKey?: string;
+  /** True when settings/rules changed since this list was generated — surfaces the staleness banner (#523). */
+  isStale?: boolean;
+  /** Regenerate handler invoked from the staleness banner's Generate affordance. */
+  onRegenerate?: () => void;
+  /** Whether a regenerate is currently allowed (valid weights + rules loaded); disables the banner's Generate button. */
+  canRegenerate?: boolean;
 }
 
-export function TiersPanel({ result, isPending, onDownloadXlsx, keepers, scoringFormat, tierLabelOverrides, debugMode, onDownloadDebugCsv, leagueKey }: TiersPanelProps) {
+export function TiersPanel({ result, isPending, onDownloadXlsx, keepers, scoringFormat, tierLabelOverrides, debugMode, onDownloadDebugCsv, leagueKey, isStale, onRegenerate, canRegenerate }: TiersPanelProps) {
   const [filter, setFilter] = useState<PositionFilterValue>("ALL");
   const [draftMode, setDraftMode] = useState(false);
 
   const draftStorageKey = `${leagueKey ?? "default"}:${scoringFormat ?? "standard"}`;
   const { isDrafted, draftedCount, toggleDrafted, reset: resetDraft, drafted } = useDraftBoard(draftStorageKey);
+
+  // Reset Draft wipes the live drafted-players board (per-league, per-format,
+  // persisted to localStorage) with no undo. On a phone during a live draft
+  // this button sits next to the frequently-tapped Draft Mode toggle, so gate
+  // the wipe behind a confirmation that names the count. When nothing is
+  // drafted there is nothing to lose, so skip the prompt and no-op.
+  const handleResetDraft = () => {
+    if (draftedCount === 0) return;
+    const noun = draftedCount === 1 ? "player" : "players";
+    if (window.confirm(`Clear all ${draftedCount} drafted ${noun} for this board? This can't be undone.`)) {
+      resetDraft();
+    }
+  };
 
   const groupedByTier = useMemo(() => {
     if (!result) return [] as { label: string; descriptiveLabel?: string; players: GenerateResponse["players"] }[];
@@ -110,6 +129,26 @@ export function TiersPanel({ result, isPending, onDownloadXlsx, keepers, scoring
 
   return (
     <section className="flex flex-col h-full min-h-0">
+      {isStale && (
+        <div
+          role="status"
+          className="flex items-center justify-between gap-3 border-b border-yellow-300 bg-yellow-50 px-4 py-2.5 text-yellow-900 dark:border-yellow-700/60 dark:bg-yellow-950/40 dark:text-yellow-200"
+        >
+          <p className="min-w-0 flex-1 text-xs">
+            Settings changed since this list was generated — regenerate to update.
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-6 shrink-0 px-2 text-xs text-yellow-900 hover:bg-yellow-100 hover:text-yellow-900 dark:text-yellow-200 dark:hover:bg-yellow-900/30"
+            onClick={onRegenerate}
+            disabled={canRegenerate === false}
+          >
+            Generate
+          </Button>
+        </div>
+      )}
       {keepers && keepers.length > 0 && (
         <div className="border-b px-3 py-2 text-xs text-muted-foreground">
           Excluded Keepers: {keepers.map((k) => k.player_name).join(", ")}
@@ -127,7 +166,7 @@ export function TiersPanel({ result, isPending, onDownloadXlsx, keepers, scoring
           <div className="flex items-center gap-2 shrink-0">
             {draftMode && (
               <Button
-                onClick={resetDraft}
+                onClick={handleResetDraft}
                 variant="outline"
                 size="sm"
               >
@@ -168,19 +207,35 @@ export function TiersPanel({ result, isPending, onDownloadXlsx, keepers, scoring
             </ul>
           </details>
         )}
-        <div className="space-y-4">
-          {groupedByTier.map((group) => (
-            <TierGroup
-              key={group.label}
-              label={group.label}
-              descriptiveLabel={group.descriptiveLabel}
-              players={group.players}
-              draftMode={draftMode}
-              isDrafted={isDrafted}
-              onToggleDraft={toggleDrafted}
-            />
-          ))}
-        </div>
+        {groupedByTier.length === 0 && filter !== "ALL" ? (
+          <div className="rounded-md border border-dashed py-8 px-4 text-center">
+            <p className="text-sm text-muted-foreground">
+              No {filter} players in this tier list.
+            </p>
+            <Button
+              onClick={() => setFilter("ALL")}
+              variant="outline"
+              size="sm"
+              className="mt-3"
+            >
+              Show all positions
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {groupedByTier.map((group) => (
+              <TierGroup
+                key={group.label}
+                label={group.label}
+                descriptiveLabel={group.descriptiveLabel}
+                players={group.players}
+                draftMode={draftMode}
+                isDrafted={isDrafted}
+                onToggleDraft={toggleDrafted}
+              />
+            ))}
+          </div>
+        )}
       </div>
       <div className="border-t bg-card px-6 py-3 flex justify-center gap-3">
         <Button data-tour="download" onClick={onDownloadXlsx} variant="default">

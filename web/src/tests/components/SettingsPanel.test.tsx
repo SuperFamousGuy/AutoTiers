@@ -460,4 +460,24 @@ describe("SettingsPanel — Prior-Year Injury Discount section (#315)", () => {
     const last = spy.mock.calls[spy.mock.calls.length - 1][0] as SettingsState;
     expect(last.full_season_games).toBe(16);
   });
+
+  it("defaults the TE Premium select to None when unset", () => {
+    render(<RampPanel />);
+    expect(screen.getByLabelText("TE Premium")).toHaveTextContent("None");
+  });
+
+  it("reflects a stored te_premium_bonus", () => {
+    render(<RampPanel initial={{ ...baseSettings, te_premium_bonus: 1 }} />);
+    expect(screen.getByLabelText("TE Premium")).toHaveTextContent("+1.0 / reception");
+  });
+
+  it("selecting a TE Premium value propagates te_premium_bonus", async () => {
+    const spy = vi.fn();
+    render(<RampPanel onChangeSpy={spy} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("combobox", { name: "TE Premium" }));
+    await user.click(await screen.findByRole("option", { name: "+0.5 / reception" }));
+    const last = spy.mock.calls[spy.mock.calls.length - 1][0] as SettingsState;
+    expect(last.te_premium_bonus).toBe(0.5);
+  });
 });

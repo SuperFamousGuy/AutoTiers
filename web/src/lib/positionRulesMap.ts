@@ -29,7 +29,7 @@ export const POSITION_RULES_MAP: Record<Position, readonly string[]> = {
   ],
   TE: [
     "Target Share Premium", "Declining Snap%", "New Team Penalty",
-    "New Head Coach", "Sophomore Leap", "Bad Offense", "Follow the Money",
+    "New Head Coach", "TE Year-3 Leap", "Bad Offense", "Follow the Money",
     "Injury History", "TD Regression", "Opportunity Over-Producer",
     "Opportunity Under-Producer", "Red Zone Usage Premium",
     "Projection Unavailable", "Year After the Year After",
