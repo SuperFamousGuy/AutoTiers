@@ -553,6 +553,9 @@ export default function App() {
           onRefresh={refresh}
           initialError={linkingError}
           activeProfile={profiles.find((p) => p.id === activeProfileId) ?? null}
+          profiles={profiles}
+          onSelectProfile={handleSelectProfile}
+          onCreateProfile={handleNewProfile}
         />
       )}
       {/* Standalone forgot-password dialog — opened from the reset panel's "Request new link" */}
