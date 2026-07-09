@@ -49,8 +49,8 @@ describe("DataFreshness", () => {
   });
 
   describe("on a failed /api/data/status fetch", () => {
-    it("renders a role=alert error state (not the generic unavailable span) after retries exhaust", async () => {
-      // The whole point of the fix: a persistent failure must surface an alert
+    it("renders a role=alert error state (not the generic unavailable span) when the fetch fails", async () => {
+      // The whole point of the fix: a failed fetch must surface an alert
       // with distinct copy, not the generic non-alert "Data status unavailable".
       // Removing the isError branch drops this test straight back to that span.
       server.use(
