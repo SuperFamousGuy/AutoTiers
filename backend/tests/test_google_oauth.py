@@ -392,6 +392,10 @@ async def test_repeat_login_does_not_seed_a_second_profile(async_client, test_db
             )
 
     await _do_login()
+    # Drop the session cookie the first callback set so the second callback runs
+    # the sign-in branch (current_user is None) a real returning user hits — not
+    # the link branch. Otherwise this wouldn't guard the sign-in seeding path.
+    async_client.cookies.delete("autotiers_session")
     await _do_login()
 
     users = (await test_db.scalars(select(User))).all()

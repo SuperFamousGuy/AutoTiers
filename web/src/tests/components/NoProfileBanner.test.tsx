@@ -25,10 +25,20 @@ describe("NoProfileBanner", () => {
   });
 
   it("disables the button while creating, then re-enables it on failure", async () => {
-    const onCreate = vi.fn().mockRejectedValue(new Error("boom"));
+    // Hold onCreateProfile pending so we can observe the in-flight state before
+    // it settles — this is what proves the "disable while creating" logic runs.
+    let reject!: (e: Error) => void;
+    const pending = new Promise<void>((_, r) => {
+      reject = r;
+    });
+    const onCreate = vi.fn().mockReturnValue(pending);
     render(<NoProfileBanner onCreateProfile={onCreate} />);
     const button = screen.getByRole("button", { name: /create profile/i });
     await userEvent.click(button);
+    // While the promise is pending the button is disabled and shows progress.
+    expect(button).toBeDisabled();
+    expect(button).toHaveTextContent(/creating/i);
+    reject(new Error("boom"));
     // After the rejected promise settles the button becomes usable again.
     await waitFor(() => expect(button).toBeEnabled());
     expect(onCreate).toHaveBeenCalledTimes(1);

@@ -24,8 +24,12 @@ export function NoProfileBanner({ onCreateProfile }: Props) {
     try {
       await onCreateProfile();
     } catch {
-      // Re-enable the button so the user can retry. handleNewProfile surfaces
-      // its own errors; here we only need to leave the banner usable.
+      // handleNewProfile surfaces its own errors; nothing to do here.
+    } finally {
+      // Always re-enable. On success the banner normally unmounts, but if it
+      // stays mounted (onCreateProfile resolved without adding a profile, or a
+      // caller keeps it around) the button must not get stuck in a permanent
+      // "Creating..." state. setState on an unmounted component is a no-op.
       setCreating(false);
     }
   }
