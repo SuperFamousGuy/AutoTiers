@@ -69,6 +69,35 @@ async def test_health(async_client):
     assert resp.json() == {"status": "ok"}
 
 
+def test_app_uses_orjson_default_response_class():
+    """#581: the app is wired to serialize responses via ORJSONResponse.
+
+    This locks in the response-boundary serialization win — if someone drops the
+    default_response_class back to the stdlib-json default, this fails.
+    """
+    from fastapi.responses import ORJSONResponse
+    from app.main import app
+
+    assert app.router.default_response_class is ORJSONResponse
+
+
+async def test_generate_response_is_json_content_type(async_client, test_db):
+    """#581: switching to ORJSONResponse must not change the content-type or body.
+
+    ORJSONResponse advertises the same application/json media type, so existing
+    clients see an identical contract; the body must still parse to the expected
+    payload.
+    """
+    await _seed(test_db)
+    resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
+    assert resp.status_code == 200
+    # Assert the media type only; frameworks may append parameters such as
+    # "; charset=utf-8", so exact string equality would be brittle across versions.
+    assert resp.headers["content-type"].split(";")[0].strip() == "application/json"
+    # Body is still valid JSON with the unchanged shape.
+    assert resp.json()["total"] == 3
+
+
 async def test_generate_returns_all_players(async_client, test_db):
     await _seed(test_db)
     resp = await async_client.post("/api/generate", json=_GENERATE_BODY)

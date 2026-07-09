@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import ORJSONResponse
 from app.api import generate, rules, data
 from app.api import auth as auth_api
 from app.api import profiles_api
@@ -23,7 +24,16 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown()
 
 
-app = FastAPI(title="AutoTiers API", version="0.1.0", lifespan=lifespan)
+# orjson serializes large tiered-player lists (hundreds of players x ~20 fields
+# plus nested rule-application lists) faster and with lower memory than the
+# stdlib-json path FastAPI defaults to. ORJSONResponse keeps the same
+# application/json content-type, so a blanket default is a safe drop-in (#581).
+app = FastAPI(
+    title="AutoTiers API",
+    version="0.1.0",
+    lifespan=lifespan,
+    default_response_class=ORJSONResponse,
+)
 
 app.add_middleware(
     CORSMiddleware,
