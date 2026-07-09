@@ -542,6 +542,7 @@ export default function App() {
         open={manageOpen}
         onOpenChange={setManageOpen}
         profiles={profiles}
+        activeProfileId={activeProfileId}
         onRename={handleRenameProfile}
         onDelete={handleDeleteProfile}
       />
