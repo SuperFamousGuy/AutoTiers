@@ -32,7 +32,7 @@ async def test_over_producer_rule_fires_in_generate(test_db: AsyncSession):
     # Stats must land on the prior season (current_year - 1); _get_stat only
     # reads that exact season now (#608), so a hardcoded year would be treated
     # as stale and dropped.
-    season = datetime.utcnow().year
+    prior_season = datetime.utcnow().year - 1
     players_data = [
         # (player_id, targets, rec, yds, tds, rz_looks)
         ("A_overproducer", 80, 50, 600.0, 12, 10),  # 12 TDs, only 10 RZ looks → high z
@@ -45,7 +45,7 @@ async def test_over_producer_rule_fires_in_generate(test_db: AsyncSession):
         p = Player(id=pid, name=pid, position="WR", team="ABC", age=26, years_exp=4)
         test_db.add(p)
         test_db.add(PlayerStat(
-            player_id=pid, season=season - 1,
+            player_id=pid, season=prior_season,
             targets=targets, receptions=rec, rec_yards=yds, rec_tds=tds,
             rush_att=0, rush_yards=0.0, rush_tds=0,
             pass_att=0, pass_yards=0.0, pass_tds=0, interceptions=0,
