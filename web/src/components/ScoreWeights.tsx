@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
-import { setWeight, weightsAreValid, type Weights, type WeightKey } from "@/lib/weights";
+import { setComplementaryWeight, weightsAreValid, type Weights, type WeightKey } from "@/lib/weights";
 import { cn } from "@/lib/utils";
 
 interface ScoreWeightsProps {
@@ -88,7 +88,7 @@ export function ScoreWeights({ weights, onChange }: ScoreWeightsProps) {
           weightKey={key}
           label={label}
           value={weights[key]}
-          onCommit={(v) => onChange(setWeight(key, v, weights))}
+          onCommit={(v) => onChange(setComplementaryWeight(key, v))}
         />
       ))}
       <div className={cn("text-xs font-medium", valid ? "text-green-600" : "text-red-600")}>
