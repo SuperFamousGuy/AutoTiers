@@ -106,8 +106,22 @@ BUILTIN_RULES: list[Rule] = [
         name="Sophomore Leap",
         conditions=[RuleCondition(field="years_exp", operator="==", value=1)],
         effect=RuleEffect(type=EffectType.MULTIPLIER, value=1.08),
-        description="Boosts second-year WR/TE/QB for the expected sophomore leap. +8% at default weight.",
-        positions=["WR", "TE", "QB"],
+        description="Boosts second-year WR/QB for the expected sophomore leap. +8% at default weight.",
+        positions=["WR", "QB"],
+    ),
+    Rule(
+        name="TE Year-3 Leap",
+        conditions=[RuleCondition(field="years_exp", operator="==", value=2)],
+        effect=RuleEffect(type=EffectType.MULTIPLIER, value=1.10),
+        description=(
+            "Boosts all third-year TEs for the expected breakout (not draft-capital "
+            "gated). Unlike WRs (whose breakout peaks in Year 2), TE breakout is a "
+            "Year-3 phenomenon. Supporting evidence subset: first-time-TE1 rates for "
+            "TEs drafted in the first two rounds jump from ~11% (Year 1) to ~17% "
+            "(Year 2) to ~38% (Year 3) per Footballguys hit-rate data. +10% at "
+            "default weight."
+        ),
+        positions=["TE"],
     ),
     Rule(
         name="Contract Year Flag",
