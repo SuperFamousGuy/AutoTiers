@@ -15,7 +15,7 @@ import pytest
 from app.engine.tiers import (
     TieredPlayer,
     _REPLACEMENT_MULTIPLIERS,
-    _compute_vbd,
+    compute_vbd_scores,
 )
 from scripts.seed_dev import PLAYERS
 
@@ -115,13 +115,13 @@ def _tiered_from_seed() -> list[TieredPlayer]:
 def test_replacement_baseline_is_an_interior_player(position):
     """The VBD replacement is a real mid-pack player, not the clamped worst-of-pool.
 
-    Runs the engine's actual `_compute_vbd` over the seed. The acceptance bug
+    Runs the engine's actual `compute_vbd_scores` over the seed. The acceptance bug
     was that with <30 players the replacement index clamps to the last (worst)
     player; with the expanded pools the replacement rank lands strictly inside
     the pool, above the floor.
     """
     players = _tiered_from_seed()
-    _compute_vbd(players, LEAGUE_SIZE)
+    compute_vbd_scores(players, LEAGUE_SIZE)
 
     group = sorted(
         (p for p in players if p.position == position),

@@ -526,6 +526,62 @@ async def test_generate_guarantees_position_coverage(async_client, test_db):
 
 
 @pytest.mark.asyncio
+async def test_generate_cap_fill_ranks_remaining_budget_by_vbd_not_raw(async_client, test_db):
+    """#557: the cross-position "remaining budget" fill must rank on VBD, not raw score.
+
+    Synthetic pool: 30 QBs with structurally higher raw scores but *lower* VBD, and
+    30 RBs with lower raw scores but *higher* VBD. Per-position floor takes the top 20
+    of each (40 total); the remaining 10 cap slots are contested by QB21-30 vs RB21-30.
+
+    On raw score the QBs win every remaining slot (they out-score every RB), so a
+    raw-ranked fill would return 30 QB / 20 RB. On VBD the RBs win, because QB totals
+    run structurally higher than replacement while these marginal RBs still sit near/above
+    their replacement rank. The fix must therefore preferentially fill with the RBs.
+    """
+    from app.models import Player, Projection
+    from datetime import date
+
+    # QBs: raw 380 -> 351 (flat, high). QB replacement ~ QB7 (round(10*0.67)) => VBD < 0 for the tail.
+    # RBs: raw 300 -> 242 (steeper). RB replacement ~ RB25 (round(10*2.5)) => tail VBD near 0, above the QBs'.
+    seed_data = (
+        [(f"qb_{i}", "QB", 380.0 - i) for i in range(30)]
+        + [(f"rb_{i}", "RB", 300.0 - i * 2) for i in range(30)]
+    )
+    for pid, pos, _ in seed_data:
+        test_db.add(Player(id=pid, name=pid, position=pos, team="DAL"))
+    await test_db.commit()
+    for pid, _, pts in seed_data:
+        # weight_consensus=1.0 drives the scores below, so seed a consensus
+        # source. "espn" is intentionally excluded from the consensus average
+        # (it blends via its own weight_espn term — see _CONSENSUS_EXCLUDED_SOURCES
+        # / #549), so an espn-only seed would score to nothing here and collapse
+        # the VBD ordering this test exercises.
+        test_db.add(Projection(
+            player_id=pid, source="fantasypros", scoring_format="ppr",
+            projected_points=pts, last_updated=date.today(),
+        ))
+    await test_db.commit()
+
+    payload = {
+        "scoring_format": "ppr", "league_type": "standard", "league_size": 10,
+        "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
+        "bonus_first_downs": False, "weight_prior_year": 0.0, "weight_espn": 0.0,
+        "weight_consensus": 1.0, "draft_rounds": 5, "rules": {},
+    }
+    resp = await async_client.post("/api/generate", json=payload)
+    assert resp.status_code == 200
+    body = resp.json()
+
+    # Floor = 10*2 = 20 per position => 20 QB + 20 RB = 40. Cap = 10*5 = 50 => 10 remaining slots.
+    assert body["total"] == 50
+    positions = [p["position"] for p in body["players"]]
+    # Every raw QB out-scores every RB, so a raw-ranked fill would give the 10 slots to QBs
+    # (30 QB / 20 RB). VBD gives them to the RBs instead.
+    assert positions.count("RB") == 30, f"Expected 30 RBs (higher VBD), got {positions.count('RB')}"
+    assert positions.count("QB") == 20, f"Expected 20 QBs (lower VBD), got {positions.count('QB')}"
+
+
+@pytest.mark.asyncio
 async def test_generate_validates_draft_rounds_range(async_client):
     """draft_rounds must be 1-30; values outside that range return 422."""
     base_payload = {

@@ -23,7 +23,7 @@ from app.engine.xfp import (
     _MIN_GAMES_PLAYED,
     _MIN_OPPORTUNITY_BY_POSITION,
 )
-from app.engine.tiers import TieredPlayer, assign_tiers
+from app.engine.tiers import TieredPlayer, assign_tiers, compute_vbd_scores
 from app.schemas.generate import GenerateRequest, GenerateResponse, TieredPlayerOut, RuleApplicationOut
 from app.data.matching import normalize_name
 from app.data.teams import DOME_TEAMS, ELEVATION_TEAM, COLD_WEATHER_TEAMS
@@ -535,20 +535,38 @@ def _cap_and_assign_tiers(
       1. Per-position floor: every position gets at least league_size * 2 players
          (so every team can draft 2). This prevents K/DST starvation when their
          adjusted scores are dwarfed by RB/WR/QB projections.
-      2. Fill remaining budget (cap - len(floor)) with the highest-scoring
+      2. Fill remaining budget (cap - len(floor)) with the highest-VBD
          not-yet-selected players regardless of position.
     If floor exceeds cap (e.g., short draft_rounds), floor wins — better to
     include extras than to miss a position.
 
+    The cross-position "remaining budget" fill ranks on vbd_score, not raw
+    adjusted_score: raw point totals are not comparable across positions (QB
+    totals run structurally higher), so a raw-score fill over-includes marginal
+    QBs and under-includes draftable RB/WR/TE depth. VBD (replacement-adjusted
+    score) is the metric built for exactly this cross-position comparison. We
+    compute it on the *full* pre-cap ``tiered`` pool below and reuse it inside
+    ``assign_tiers`` (``compute_vbd=False``) rather than letting it recompute on
+    the narrower capped pool. Within a single position vbd_score is a constant
+    offset from adjusted_score, so the per-position floor ordering is unchanged.
+    See #557.
+
     The cap is display-only: it decides which players are returned, NOT which
-    players anchor the VBD replacement baseline. The full, un-capped ``tiered``
-    pool is handed to ``assign_tiers`` as the ``replacement_pool`` so each
-    position's replacement level is computed from the position's true Nth-ranked
-    player rather than the worst survivor of the cap. Without this, a short
-    ``draft_rounds`` (where the floor alone exceeds the overall cap, e.g.
-    league_size=12, draft_rounds<=12) starves RB/WR groups below their 2.5x
-    replacement rank and silently inflates the replacement baseline (issue #540).
+    players anchor the VBD replacement baseline. Because VBD is computed on the
+    full, un-capped ``tiered`` pool before the cap is applied, each position's
+    replacement level is anchored on the position's true Nth-ranked player rather
+    than the worst survivor of the cap. Without this, a short ``draft_rounds``
+    (where the floor alone exceeds the overall cap, e.g. league_size=12,
+    draft_rounds<=12) starves RB/WR groups below their 2.5x replacement rank and
+    silently inflates the replacement baseline (issue #540).
     """
+    # Compute VBD on the full pre-cap pool so (a) the cross-position cap fill can
+    # rank by replacement-adjusted value (#557) and (b) the replacement baseline
+    # anchors on each position's true Nth-ranked player, not the worst cap
+    # survivor (#540). assign_tiers is then called with compute_vbd=False so it
+    # does not recompute on the narrower capped pool.
+    compute_vbd_scores(tiered, league_size, qb_starters)
+
     POSITIONS = ("QB", "RB", "WR", "TE", "K", "DST")
     overall_cap = league_size * draft_rounds
     per_position_min = league_size * 2
@@ -558,23 +576,23 @@ def _cap_and_assign_tiers(
         if p.position in by_position:
             by_position[p.position].append(p)
     for pos in by_position:
-        by_position[pos].sort(key=lambda x: x.adjusted_score, reverse=True)
+        by_position[pos].sort(key=lambda x: x.vbd_score, reverse=True)
 
     # Floor: top per_position_min for each position
     guaranteed: list[TieredPlayer] = []
     for pos in POSITIONS:
         guaranteed.extend(by_position[pos][:per_position_min])
 
-    # Fill remaining budget with highest-scoring not-already-selected players
+    # Fill remaining budget with highest-VBD not-already-selected players
     guaranteed_ids = {p.player_id for p in guaranteed}
     remaining_pool = sorted(
         (p for p in tiered if p.player_id not in guaranteed_ids),
-        key=lambda p: p.adjusted_score,
+        key=lambda p: p.vbd_score,
         reverse=True,
     )
     remaining_budget = max(0, overall_cap - len(guaranteed))
     capped = guaranteed + remaining_pool[:remaining_budget]
-    capped.sort(key=lambda p: p.adjusted_score, reverse=True)
+    capped.sort(key=lambda p: p.vbd_score, reverse=True)
 
     return assign_tiers(
         capped,
@@ -582,7 +600,7 @@ def _cap_and_assign_tiers(
         tiebreak_adp_attr=tiebreak_adp_attr,
         overall_tier_count=overall_tier_count,
         qb_starters=qb_starters,
-        replacement_pool=tiered,
+        compute_vbd=False,
     )
 
 

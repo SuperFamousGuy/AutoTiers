@@ -163,7 +163,7 @@ def test_qb_replacement_scales_with_qb_starters():
     pool = [_player(f"qb_{i}", "QB", TOP - i * STEP) for i in range(24)]
 
     def expected_replacement(mult: float) -> float:
-        # Mirrors _compute_vbd: replacement rank = round(league_size * mult).
+        # Mirrors compute_vbd_scores: replacement rank = round(league_size * mult).
         idx = max(1, round(LEAGUE * mult)) - 1
         return round(TOP - idx * STEP, 2)
 
