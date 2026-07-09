@@ -81,7 +81,7 @@ describe("App (integration)", () => {
     // Regenerating from the banner clears it once the fresh result lands.
     // Scope to the staleness banner specifically — the GenerateButton also
     // renders a role="status" live region for its pending announcement.
-    const banner = screen.getByText(STALE_TEXT).closest("[role='status']") as HTMLElement;
+    const banner = screen.getByText(STALE_TEXT).closest<HTMLElement>("[role='status']")!;
     await user.click(within(banner).getByRole("button", { name: /^generate$/i }));
     await waitFor(() => {
       expect(screen.queryByText(STALE_TEXT)).not.toBeInTheDocument();

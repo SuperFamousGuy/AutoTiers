@@ -22,7 +22,7 @@ export function GenerateButton({ disabled, isPending, onClick }: GenerateButtonP
         Generate
       </Button>
       <span role="status" aria-live="polite" className="sr-only">
-        {isPending ? "Generating tier list…" : ""}
+        {isPending ? "Generating tier list…" : null}
       </span>
     </>
   );

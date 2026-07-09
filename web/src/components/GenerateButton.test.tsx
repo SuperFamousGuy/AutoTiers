@@ -1,13 +1,15 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { GenerateButton } from "@/components/GenerateButton";
 
 describe("GenerateButton", () => {
-  it("renders the Generate label and fires onClick", () => {
+  it("renders the Generate label and fires onClick", async () => {
+    const user = userEvent.setup();
     const onClick = vi.fn();
     render(<GenerateButton disabled={false} isPending={false} onClick={onClick} />);
     const button = screen.getByRole("button", { name: /generate/i });
-    button.click();
+    await user.click(button);
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 
