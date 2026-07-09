@@ -715,33 +715,44 @@ async def test_generate_validates_qb_starters(async_client):
 
 @pytest.mark.asyncio
 async def test_over_the_hill_position_aware_thresholds(async_client, test_db):
-    """is_over_the_hill should be position-aware: 28 for RB, 31 for WR, 31 for TE, 36 for QB, 40 for K."""
-    from app.models import Player, Projection
+    """is_over_the_hill is position-aware (RB 28, WR 31, TE 31, K 40) and, for QB,
+    rushing-volume-conditioned: mobile QBs (60+ prior rush att) at 31, pocket at 38 (#576)."""
+    from app.models import Player, Projection, PlayerStat
     from datetime import date
 
     cases = [
-        # (id, position, age, expect_over_the_hill_applied)
-        ("rb_27", "RB", 27, False),  # under threshold
-        ("rb_28", "RB", 28, True),   # at threshold
-        ("wr_29", "WR", 29, False),
-        ("wr_30", "WR", 30, False),  # 30-yo WR no longer over the hill (threshold raised to 31)
-        ("wr_31", "WR", 31, True),   # 31-yo WR is at the new threshold
-        ("te_30", "TE", 30, False),
-        ("te_31", "TE", 31, True),
-        ("qb_35", "QB", 35, False),
-        ("qb_36", "QB", 36, True),
-        ("k_39",  "K",  39, False),  # K under threshold (threshold is 40)
-        ("k_40",  "K",  40, True),   # K at threshold
-        ("rb_no_age", "RB", None, False),  # missing age
+        # (id, position, age, prior_rush_att, expect_over_the_hill_applied)
+        ("rb_27", "RB", 27, None, False),  # under threshold
+        ("rb_28", "RB", 28, None, True),   # at threshold
+        ("wr_29", "WR", 29, None, False),
+        ("wr_30", "WR", 30, None, False),  # 30-yo WR no longer over the hill (threshold raised to 31)
+        ("wr_31", "WR", 31, None, True),   # 31-yo WR is at the new threshold
+        ("te_30", "TE", 30, None, False),
+        ("te_31", "TE", 31, None, True),
+        # QB pocket passers (low / no rushing volume) — cliff is now 38.
+        ("qb_pocket_37", "QB", 37, 10, False),  # 37-yo pocket QB no longer triggers (was 36)
+        ("qb_pocket_38", "QB", 38, 10, True),   # pocket QB at the new cliff
+        ("qb_no_stat_36", "QB", 36, None, False),  # no prior stat row -> pocket -> 36 < 38
+        # QB dual-threats (60+ prior rush att) — cliff drops to 31.
+        ("qb_mobile_30", "QB", 30, 120, False),  # mobile just under cliff
+        ("qb_mobile_32", "QB", 32, 120, True),   # 32-yo mobile QB NOW triggers (was 36)
+        ("k_39",  "K",  39, None, False),  # K under threshold (threshold is 40)
+        ("k_40",  "K",  40, None, True),   # K at threshold
+        ("rb_no_age", "RB", None, None, False),  # missing age
     ]
-    for pid, pos, age, _ in cases:
+    for pid, pos, age, _rush, _ in cases:
         test_db.add(Player(id=pid, name=pid, position=pos, team="DAL", age=age))
     await test_db.commit()
-    for pid, _, _, _ in cases:
+    for pid, _, _, rush, _ in cases:
         test_db.add(Projection(
             player_id=pid, source="fantasypros", scoring_format="ppr",
             projected_points=100.0, last_updated=date.today(),
         ))
+        if rush is not None:
+            test_db.add(PlayerStat(
+                player_id=pid, season=date.today().year - 1, rush_att=rush,
+                games_played=17,
+            ))
     await test_db.commit()
 
     payload = {
@@ -762,7 +773,7 @@ async def test_over_the_hill_position_aware_thresholds(async_client, test_db):
     body = resp.json()
     by_id = {p["player_id"]: p for p in body["players"]}
 
-    for pid, _, _, expected in cases:
+    for pid, _, _, _, expected in cases:
         if pid not in by_id:
             continue  # player may have been capped out — acceptable
         applied = "Over the Hill" in by_id[pid]["rules_applied"]

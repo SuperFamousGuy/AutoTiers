@@ -22,7 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.database import AsyncSessionLocal
-from app.engine.builtin_rules import BUILTIN_RULES, OVER_THE_HILL_AGE
+from app.engine.builtin_rules import BUILTIN_RULES, compute_is_over_the_hill
 from app.engine.rules import PlayerContext, _OPS, apply_rules
 from app.models import PlayerContract, TeamSeason
 from app.models.player import Player
@@ -141,9 +141,9 @@ async def inspect(name_query: str) -> None:
 
         # ---------- PlayerContext (what the engine sees) ----------
         stat = most_recent
-        is_over_the_hill: Optional[bool] = None
-        if p.age is not None and p.position in OVER_THE_HILL_AGE:
-            is_over_the_hill = p.age >= OVER_THE_HILL_AGE[p.position]
+        # Prior-season rush attempts drive the QB mobile-vs-pocket age cliff (#576).
+        prior_rush_att: Optional[int] = stat.rush_att if stat is not None else None
+        is_over_the_hill = compute_is_over_the_hill(p.position, p.age, prior_rush_att)
 
         prior_touches: Optional[int] = None
         if p.position == "RB" and stat is not None:
@@ -185,6 +185,7 @@ async def inspect(name_query: str) -> None:
             is_over_the_hill=is_over_the_hill,
             projection_unavailable=False,  # would need projection lookup
             prior_touches=prior_touches,
+            prior_rush_att=prior_rush_att,
             injured_two_years_ago=injured_two_years_ago,
             bad_offense_team=bad_offense_team,
             above_market_contract=above_market_contract,
