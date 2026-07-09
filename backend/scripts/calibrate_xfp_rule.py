@@ -255,11 +255,14 @@ class _BenchmarkRow:
         return self.actual_fp - self.expected_fp
 
 
-def _autotiers_z_by_year(nfl, years: list[int], settings: LeagueSettings) -> dict[int, dict[str, float]]:
+def _autotiers_z_by_year(nfl, years: list[int], settings: LeagueSettings) -> dict[int, dict[str, tuple[float, str]]]:
     """Compute AutoTiers `opportunity_score_z` per eligible player, per year.
 
-    Returns {year: {player_id: z}}. Mirrors the eligibility gates and math the
-    default calibration path uses so the two stay comparable.
+    Returns {year: {player_id: (z, position)}}. The position is carried through
+    so the benchmark alignment can match on (year, player_id, position) and
+    never compare z-scores normalised in different position groups. Mirrors the
+    eligibility gates and math the default calibration path uses so the two stay
+    comparable.
     """
     from app.engine.scoring import (
         PlayerStats as _PS,
@@ -268,7 +271,7 @@ def _autotiers_z_by_year(nfl, years: list[int], settings: LeagueSettings) -> dic
         _score_tds_only,
     )
 
-    out: dict[int, dict[str, float]] = {}
+    out: dict[int, dict[str, tuple[float, str]]] = {}
     for year in years:
         print(f"Computing AutoTiers opportunity_score_z for {year}...", file=sys.stderr)
         stats_y = _load_year(nfl, year)
@@ -295,11 +298,11 @@ def _autotiers_z_by_year(nfl, years: list[int], settings: LeagueSettings) -> dic
             eligible.append(s)
 
         sigmas = compute_per_position_sigmas(gaps_by_pos)
-        z_by_pid: dict[str, float] = {}
+        z_by_pid: dict[str, tuple[float, str]] = {}
         for s in eligible:
             z = compute_opportunity_score_z(s, avg, sigmas, settings)
             if z is not None and s.player_id:
-                z_by_pid[s.player_id] = z
+                z_by_pid[s.player_id] = (z, s.position)
         out[year] = z_by_pid
     return out
 
@@ -310,7 +313,10 @@ def _aggregate_ff_opportunity(records: Iterable[dict]) -> list[_BenchmarkRow]:
     ff_opportunity ships weekly rows; we sum expected and actual fantasy points
     across a player's weeks. Column names are matched against a candidate list
     because nflverse has renamed fields across releases. Rows missing an id,
-    season, or a modelled position are skipped.
+    season, or a modelled position are skipped — as are rows missing either the
+    actual or expected fantasy-point value, so schema drift on those columns
+    fails loudly (empty/insufficient sample) rather than silently emitting
+    zero residuals.
     """
     def _pick(r: dict, *candidates, default=None):
         for c in candidates:
@@ -332,12 +338,22 @@ def _aggregate_ff_opportunity(records: Iterable[dict]) -> list[_BenchmarkRow]:
             year = int(season)
         except (TypeError, ValueError):
             continue
-        expected = _pick(r, "total_fantasy_points_exp", default=0.0)
-        actual = _pick(r, "total_fantasy_points", default=0.0)
+        expected = _pick(r, "total_fantasy_points_exp", default=None)
+        actual = _pick(r, "total_fantasy_points", default=None)
+        if expected is None or actual is None:
+            # Missing actual/expected FP — either a bye-week null or (if it
+            # holds for every row) schema drift on these columns. Skip rather
+            # than fold in a zero residual that would distort the correlation.
+            continue
+        try:
+            actual_f = float(actual)
+            expected_f = float(expected)
+        except (TypeError, ValueError):
+            continue
         key = (year, str(pid))
         cell = accum.setdefault(key, {"position": position, "actual": 0.0, "expected": 0.0})
-        cell["actual"] += float(actual or 0.0)
-        cell["expected"] += float(expected or 0.0)
+        cell["actual"] += actual_f
+        cell["expected"] += expected_f
         cell["position"] = position  # last non-null wins; positions are stable within a season
 
     return [
@@ -360,16 +376,20 @@ def _zscore(values: list[float]) -> Optional[list[float]]:
 
 
 def compute_benchmark_correlation(
-    autotiers_z_by_year: dict[int, dict[str, float]],
+    autotiers_z_by_year: dict[int, dict[str, tuple[float, str]]],
     benchmark_rows: list[_BenchmarkRow],
     min_player_seasons: int = 200,
     r_threshold: float = 0.6,
 ) -> dict:
     """Correlate AutoTiers `opportunity_score_z` against the ff_opportunity residual.
 
-    The ff_opportunity residual (actual − expected FP) is z-scored per
+    ``autotiers_z_by_year`` maps {year: {player_id: (z, position)}}. The
+    ff_opportunity residual (actual − expected FP) is z-scored per
     (year, position) — matching how `opportunity_score_z` is normalised — then
-    aligned with AutoTiers' z on shared player-seasons. Reports Pearson r and
+    aligned with AutoTiers' z on shared (year, player_id, position) triples.
+    Carrying position through the alignment prevents matching a player-season
+    whose position label disagrees between the two sources, which would compare
+    z-scores drawn from different normalisation groups. Reports Pearson r and
     MAE over the aligned pairs and flags whether a mathematician follow-up is
     warranted.
     """
@@ -378,20 +398,21 @@ def compute_benchmark_correlation(
     for row in benchmark_rows:
         groups.setdefault((row.year, row.position), []).append(row)
 
-    benchmark_z: dict[tuple[int, str], float] = {}  # (year, player_id) -> z
+    benchmark_z: dict[tuple[int, str, str], float] = {}  # (year, player_id, position) -> z
     for rows in groups.values():
         zs = _zscore([r.residual for r in rows])
         if zs is None:
             continue
         for row, z in zip(rows, zs):
-            benchmark_z[(row.year, row.player_id)] = z
+            benchmark_z[(row.year, row.player_id, row.position)] = z
 
-    # Align on player-seasons present in both.
+    # Align on player-seasons present in both, matching on position so the two
+    # z-scores always come from the same normalisation group.
     autotiers_pairs: list[float] = []
     benchmark_pairs: list[float] = []
     for year, z_by_pid in autotiers_z_by_year.items():
-        for pid, a_z in z_by_pid.items():
-            b_z = benchmark_z.get((year, pid))
+        for pid, (a_z, position) in z_by_pid.items():
+            b_z = benchmark_z.get((year, pid, position))
             if b_z is None:
                 continue
             autotiers_pairs.append(a_z)
