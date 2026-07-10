@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Trash2 } from "lucide-react";
+import { Trash2, Loader2 } from "lucide-react";
 import type { Profile } from "@/api/types";
 
 interface ManageProfilesDialogProps {
@@ -18,25 +18,34 @@ export function ManageProfilesDialog({ open, onOpenChange, profiles, onRename, o
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   async function handleRename(id: string) {
+    if (busyId) return;
     setError(null);
+    setBusyId(id);
     try {
       await onRename(id, draftName.trim());
       setEditingId(null);
     } catch {
       setError("Rename failed. Please try again.");
+    } finally {
+      setBusyId(null);
     }
   }
 
   async function handleDelete(id: string) {
+    if (busyId) return;
     setError(null);
+    setBusyId(id);
     try {
       await onDelete(id);
       setConfirmDeleteId(null);
     } catch {
       setError("Delete failed. Please try again.");
       setConfirmDeleteId(null);
+    } finally {
+      setBusyId(null);
     }
   }
 
@@ -59,15 +68,24 @@ export function ManageProfilesDialog({ open, onOpenChange, profiles, onRename, o
                       className="flex-1"
                       autoFocus
                     />
-                    <Button size="sm" onClick={() => handleRename(p.id)} disabled={draftName.trim() === ""}>Save</Button>
-                    <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>Cancel</Button>
+                    <Button size="sm" onClick={() => handleRename(p.id)} disabled={draftName.trim() === "" || busyId === p.id}>
+                      {busyId === p.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Save
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setEditingId(null)} disabled={busyId === p.id}>Cancel</Button>
                   </>
                 ) : (
                   <>
                     <span className="flex-1 truncate">{p.name}</span>
-                    <Button size="sm" variant="ghost" onClick={() => { setEditingId(p.id); setDraftName(p.name); setError(null); }}>Rename</Button>
+                    <Button size="sm" variant="ghost" onClick={() => { setEditingId(p.id); setDraftName(p.name); setError(null); }} disabled={busyId === p.id}>Rename</Button>
                     {confirmDeleteId === p.id ? (
-                      <Button size="sm" variant="destructive" onClick={() => handleDelete(p.id)}>Confirm Delete</Button>
+                      <>
+                        <Button size="sm" variant="destructive" onClick={() => handleDelete(p.id)} disabled={busyId === p.id}>
+                          {busyId === p.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                          Confirm Delete
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setConfirmDeleteId(null)} disabled={busyId === p.id}>Cancel</Button>
+                      </>
                     ) : (
                       <Button size="sm" variant="ghost" onClick={() => { setConfirmDeleteId(p.id); setError(null); }} aria-label={`delete ${p.name}`}>
                         <Trash2 className="h-4 w-4" />
