@@ -14,6 +14,7 @@ import { MobilePanelTabBar, type MobilePanel } from "@/components/MobilePanelTab
 import { AdSlot } from "@/components/AdSlot";
 import { PasswordResetPanel } from "@/components/PasswordResetPanel";
 import { EmailVerificationBanner, shouldShowVerificationBanner, dismissVerificationBanner } from "@/components/EmailVerificationBanner";
+import { NoProfileBanner } from "@/components/NoProfileBanner";
 import { AuthDialog } from "@/components/AuthDialog";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
@@ -22,6 +23,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { verifyEmail } from "@/api/auth";
 import { createProfile, updateProfile, deleteProfile, activateProfile } from "@/api/profiles";
 import { useAutoSave } from "@/hooks/useAutoSave";
+import { describeGenerateError } from "@/lib/errors";
 import { weightsAreValid } from "@/lib/weights";
 import { buildResolvedTierNames, resolveTierLabelOverrides } from "@/lib/tiers";
 import type { Rule, GenerateRequest, PositionRulesState } from "@/api/types";
@@ -360,6 +362,16 @@ export default function App() {
     const request = buildRequest();
     generate.mutate(request, {
       onSuccess: (_data, variables) => setLastGeneratedRequest(variables),
+      // Without this, a failed generate lands in the mutation's error state and
+      // stops there — the user is silently shown the pre-generate empty state.
+      // Surface the failure with a toast; TiersPanel renders the in-panel alert
+      // + Retry from generate.isError/error (#607).
+      onError: (err) =>
+        toast({
+          title: "Generate failed",
+          description: describeGenerateError(err),
+          variant: "error",
+        }),
     });
   };
 
@@ -412,6 +424,11 @@ export default function App() {
           </div>
         ) : null}
       />
+      {/* Zero-profile banner — a logged-in user with no profile has autosave
+          silently disabled, so warn them and offer a one-click fix (#606). */}
+      {user && profiles.length === 0 && (
+        <NoProfileBanner onCreateProfile={handleNewProfile} />
+      )}
       {/* Email verification banner — shown below header when email is unverified */}
       {showVerifyBanner && user?.email && (
         <EmailVerificationBanner
@@ -497,6 +514,8 @@ export default function App() {
           <TiersPanel
             result={generate.data ?? null}
             isPending={generate.isPending}
+            isError={generate.isError}
+            error={generate.error}
             isStale={isStale}
             onRegenerate={handleGenerate}
             canRegenerate={canGenerate}
@@ -542,6 +561,7 @@ export default function App() {
         open={manageOpen}
         onOpenChange={setManageOpen}
         profiles={profiles}
+        activeProfileId={activeProfileId}
         onRename={handleRenameProfile}
         onDelete={handleDeleteProfile}
       />
