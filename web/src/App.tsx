@@ -294,7 +294,7 @@ export default function App() {
 
   const handleDeleteProfile = useCallback(async (id: string) => {
     await deleteProfile(id);
-    setProfiles(profiles.filter((p) => p.id !== id));
+    setProfiles((prev) => prev.filter((p) => p.id !== id));
     if (activeProfileId === id) {
       setActiveProfileId(null);
       // Deleting the active profile must mirror the select/new-profile reset:
@@ -308,7 +308,7 @@ export default function App() {
       setMobilePanel("settings");
       hasAutoSwitchedToTiers.current = false;
     }
-  }, [profiles, activeProfileId, setProfiles, generate.reset]);
+  }, [activeProfileId, setProfiles, generate.reset]);
 
   const handleUndo = useCallback(async () => {
     if (!activeProfileId) return;
