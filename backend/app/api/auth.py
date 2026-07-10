@@ -1,4 +1,5 @@
 """Email/password auth endpoints. Yahoo OAuth lives in this same router but is added in phase 3."""
+import copy
 import hashlib
 import logging
 import secrets
@@ -13,6 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.database import get_db
+from app.defaults import DEFAULT_PROFILE_SETTINGS
 from app.models import User, Profile
 from app.models.auth_token import AuthToken
 from app.auth.hashing import hash_password, verify_password
@@ -532,6 +534,31 @@ def _frontend_url_with_param(key: str, value: str) -> str:
     return urlunsplit(parts._replace(query=urlencode(query)))
 
 
+async def _seed_default_profile(db: AsyncSession, user: User) -> Profile:
+    """Create the default "My setup" profile for a freshly-created OAuth user
+    and mark it active.
+
+    OAuth first-login callbacks don't carry the frontend's live state (unlike
+    email/password signup, which passes initial_settings/initial_rules), so we
+    seed with the server-side mirror of the frontend DEFAULT_SETTINGS. Without
+    this the user lands with last_active_profile_id=None and every Settings/
+    Rules edit is silently discarded because autosave is gated on an active
+    profile (#606).
+
+    The caller must have already flushed `user` so that `user.id` is populated.
+    """
+    profile = Profile(
+        user_id=user.id,
+        name="My setup",
+        settings_json=copy.deepcopy(DEFAULT_PROFILE_SETTINGS),
+        rules_json={},
+    )
+    db.add(profile)
+    await db.flush()
+    user.last_active_profile_id = profile.id
+    return profile
+
+
 async def _handle_oauth_link(
     db: AsyncSession,
     current_user: User,
@@ -669,6 +696,11 @@ async def yahoo_callback(
         if yahoo_email_verified and yahoo_email:
             user.email = yahoo_email
         db.add(user)
+        await db.flush()
+        # Seed a default profile so the new user has somewhere for autosave to
+        # persist to — OAuth callbacks carry no frontend state, so mirror the
+        # frontend defaults server-side (#606).
+        await _seed_default_profile(db, user)
         await db.commit()
         await db.refresh(user)
 
@@ -738,6 +770,11 @@ async def google_callback(
         if google_email_verified and google_email:
             user.email = google_email
         db.add(user)
+        await db.flush()
+        # Seed a default profile so the new user has somewhere for autosave to
+        # persist to — OAuth callbacks carry no frontend state, so mirror the
+        # frontend defaults server-side (#606).
+        await _seed_default_profile(db, user)
         await db.commit()
         await db.refresh(user)
 

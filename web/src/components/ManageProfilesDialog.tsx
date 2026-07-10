@@ -9,11 +9,12 @@ interface ManageProfilesDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   profiles: Profile[];
+  activeProfileId: string | null;
   onRename: (id: string, newName: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }
 
-export function ManageProfilesDialog({ open, onOpenChange, profiles, onRename, onDelete }: ManageProfilesDialogProps) {
+export function ManageProfilesDialog({ open, onOpenChange, profiles, activeProfileId, onRename, onDelete }: ManageProfilesDialogProps) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
@@ -45,6 +46,11 @@ export function ManageProfilesDialog({ open, onOpenChange, profiles, onRename, o
       <DialogContent>
         <DialogTitle>Manage Profiles</DialogTitle>
         {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
+        {confirmDeleteId !== null && confirmDeleteId === activeProfileId && (
+          <p className="text-xs text-muted-foreground mb-2">
+            Deleting your active profile will clear it from Settings until you pick another.
+          </p>
+        )}
         {profiles.length === 0 ? (
           <p className="text-sm text-muted-foreground">No profiles yet.</p>
         ) : (
@@ -64,10 +70,22 @@ export function ManageProfilesDialog({ open, onOpenChange, profiles, onRename, o
                   </>
                 ) : (
                   <>
-                    <span className="flex-1 truncate">{p.name}</span>
+                    <span
+                      className="flex-1 flex items-center gap-2 min-w-0"
+                      aria-label={p.id === activeProfileId ? `${p.name} (active profile)` : undefined}
+                    >
+                      <span className="min-w-0 truncate">{p.name}</span>
+                      {p.id === activeProfileId && (
+                        <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                          Active
+                        </span>
+                      )}
+                    </span>
                     <Button size="sm" variant="ghost" onClick={() => { setEditingId(p.id); setDraftName(p.name); setError(null); }}>Rename</Button>
                     {confirmDeleteId === p.id ? (
-                      <Button size="sm" variant="destructive" onClick={() => handleDelete(p.id)}>Confirm Delete</Button>
+                      <Button size="sm" variant="destructive" onClick={() => handleDelete(p.id)}>
+                        {p.id === activeProfileId ? "Delete active profile" : "Confirm Delete"}
+                      </Button>
                     ) : (
                       <Button size="sm" variant="ghost" onClick={() => { setConfirmDeleteId(p.id); setError(null); }} aria-label={`delete ${p.name}`}>
                         <Trash2 className="h-4 w-4" />

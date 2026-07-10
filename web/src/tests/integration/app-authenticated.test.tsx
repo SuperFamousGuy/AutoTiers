@@ -237,7 +237,8 @@ describe("App (authenticated integration)", () => {
     // Two-click delete
     const deleteIcons = await screen.findAllByRole("button", { name: /delete PPR 12-team/i });
     await user.click(deleteIcons[0]);
-    await user.click(screen.getByRole("button", { name: /confirm delete/i }));
+    // p1 is the active profile here, so the confirm copy names that consequence.
+    await user.click(screen.getByRole("button", { name: /delete active profile/i }));
 
     await waitFor(() => expect(deletedId).toBe("p1"));
   });
@@ -264,7 +265,9 @@ describe("App (authenticated integration)", () => {
     await user.click(screen.getByRole("menuitem", { name: /Manage profiles/i }));
     const deleteIcons = await screen.findAllByRole("button", { name: /delete PPR 12-team/i });
     await user.click(deleteIcons[0]);
-    await user.click(screen.getByRole("button", { name: /confirm delete/i }));
+    // For the active profile, ManageProfilesDialog labels the confirm button
+    // "Delete active profile" (not the generic "Confirm Delete").
+    await user.click(await screen.findByRole("button", { name: /delete active profile/i }));
 
     // Close the modal so the (previously aria-hidden) main panels are queryable.
     await user.keyboard("{Escape}");

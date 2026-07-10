@@ -4,6 +4,7 @@ import { Download, ListChecks } from "lucide-react";
 import { PositionFilter, type PositionFilterValue } from "./PositionFilter";
 import { TierGroup } from "./TierGroup";
 import { getCustomTierLabel, getPositionalTierLabel } from "@/lib/tiers";
+import { describeGenerateError } from "@/lib/errors";
 import { useDraftBoard } from "@/hooks/useDraftBoard";
 import type { GenerateResponse, ScoringFormat } from "@/api/types";
 
@@ -16,6 +17,10 @@ const SCORING_FORMAT_LABELS: Record<ScoringFormat, string> = {
 interface TiersPanelProps {
   result: GenerateResponse | null;
   isPending: boolean;
+  /** True when the last generate failed (500, network blip, weight-tolerance reject, or the 30s client timeout). */
+  isError?: boolean;
+  /** The error the failed generate threw — used to name the failure in the alert. */
+  error?: unknown;
   onDownloadXlsx: () => void;
   keepers?: Array<{ player_name: string; position: string; team: string }>;
   scoringFormat?: ScoringFormat;
@@ -33,7 +38,7 @@ interface TiersPanelProps {
   canRegenerate?: boolean;
 }
 
-export function TiersPanel({ result, isPending, onDownloadXlsx, keepers, scoringFormat, tierLabelOverrides, debugMode, onDownloadDebugCsv, leagueKey, isStale, onRegenerate, canRegenerate }: TiersPanelProps) {
+export function TiersPanel({ result, isPending, isError, error, onDownloadXlsx, keepers, scoringFormat, tierLabelOverrides, debugMode, onDownloadDebugCsv, leagueKey, isStale, onRegenerate, canRegenerate }: TiersPanelProps) {
   const [filter, setFilter] = useState<PositionFilterValue>("ALL");
   const [draftMode, setDraftMode] = useState(false);
 
@@ -112,6 +117,36 @@ export function TiersPanel({ result, isPending, onDownloadXlsx, keepers, scoring
             <div key={i} className="h-8 bg-muted rounded-md animate-pulse" />
           ))}
         </div>
+      </section>
+    );
+  }
+
+  // A failed generate must NOT fall through to the empty state below — that copy
+  // ("Click Generate…") implies the user never tried and silently swallows the
+  // failure (#607). Surface a distinct, announced error affordance with a Retry
+  // that re-fires the same request. Checked before `!result` because a failed
+  // mutation leaves `result` null.
+  if (isError) {
+    return (
+      <section className="p-6 min-h-0" role="alert">
+        <h2 className="text-lg font-semibold mb-3">Tiers</h2>
+        <p className="text-sm font-medium text-destructive">
+          Couldn't generate your tier list.
+        </p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {describeGenerateError(error)}
+        </p>
+        {onRegenerate && (
+          <Button
+            onClick={onRegenerate}
+            variant="outline"
+            size="sm"
+            className="mt-3"
+            disabled={canRegenerate === false}
+          >
+            Retry
+          </Button>
+        )}
       </section>
     );
   }
