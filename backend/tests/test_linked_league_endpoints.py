@@ -304,7 +304,7 @@ async def test_post_espn_rejects_league_id_without_season(async_client, test_db)
         json={"league_id": "123"},
     )
     assert r.status_code == 400
-    assert "season" in r.json()["detail"].lower()
+    assert r.json()["detail"] == "A season is required when linking an ESPN league."
     from sqlalchemy import select as sql_select
     rows = (await test_db.scalars(sql_select(LinkedLeague))).all()
     assert rows == [], "no row should be persisted on the season-required 400 path"
@@ -348,7 +348,7 @@ async def test_post_espn_league_id_only_followup_does_not_null_existing_league(
         json={"league_id": "99999"},
     )
     assert r2.status_code == 400
-    assert "season" in r2.json()["detail"].lower()
+    assert r2.json()["detail"] == "A season is required when linking an ESPN league."
 
     # The previously-linked league must be untouched.
     from sqlalchemy import select as sql_select
