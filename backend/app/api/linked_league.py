@@ -291,6 +291,17 @@ async def post_espn(
             detail="Provide a league ID, or paste your ESPN SWID + espn_s2 cookies. Nothing to link without either.",
         )
 
+    # league_id and season are a matched pair for the fetch path — a league_id
+    # without a season can't be fetched, and falling through to the pre-link
+    # else branch below would silently null out the caller's league_id (and any
+    # previously-linked league metadata) with a misleading 200 OK. Reject it up
+    # front, before any DB mutation, so the selection can't be silently discarded.
+    if body.league_id and body.season is None:
+        raise HTTPException(
+            status_code=400,
+            detail="A season is required when linking an ESPN league.",
+        )
+
     profile = await _resolve_profile(profile_id, user, db)
     ll = _upsert_linked_league(profile, db)
     ll.provider = "espn"
