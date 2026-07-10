@@ -242,6 +242,48 @@ describe("App (authenticated integration)", () => {
     await waitFor(() => expect(deletedId).toBe("p1"));
   });
 
+  it("deleting the active profile clears the tier list and disables Generate (#626)", async () => {
+    mockAuthenticated();
+    server.use(
+      http.delete(`${API_URL}/api/profiles/:id`, () => new HttpResponse(null, { status: 204 })),
+      http.post(`${API_URL}/api/profiles/:id/activate`, () => new HttpResponse(null, { status: 204 })),
+    );
+
+    renderApp();
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument());
+    await screen.findByText("Target Share Premium");
+
+    // Generate a tier list for the active profile.
+    await user.click(screen.getByRole("button", { name: /^generate$/i }));
+    const tiersPanel = screen.getByRole("tabpanel", { name: "Tiers" });
+    await waitFor(() => expect(within(tiersPanel).getByText("Ja'Marr Chase")).toBeInTheDocument());
+
+    // Delete the active profile via Manage profiles (two-click delete + confirm).
+    await user.click(screen.getByRole("button", { name: /PPR 12-team/i }));
+    await user.click(screen.getByRole("menuitem", { name: /Manage profiles/i }));
+    const deleteIcons = await screen.findAllByRole("button", { name: /delete PPR 12-team/i });
+    await user.click(deleteIcons[0]);
+    await user.click(screen.getByRole("button", { name: /confirm delete/i }));
+
+    // Close the modal so the (previously aria-hidden) main panels are queryable.
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByText("Manage Profiles")).not.toBeInTheDocument());
+
+    // The picker now shows no active profile.
+    expect(screen.getByRole("button", { name: /No profile/i })).toBeInTheDocument();
+
+    // The orphaned tiers must be cleared — the Tiers panel returns to its empty state.
+    await waitFor(() => {
+      const panel = screen.getByRole("tabpanel", { name: "Tiers" });
+      expect(within(panel).getByText(/Click Generate to build your tier list\./i)).toBeInTheDocument();
+    });
+    expect(within(screen.getByRole("tabpanel", { name: "Tiers" })).queryByText("Ja'Marr Chase")).not.toBeInTheDocument();
+
+    // Generate is disabled: profiles still exist (p2) but none is active.
+    expect(screen.getByRole("button", { name: /^generate$/i })).toBeDisabled();
+  });
+
   it("Undo button appears after a save lands and rewinds to the prior save point", async () => {
     mockAuthenticated();
     // Track the most recent payload sent to the server.
