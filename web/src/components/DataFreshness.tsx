@@ -4,8 +4,32 @@ import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 export function DataFreshness() {
-  const { data, isLoading } = useDataStatus();
+  const { data, isLoading, isError, refetch } = useDataStatus();
 
+  // Three distinct states, checked in precedence order below:
+  //  - ERROR  : the fetch failed AND there is no data to fall back on. A hard
+  //             failure (retries exhausted, e.g. a CORS misconfig) surfaces a
+  //             role="alert" with a Retry affordance instead of masquerading as
+  //             the generic "Data status unavailable" span (issue #614). If a
+  //             prior fetch already seeded data, react-query keeps it on a failed
+  //             refetch — we keep rendering that usable freshness signal.
+  //  - LOADING: no data yet AND no error → still in flight.
+  //  - UNAVAILABLE: the request succeeded but returned nothing usable — distinct
+  //             from a failed request, so it stays a plain non-alert span.
+  if (isError && !data) {
+    return (
+      <span role="alert" className="inline-flex items-center gap-2 text-sm text-destructive">
+        Couldn't load data status.
+        <button
+          type="button"
+          onClick={() => refetch()}
+          className="rounded bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+        >
+          Retry
+        </button>
+      </span>
+    );
+  }
   if (isLoading) {
     return <span className="text-sm text-muted-foreground">Loading data status…</span>;
   }
