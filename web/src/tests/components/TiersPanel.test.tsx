@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TiersPanel } from "@/components/TiersPanel";
+import { ApiError } from "@/api/client";
 import generateResponse from "../fixtures/generate-response.json";
 import type { GenerateResponse } from "@/api/types";
 
@@ -95,6 +96,97 @@ describe("TiersPanel", () => {
   it("shows skeleton when pending", () => {
     render(<TiersPanel result={null} isPending={true} onDownloadXlsx={() => {}} />);
     expect(screen.getByText(/generating/i)).toBeInTheDocument();
+  });
+
+  describe("generate error state (#607)", () => {
+    it("renders a role=alert error affordance — distinct from the empty state — when isError is true", () => {
+      render(
+        <TiersPanel
+          result={null}
+          isPending={false}
+          isError={true}
+          error={new ApiError(500, "boom")}
+          onDownloadXlsx={() => {}}
+        />,
+      );
+
+      // Announced as an alert, names the failure, and does NOT masquerade as the
+      // pre-generate empty state.
+      const alert = screen.getByRole("alert");
+      expect(within(alert).getByText(/couldn't generate your tier list/i)).toBeInTheDocument();
+      expect(screen.queryByText(/click generate to build/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/generating tier list/i)).not.toBeInTheDocument();
+    });
+
+    it("describes the specific failure (a 5xx) rather than showing a bare error", () => {
+      render(
+        <TiersPanel
+          result={null}
+          isPending={false}
+          isError={true}
+          error={new ApiError(503, "upstream timeout")}
+          onDownloadXlsx={() => {}}
+        />,
+      );
+      expect(screen.getByText(/the server ran into a problem/i)).toBeInTheDocument();
+    });
+
+    it("takes precedence over the empty state even when result is null", () => {
+      render(
+        <TiersPanel result={null} isPending={false} isError={true} onDownloadXlsx={() => {}} />,
+      );
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+      expect(screen.queryByText(/click generate to build/i)).not.toBeInTheDocument();
+    });
+
+    it("Retry re-fires the same request via onRegenerate", async () => {
+      const onRegenerate = vi.fn();
+      render(
+        <TiersPanel
+          result={null}
+          isPending={false}
+          isError={true}
+          error={new ApiError(500, "boom")}
+          onRegenerate={onRegenerate}
+          canRegenerate={true}
+          onDownloadXlsx={() => {}}
+        />,
+      );
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /^retry$/i }));
+      expect(onRegenerate).toHaveBeenCalledTimes(1);
+    });
+
+    it("disables Retry when canRegenerate is false (e.g. weights became invalid)", () => {
+      render(
+        <TiersPanel
+          result={null}
+          isPending={false}
+          isError={true}
+          error={new ApiError(500, "boom")}
+          onRegenerate={() => {}}
+          canRegenerate={false}
+          onDownloadXlsx={() => {}}
+        />,
+      );
+      expect(screen.getByRole("button", { name: /^retry$/i })).toBeDisabled();
+    });
+
+    it("a pending retry shows the spinner, not the error state", () => {
+      // isPending wins over isError so the in-flight retry reads as 'working',
+      // not 'still broken'.
+      render(
+        <TiersPanel
+          result={null}
+          isPending={true}
+          isError={true}
+          error={new ApiError(500, "boom")}
+          onDownloadXlsx={() => {}}
+        />,
+      );
+      expect(screen.getByText(/generating tier list/i)).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
   });
 
   it("renders all players grouped by tier", () => {

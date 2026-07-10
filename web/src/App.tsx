@@ -23,6 +23,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { verifyEmail } from "@/api/auth";
 import { createProfile, updateProfile, deleteProfile, activateProfile } from "@/api/profiles";
 import { useAutoSave } from "@/hooks/useAutoSave";
+import { describeGenerateError } from "@/lib/errors";
 import { weightsAreValid } from "@/lib/weights";
 import { buildResolvedTierNames, resolveTierLabelOverrides } from "@/lib/tiers";
 import type { Rule, GenerateRequest, PositionRulesState } from "@/api/types";
@@ -361,6 +362,16 @@ export default function App() {
     const request = buildRequest();
     generate.mutate(request, {
       onSuccess: (_data, variables) => setLastGeneratedRequest(variables),
+      // Without this, a failed generate lands in the mutation's error state and
+      // stops there — the user is silently shown the pre-generate empty state.
+      // Surface the failure with a toast; TiersPanel renders the in-panel alert
+      // + Retry from generate.isError/error (#607).
+      onError: (err) =>
+        toast({
+          title: "Generate failed",
+          description: describeGenerateError(err),
+          variant: "error",
+        }),
     });
   };
 
@@ -503,6 +514,8 @@ export default function App() {
           <TiersPanel
             result={generate.data ?? null}
             isPending={generate.isPending}
+            isError={generate.isError}
+            error={generate.error}
             isStale={isStale}
             onRegenerate={handleGenerate}
             canRegenerate={canGenerate}
