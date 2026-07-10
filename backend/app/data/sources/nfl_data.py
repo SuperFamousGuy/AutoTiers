@@ -4,12 +4,26 @@ from __future__ import annotations
 from datetime import datetime, date
 from typing import ClassVar
 
+import pandas as pd
 from nfl_data_py import import_seasonal_data, import_snap_counts, import_pbp_data, import_schedules
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.data.sources.base import SourceResult
 from app.models import Player, PlayerStat, TeamSeason
+
+
+def _safe_float(value, default: float = 0.0) -> float:
+    """Coerce a possibly-None/NaN pandas scalar to a finite float.
+
+    Real nflfastR data carries NaN in fields like ``td_prob`` (garbage-time
+    and unconverged win-probability rows). ``float(x or 0)`` does NOT guard
+    against this: ``NaN`` is truthy, so ``NaN or 0`` evaluates to ``NaN`` and
+    silently poisons any season aggregate the value feeds. Guard explicitly.
+    """
+    if value is None or pd.isna(value):
+        return default
+    return float(value)
 
 
 class NflDataFetcher:
@@ -63,7 +77,9 @@ class NflDataFetcher:
                 valid_plays = pbp_df[pbp_df["play_type"].isin(["run", "pass"])]
                 rz = valid_plays[valid_plays["yardline_100"] <= 20]
                 for _, play in rz.iterrows():
-                    td_prob = float(play.get("td_prob") or 0)
+                    # NaN td_prob must contribute 0.0 (not NaN) to the season
+                    # total; the play still counts as a red-zone look.
+                    td_prob = _safe_float(play.get("td_prob"))
                     rusher = play.get("rusher_player_id")
                     receiver = play.get("receiver_player_id")
                     if isinstance(rusher, str) and rusher:
@@ -105,7 +121,9 @@ class NflDataFetcher:
                 stat.games_played = int(row.get("games") or 0)
                 stat.actual_tds = stat.rec_tds + stat.rush_tds + stat.pass_tds
 
-                if gsis in snap_by_gsis:
+                if gsis in snap_by_gsis and not pd.isna(snap_by_gsis[gsis]):
+                    # mean() over all-NaN offense_pct rows yields NaN; skip
+                    # rather than store a misleading snap_pct.
                     stat.snap_pct = float(snap_by_gsis[gsis])
                 if gsis in rz_looks:
                     stat.red_zone_looks = rz_looks[gsis]

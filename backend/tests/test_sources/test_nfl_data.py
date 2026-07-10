@@ -164,3 +164,24 @@ async def test_nfl_data_computes_pbp_derived_fields(test_db, mock_nfl_data_with_
     chase = await test_db.scalar(select(PlayerStat).where(PlayerStat.player_id == "6794"))
     assert chase.red_zone_looks == 3
     assert chase.expected_tds == pytest.approx(1.38, abs=0.01)
+
+
+@pytest.mark.asyncio
+async def test_nfl_data_nan_td_prob_does_not_poison_expected_tds(test_db, mock_nfl_data_with_pbp):
+    """A red-zone play with NaN/empty td_prob must contribute 0.0 — not NaN —
+    so the player's season expected_tds stays finite and the TD Regression rule
+    keeps working. Regression test for issue #631."""
+    import math
+
+    test_db.add(Player(id="9901", name="Kyren Williams", position="RB", team="LAR", gsis_id="00-0039901"))
+    await test_db.commit()
+
+    fetcher = NflDataFetcher(prior_seasons=1, latest_season=2025)
+    await fetcher.fetch(test_db)
+
+    kyren = await test_db.scalar(select(PlayerStat).where(PlayerStat.player_id == "9901"))
+    # Two red-zone looks (yardline 6 and 3); the yardline-90 play is filtered out.
+    assert kyren.red_zone_looks == 2
+    # Only the valid play (0.55) counts; the NaN play contributes 0.0, not NaN.
+    assert not math.isnan(kyren.expected_tds)
+    assert kyren.expected_tds == pytest.approx(0.55, abs=0.01)
