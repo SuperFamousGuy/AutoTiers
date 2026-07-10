@@ -136,10 +136,14 @@ describe("PlayerCard", () => {
   it("preserves the imgError fallback (position badge) when the headshot fails to load", () => {
     render(<PlayerCard player={basePlayer} />);
     const headshot = screen.getByAltText(basePlayer.name) as HTMLImageElement;
+    // Count position-text occurrences up front: the position (e.g. "RB") can
+    // already appear elsewhere in the card, so a bare presence check would pass
+    // even if the fallback badge never rendered. Assert the badge ADDS one.
+    const before = screen.queryAllByText(basePlayer.position).length;
     fireEvent.error(headshot);
     // Headshot img is gone; the position-letter fallback renders in its place.
     expect(screen.queryByAltText(basePlayer.name)).toBeNull();
-    expect(screen.getByText(basePlayer.position)).toBeInTheDocument();
+    expect(screen.queryAllByText(basePlayer.position).length).toBe(before + 1);
   });
 
   it("renders em-dash for missing team", () => {
