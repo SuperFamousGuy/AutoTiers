@@ -149,12 +149,13 @@ export function EspnConnectForm({ profile, onLinked, onRefresh }: Props) {
         }}
       >
         {/* Public / Private toggle — type=button so they never submit the form */}
-        <div className="flex gap-2">
+        <div className="flex gap-2" role="group" aria-label="League visibility">
           <Button
             type="button"
             size="sm"
             variant={isPrivate ? "outline" : "default"}
             aria-label="Public league"
+            aria-pressed={!isPrivate}
             onClick={() => setIsPrivate(false)}
           >
             Public league
@@ -164,6 +165,7 @@ export function EspnConnectForm({ profile, onLinked, onRefresh }: Props) {
             size="sm"
             variant={isPrivate ? "default" : "outline"}
             aria-label="Private league"
+            aria-pressed={isPrivate}
             onClick={() => setIsPrivate(true)}
           >
             Private league
