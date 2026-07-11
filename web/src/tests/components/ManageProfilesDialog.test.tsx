@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ManageProfilesDialog } from "@/components/ManageProfilesDialog";
+import { ApiError } from "@/api/client";
 import type { Profile } from "@/api/types";
 
 const profiles: Profile[] = [
@@ -113,6 +114,57 @@ describe("ManageProfilesDialog", () => {
     expect(await screen.findByText(/rename failed/i)).toBeInTheDocument();
   });
 
+  it("surfaces the backend 409 duplicate-name detail when onRename rejects with an ApiError", async () => {
+    const onRename = vi.fn().mockRejectedValue(
+      new ApiError(
+        409,
+        JSON.stringify({
+          detail: "You already have a profile named 'Standard Keeper'. Choose a different name.",
+        }),
+      ),
+    );
+    _render({ onRename });
+    const user = userEvent.setup();
+    await user.click(screen.getAllByRole("button", { name: /rename/i })[0]);
+    const input = screen.getByDisplayValue("PPR 12-team");
+    await user.clear(input);
+    await user.type(input, "Standard Keeper");
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+    expect(
+      await screen.findByText(/already have a profile named 'Standard Keeper'/i),
+    ).toBeInTheDocument();
+    // The generic fallback must NOT be shown when a specific detail exists.
+    expect(screen.queryByText(/rename failed/i)).not.toBeInTheDocument();
+  });
+
+  it("surfaces the backend 422 blank-name detail when onRename rejects with an ApiError", async () => {
+    // A whitespace name is trimmed to "" client-side (Save is disabled), so this
+    // path is reached when the backend rejects a name the client considered valid.
+    const onRename = vi.fn().mockRejectedValue(
+      new ApiError(422, JSON.stringify({ detail: "Profile name cannot be blank." })),
+    );
+    _render({ onRename });
+    const user = userEvent.setup();
+    await user.click(screen.getAllByRole("button", { name: /rename/i })[0]);
+    const input = screen.getByDisplayValue("PPR 12-team");
+    await user.clear(input);
+    await user.type(input, "Updated Name");
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+    expect(await screen.findByText(/profile name cannot be blank/i)).toBeInTheDocument();
+  });
+
+  it("falls back to the generic rename message on a non-ApiError (network) failure", async () => {
+    const onRename = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+    _render({ onRename });
+    const user = userEvent.setup();
+    await user.click(screen.getAllByRole("button", { name: /rename/i })[0]);
+    const input = screen.getByDisplayValue("PPR 12-team");
+    await user.clear(input);
+    await user.type(input, "Updated Name");
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+    expect(await screen.findByText(/rename failed\. please try again/i)).toBeInTheDocument();
+  });
+
   it("marks only the active profile's row with an Active badge and aria-label", () => {
     _render({ activeProfileId: "p2" });
     // The active row is distinguishable to assistive tech.
@@ -159,5 +211,29 @@ describe("ManageProfilesDialog", () => {
     expect(await screen.findByText(/delete failed/i)).toBeInTheDocument();
     // Confirm-delete button is cleared so user has to re-confirm
     expect(screen.queryByRole("button", { name: /confirm delete/i })).not.toBeInTheDocument();
+  });
+
+  it("surfaces the backend detail when onDelete rejects with an ApiError, and clears confirm state", async () => {
+    const onDelete = vi.fn().mockRejectedValue(
+      new ApiError(409, JSON.stringify({ detail: "This profile is linked and cannot be deleted." })),
+    );
+    _render({ onDelete });
+    const user = userEvent.setup();
+    await user.click(screen.getByLabelText(/delete PPR 12-team/i));
+    await user.click(screen.getByRole("button", { name: /confirm delete/i }));
+    expect(
+      await screen.findByText(/this profile is linked and cannot be deleted/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/delete failed/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /confirm delete/i })).not.toBeInTheDocument();
+  });
+
+  it("falls back to the generic delete message on a non-ApiError (network) failure", async () => {
+    const onDelete = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+    _render({ onDelete });
+    const user = userEvent.setup();
+    await user.click(screen.getByLabelText(/delete PPR 12-team/i));
+    await user.click(screen.getByRole("button", { name: /confirm delete/i }));
+    expect(await screen.findByText(/delete failed\. please try again/i)).toBeInTheDocument();
   });
 });

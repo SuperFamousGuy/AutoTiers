@@ -3,6 +3,8 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Trash2 } from "lucide-react";
+import { ApiError } from "@/api/client";
+import { extractApiErrorMessage } from "@/lib/errors";
 import type { Profile } from "@/api/types";
 
 interface ManageProfilesDialogProps {
@@ -12,6 +14,20 @@ interface ManageProfilesDialogProps {
   activeProfileId: string | null;
   onRename: (id: string, newName: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+}
+
+/**
+ * Prefer the backend's human-readable detail for an ApiError (409 duplicate
+ * name, 422 blank name — see backend/app/api/profiles_api.py), unwrapping
+ * FastAPI's `{ detail }` JSON envelope. Fall back to `fallback` for anything
+ * that isn't an ApiError carrying a message (e.g. a network failure).
+ */
+function errorMessage(e: unknown, fallback: string): string {
+  if (e instanceof ApiError) {
+    const detail = extractApiErrorMessage(e.message);
+    if (detail) return detail;
+  }
+  return fallback;
 }
 
 export function ManageProfilesDialog({ open, onOpenChange, profiles, activeProfileId, onRename, onDelete }: ManageProfilesDialogProps) {
@@ -25,8 +41,12 @@ export function ManageProfilesDialog({ open, onOpenChange, profiles, activeProfi
     try {
       await onRename(id, draftName.trim());
       setEditingId(null);
-    } catch {
-      setError("Rename failed. Please try again.");
+    } catch (e) {
+      // The backend writes specific 409 (duplicate name) / 422 (blank name)
+      // detail for these failures — surface it instead of a generic line.
+      // Only fall back to the generic copy when the failure isn't an ApiError
+      // (e.g. a network blip) or the extracted detail is empty.
+      setError(errorMessage(e, "Rename failed. Please try again."));
     }
   }
 
@@ -35,8 +55,8 @@ export function ManageProfilesDialog({ open, onOpenChange, profiles, activeProfi
     try {
       await onDelete(id);
       setConfirmDeleteId(null);
-    } catch {
-      setError("Delete failed. Please try again.");
+    } catch (e) {
+      setError(errorMessage(e, "Delete failed. Please try again."));
       setConfirmDeleteId(null);
     }
   }
