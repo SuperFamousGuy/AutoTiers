@@ -322,15 +322,16 @@ export function TiersPanel({ result, isPending, isError, error, onDownloadXlsx, 
             role="alert"
             className="flex flex-wrap items-center justify-center gap-2 text-sm text-destructive"
           >
-            <span>Couldn't build the Excel file — check your connection and try again.</span>
+            <span>Couldn't build the Excel file. Try again — if it keeps failing, check your connection.</span>
             <Button onClick={handleDownloadXlsx} variant="outline" size="sm">
               Retry
             </Button>
           </div>
         )}
         {/* Announce the in-flight build to assistive tech, matching GenerateButton.
-            Rendered only while pending so it doesn't add a second role=status
-            element alongside the staleness banner. */}
+            Rendered only while pending so we don't leave an always-present live
+            region in the DOM (the staleness banner is a separate role=status
+            that may coexist with this while an export is in flight). */}
         {xlsxState === "pending" && (
           <span role="status" aria-live="polite" className="sr-only">
             Building the Excel file…
