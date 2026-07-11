@@ -55,8 +55,9 @@ describe("App — generate failure is surfaced, not swallowed (#607)", () => {
     await waitFor(() => {
       expect(screen.getByText(/couldn't generate your tier list/i)).toBeInTheDocument();
     });
-    // …the toast fired from onError…
-    expect(screen.getByText(/generate failed/i)).toBeInTheDocument();
+    // …the toast fired from onError (its title renders both a visible node and
+    // an aria-live announcement, so match all and assert at least one)…
+    expect(screen.getAllByText(/generate failed/i).length).toBeGreaterThan(0);
     // …and the misleading pre-generate copy is gone.
     expect(screen.queryByText(/click generate to build/i)).not.toBeInTheDocument();
   });
