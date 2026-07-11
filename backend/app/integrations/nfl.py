@@ -163,8 +163,18 @@ async def fetch_league(league_id: str, season: int) -> LeagueData:
     # _first_league would happily hand back. Verify the league the body
     # actually describes is the one we asked for before persisting it under the
     # caller-supplied league_id — otherwise mismatched data is silently accepted.
-    returned_id = league.get("leagueId") or league.get("id")
-    if returned_id is None or str(returned_id) != str(league_id):
+    # Check `None` explicitly rather than truthiness: a valid-but-falsy id
+    # (0 or "") is present data, not a missing key, and must not silently fall
+    # back to the other field.
+    returned_id = league.get("leagueId")
+    if returned_id is None:
+        returned_id = league.get("id")
+    if returned_id is None:
+        raise NflApiError(
+            f"NFL.com returned a league with no id for requested league "
+            f"{league_id!r} (season {season}); refusing to persist unverifiable data"
+        )
+    if str(returned_id) != str(league_id):
         raise NflApiError(
             f"NFL.com returned league {returned_id!r} for requested league "
             f"{league_id!r} (season {season}); refusing to persist mismatched data"
