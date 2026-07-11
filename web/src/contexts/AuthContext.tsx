@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, ReactNode, Dispatch, SetStateAction } from "react";
 import { getMe, login as apiLogin, logout as apiLogout, signup as apiSignup } from "@/api/auth";
 import type { User, Profile } from "@/api/types";
 
@@ -10,7 +10,7 @@ interface AuthContextValue {
   login: (body: { email: string; password: string }) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
-  setProfiles: (next: Profile[]) => void;
+  setProfiles: Dispatch<SetStateAction<Profile[]>>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
