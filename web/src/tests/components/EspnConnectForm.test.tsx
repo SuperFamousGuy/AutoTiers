@@ -116,6 +116,41 @@ describe("EspnConnectForm", () => {
     })));
   });
 
+  // --- league visibility toggle accessibility ---
+
+  it("announces the active mode to assistive tech via aria-pressed (Public by default)", () => {
+    render(<EspnConnectForm profile={baseProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    // Exactly one toggle is pressed, and it is the Public option on first render.
+    const pressed = screen.getByRole("button", { pressed: true });
+    expect(pressed).toHaveAccessibleName(/public league/i);
+    expect(screen.getByRole("button", { name: /^private league$/i })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
+  it("groups the toggle under an accessible 'League visibility' label", () => {
+    render(<EspnConnectForm profile={baseProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    expect(screen.getByRole("group", { name: /league visibility/i })).toBeInTheDocument();
+  });
+
+  it("flips the pressed state when Private is chosen with the keyboard (Tab + Space)", async () => {
+    render(<EspnConnectForm profile={baseProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    // Tab to the first toggle (Public), then to the second (Private), and activate with Space.
+    await u.tab();
+    expect(screen.getByRole("button", { name: /^public league$/i })).toHaveFocus();
+    await u.tab();
+    expect(screen.getByRole("button", { name: /^private league$/i })).toHaveFocus();
+    await u.keyboard(" ");
+    // Selection state moved to Private, and only one toggle is pressed.
+    expect(screen.getByRole("button", { pressed: true })).toHaveAccessibleName(/private league/i);
+    expect(screen.getByRole("button", { name: /^public league$/i })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
   // --- connected state ---
 
   it("shows connected state card when profile.linked_league.provider === 'espn'", () => {
