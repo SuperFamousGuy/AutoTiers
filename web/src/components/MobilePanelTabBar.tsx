@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { cn } from "@/lib/utils";
 
 export type MobilePanel = "settings" | "rules" | "tiers";
@@ -21,11 +22,31 @@ interface MobilePanelTabBarProps {
 }
 
 export function MobilePanelTabBar({ active, onChange, generateIsPending = false }: MobilePanelTabBarProps) {
+  const tabRefs = useRef<Partial<Record<MobilePanel, HTMLButtonElement | null>>>({});
+
+  // WAI-ARIA APG tab pattern (automatic-activation variant): Left/Right cycle
+  // the active tab among TABS, wrapping at the ends, and move focus to the newly
+  // active tab button — matching the position strip in RulesPanel and the
+  // platform strip in LinkedAccountsDialog. This is a controlled component, so
+  // selection is driven by onChange; the parent re-renders with the new `active`
+  // while we focus the destination button (already mounted) synchronously.
+  function handleTabKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    const currentIdx = TABS.findIndex((t) => t.id === active);
+    if (currentIdx === -1) return;
+    e.preventDefault();
+    const delta = e.key === "ArrowRight" ? 1 : -1;
+    const next = TABS[(currentIdx + delta + TABS.length) % TABS.length];
+    onChange(next.id);
+    tabRefs.current[next.id]?.focus();
+  }
+
   return (
     <>
       <div
         role="tablist"
         aria-label="Panel navigation"
+        onKeyDown={handleTabKeyDown}
         className="flex w-full border-b bg-card lg:hidden"
       >
         {TABS.map(({ id, label }) => {
@@ -38,6 +59,10 @@ export function MobilePanelTabBar({ active, onChange, generateIsPending = false 
               aria-selected={active === id}
               aria-busy={busy || undefined}
               aria-controls={`panel-${id}`}
+              tabIndex={active === id ? 0 : -1}
+              ref={(el) => {
+                tabRefs.current[id] = el;
+              }}
               onClick={() => onChange(id)}
               className={cn(
                 "flex flex-1 items-center justify-center gap-1.5 py-3 text-sm font-medium text-center transition-colors",
