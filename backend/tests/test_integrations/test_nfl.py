@@ -96,6 +96,56 @@ async def test_fetch_league_raises_when_no_league_in_body():
 
 
 @pytest.mark.asyncio
+async def test_fetch_league_raises_when_returned_league_id_mismatches():
+    """NFL.com lies about status codes, so its response shape isn't fully
+    trustworthy: a body describing a different league (unrelated/default id,
+    a future shape change) must raise rather than be persisted under the
+    caller-supplied league_id."""
+    # The nested leagueId (7777777) differs from the requested id (1).
+    body = _standings_body(league_id="7777777")
+    with respx.mock() as router:
+        router.get(_STANDINGS_URL).mock(return_value=Response(200, json=body))
+        with pytest.raises(NflApiError):
+            await fetch_league("1", 2025)
+
+
+@pytest.mark.asyncio
+async def test_fetch_league_raises_when_returned_league_has_no_id():
+    """A league dict carrying no id field can't be verified against the
+    request, so it's untrustworthy and must raise rather than be accepted."""
+    body = _standings_body()
+    del body["games"]["102025"]["leagues"]["1"]["leagueId"]
+    with respx.mock() as router:
+        router.get(_STANDINGS_URL).mock(return_value=Response(200, json=body))
+        with pytest.raises(NflApiError):
+            await fetch_league("1", 2025)
+
+
+@pytest.mark.asyncio
+async def test_fetch_league_matches_id_via_string_normalization():
+    """The verify compares string-normalized ids, so an int leagueId in the
+    body still matches a string request (the matching path is unaffected)."""
+    body = _standings_body()
+    body["games"]["102025"]["leagues"]["1"]["leagueId"] = 1  # int, not "1"
+    with respx.mock() as router:
+        router.get(_STANDINGS_URL).mock(return_value=Response(200, json=body))
+        data = await fetch_league("1", 2025)
+    assert data.league_id == "1"
+
+
+@pytest.mark.asyncio
+async def test_fetch_league_falls_back_to_id_field_for_verification():
+    """Some shapes carry `id` rather than `leagueId`; verification honors it."""
+    body = _standings_body()
+    del body["games"]["102025"]["leagues"]["1"]["leagueId"]
+    body["games"]["102025"]["leagues"]["1"]["id"] = "1"
+    with respx.mock() as router:
+        router.get(_STANDINGS_URL).mock(return_value=Response(200, json=body))
+        data = await fetch_league("1", 2025)
+    assert data.league_id == "1"
+
+
+@pytest.mark.asyncio
 async def test_fetch_league_propagates_http_error():
     """A real 5xx (not the 200-with-errors quirk) propagates so the API layer
     maps it via _provider_http_error."""

@@ -157,6 +157,19 @@ async def fetch_league(league_id: str, season: int) -> LeagueData:
             f"NFL.com returned no league data for league {league_id}, season {season}"
         )
 
+    # NFL.com is documented above as lying about status codes, so its response
+    # shape is not fully trustworthy: an ambiguous id, multiple games entries,
+    # or a future shape change could return an unrelated/default league that
+    # _first_league would happily hand back. Verify the league the body
+    # actually describes is the one we asked for before persisting it under the
+    # caller-supplied league_id — otherwise mismatched data is silently accepted.
+    returned_id = league.get("leagueId") or league.get("id")
+    if returned_id is None or str(returned_id) != str(league_id):
+        raise NflApiError(
+            f"NFL.com returned league {returned_id!r} for requested league "
+            f"{league_id!r} (season {season}); refusing to persist mismatched data"
+        )
+
     name = league.get("name") or f"NFL league {league_id}"
     league_size = int(league.get("numTeams") or league.get("maxTeams") or 12)
 
