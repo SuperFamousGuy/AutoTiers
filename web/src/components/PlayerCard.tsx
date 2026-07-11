@@ -98,6 +98,8 @@ export function PlayerCard({ player, draftMode, drafted, onToggleDraft }: Player
               src={`https://sleepercdn.com/content/nfl/players/thumb/${player.player_id}.jpg`}
               onError={() => setImgError(true)}
               alt={player.name}
+              loading="lazy"
+              decoding="async"
               className="w-11 h-11 rounded-full object-cover object-top shrink-0"
               style={{ border: `2px solid ${posColor}` }}
             />
