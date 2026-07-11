@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Download, ListChecks } from "lucide-react";
+import { Download, ListChecks, Loader2 } from "lucide-react";
 import { PositionFilter, type PositionFilterValue } from "./PositionFilter";
 import { TierGroup } from "./TierGroup";
 import { getCustomTierLabel, getPositionalTierLabel } from "@/lib/tiers";
@@ -21,7 +21,13 @@ interface TiersPanelProps {
   isError?: boolean;
   /** The error the failed generate threw — used to name the failure in the alert. */
   error?: unknown;
-  onDownloadXlsx: () => void;
+  /**
+   * Builds and triggers the Excel download. Returns a promise so the panel can
+   * show a busy spinner while the code-split workbook chunk loads + the blob is
+   * built, and surface an inline error + Retry if either step rejects (#647).
+   * A synchronous handler is still accepted (awaiting a non-promise is a no-op).
+   */
+  onDownloadXlsx: () => void | Promise<void>;
   keepers?: Array<{ player_name: string; position: string; team: string }>;
   scoringFormat?: ScoringFormat;
   tierLabelOverrides?: Partial<Record<number, string>>;
@@ -41,6 +47,22 @@ interface TiersPanelProps {
 export function TiersPanel({ result, isPending, isError, error, onDownloadXlsx, keepers, scoringFormat, tierLabelOverrides, debugMode, onDownloadDebugCsv, leagueKey, isStale, onRegenerate, canRegenerate }: TiersPanelProps) {
   const [filter, setFilter] = useState<PositionFilterValue>("ALL");
   const [draftMode, setDraftMode] = useState(false);
+  // Excel export lifecycle. `downloadDraftXlsx` lazy-loads a code-split chunk and
+  // then builds the workbook async — either step can reject (offline, a stale
+  // chunk hash after a redeploy, a future throw). Track it so the button shows a
+  // spinner while pending and an inline error + Retry on failure, instead of the
+  // old fire-and-forget rejection that gave the user no feedback at all (#647).
+  const [xlsxState, setXlsxState] = useState<"idle" | "pending" | "error">("idle");
+
+  const handleDownloadXlsx = async () => {
+    setXlsxState("pending");
+    try {
+      await onDownloadXlsx();
+      setXlsxState("idle");
+    } catch {
+      setXlsxState("error");
+    }
+  };
 
   const draftStorageKey = `${leagueKey ?? "default"}:${scoringFormat ?? "standard"}`;
   const { isDrafted, draftedCount, toggleDrafted, reset: resetDraft, drafted } = useDraftBoard(draftStorageKey);
@@ -272,16 +294,47 @@ export function TiersPanel({ result, isPending, isError, error, onDownloadXlsx, 
           </div>
         )}
       </div>
-      <div className="border-t bg-card px-6 py-3 flex justify-center gap-3">
-        <Button data-tour="download" onClick={onDownloadXlsx} variant="default">
-          <Download className="mr-2 h-4 w-4" />
-          Download Excel
-        </Button>
-        {debugMode && onDownloadDebugCsv && (
-          <Button onClick={onDownloadDebugCsv} variant="outline">
-            <Download className="mr-2 h-4 w-4" />
-            Download debug CSV
+      <div className="border-t bg-card px-6 py-3 flex flex-col items-center gap-2">
+        <div className="flex justify-center gap-3">
+          <Button
+            data-tour="download"
+            onClick={handleDownloadXlsx}
+            variant="default"
+            disabled={xlsxState === "pending"}
+            aria-busy={xlsxState === "pending"}
+          >
+            {xlsxState === "pending" ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="mr-2 h-4 w-4" />
+            )}
+            Download Excel
           </Button>
+          {debugMode && onDownloadDebugCsv && (
+            <Button onClick={onDownloadDebugCsv} variant="outline">
+              <Download className="mr-2 h-4 w-4" />
+              Download debug CSV
+            </Button>
+          )}
+        </div>
+        {xlsxState === "error" && (
+          <div
+            role="alert"
+            className="flex flex-wrap items-center justify-center gap-2 text-sm text-destructive"
+          >
+            <span>Couldn't build the Excel file — check your connection and try again.</span>
+            <Button onClick={handleDownloadXlsx} variant="outline" size="sm">
+              Retry
+            </Button>
+          </div>
+        )}
+        {/* Announce the in-flight build to assistive tech, matching GenerateButton.
+            Rendered only while pending so it doesn't add a second role=status
+            element alongside the staleness banner. */}
+        {xlsxState === "pending" && (
+          <span role="status" aria-live="polite" className="sr-only">
+            Building the Excel file…
+          </span>
         )}
       </div>
     </section>
