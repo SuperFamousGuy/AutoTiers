@@ -32,7 +32,13 @@ export function MobilePanelTabBar({ active, onChange, generateIsPending = false 
   // while we focus the destination button (already mounted) synchronously.
   function handleTabKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
-    const currentIdx = TABS.findIndex((t) => t.id === active);
+    // Derive the current tab from the focused button rather than the `active`
+    // prop. Focus moves synchronously here, but a parent may debounce or defer
+    // the `active` update (e.g. via a transition); reading `active` directly
+    // would then use a stale value on the next press and stop cycling focus.
+    // Fall back to `active` when the focused element isn't one of our buttons.
+    const focusedId = TABS.find((t) => tabRefs.current[t.id] === e.target)?.id;
+    const currentIdx = TABS.findIndex((t) => t.id === (focusedId ?? active));
     if (currentIdx === -1) return;
     e.preventDefault();
     const delta = e.key === "ArrowRight" ? 1 : -1;
