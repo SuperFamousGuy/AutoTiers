@@ -106,6 +106,28 @@ async def test_list_user_leagues_returns_summaries(respx_mock):
 
 
 @pytest.mark.asyncio
+async def test_list_user_leagues_follows_redirect(respx_mock):
+    """The Yahoo client must follow redirects (httpx defaults follow_redirects
+    to False); a 302 hop to a canonical URL must still resolve to league data
+    rather than leaving a 3xx body for resp.json() to choke on."""
+    url = "https://fantasysports.yahooapis.com/fantasy/v2/users;use_login=1/games;game_keys=nfl/leagues"
+    canonical = "https://fantasysports.yahooapis.com/fantasy/v2/users/canonical/leagues"
+    respx_mock.get(url).mock(return_value=httpx.Response(302, headers={"location": canonical}))
+    respx_mock.get(canonical).mock(return_value=httpx.Response(200, json=LEAGUES_RESPONSE))
+
+    db = AsyncMock()
+    user = _make_user()
+
+    with pytest.MonkeyPatch().context() as m:
+        m.setattr("app.integrations.yahoo_fantasy.decrypt", lambda x: x)
+        m.setattr("app.integrations.yahoo_fantasy.encrypt", lambda x: x)
+        leagues = await list_user_leagues(user, db)
+
+    assert len(leagues) == 1
+    assert leagues[0].league_key == "423.l.12345"
+
+
+@pytest.mark.asyncio
 async def test_fetch_league_returns_data(respx_mock):
     league_key = "423.l.12345"
     url = f"https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/settings"

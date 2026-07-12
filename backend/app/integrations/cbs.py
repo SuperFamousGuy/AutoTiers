@@ -77,7 +77,7 @@ async def get_access_token(email: str, password: str) -> str:
         "password": password,
     }
     headers = {"User-Agent": _MOBILE_UA, "Accept": "application/json"}
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
         resp = await client.post(_AUTH_URL, json=body, headers=headers)
         resp.raise_for_status()
         data = resp.json()
@@ -106,7 +106,7 @@ async def fetch_league(league_id: str, access_token: str) -> LeagueData:
     query = f"version=3.0&response_format=json&sport=football&league_id={league_id}"
 
     bodies: dict[str, dict] = {}
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
         for view in _LEAGUE_VIEWS:
             url = f"{base}/{view}?{query}"
             resp = await client.get(url, headers=headers)

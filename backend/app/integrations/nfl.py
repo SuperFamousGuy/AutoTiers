@@ -126,7 +126,7 @@ async def fetch_league(league_id: str, season: int) -> LeagueData:
     headers = {"User-Agent": _BROWSER_UA, "Accept": "application/json"}
     params = {"leagueId": str(league_id), "season": str(season)}
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
         resp = await client.get(f"{_BASE_URL}/{_VIEW}", params=params, headers=headers)
         resp.raise_for_status()
         payload = resp.json()

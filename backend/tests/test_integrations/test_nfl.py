@@ -158,3 +158,19 @@ def test_has_league_error():
     assert _has_league_error({"errors": "nope"}) is False
     # an unknown error id is NOT a not-found signal
     assert _has_league_error({"errors": [{"messageStringId": "RATE_LIMITED"}]}) is False
+
+
+@pytest.mark.asyncio
+async def test_fetch_league_follows_redirect():
+    """The NFL client must follow redirects (httpx defaults follow_redirects to
+    False); a 302 to a canonical standings URL must still resolve to league
+    data rather than choking resp.json() on the 3xx body."""
+    canonical = "https://api.fantasy.nfl.com/v2/league/standings/canonical"
+    with respx.mock() as router:
+        router.get(_STANDINGS_URL).mock(
+            return_value=Response(302, headers={"location": canonical}),
+        )
+        router.get(canonical).mock(return_value=Response(200, json=_standings_body()))
+        data = await fetch_league("1", 2025)
+    assert data.league_id == "1"
+    assert data.name == "My NFL League"
