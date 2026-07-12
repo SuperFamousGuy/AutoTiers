@@ -104,3 +104,13 @@ def test_yahoo_to_settings_stat_missing_entirely_degrades():
     # degrade to defaults, never raise.
     assert yahoo_to_settings({}, league_size=8)["scoring_format"] == "standard"
     assert yahoo_to_settings({"stat": None}, league_size=8)["qb_td_points"] == 4
+
+
+def test_yahoo_to_settings_non_dict_raw_scoring_returns_defaults():
+    # Upstream settings.get(...).get("stats", {}) can yield None (or another
+    # non-dict) on a malformed payload; must degrade to defaults, not raise.
+    for bad in (None, [], "stats", 7):
+        result = yahoo_to_settings(bad, league_size=12)
+        assert result["scoring_format"] == "standard"
+        assert result["qb_td_points"] == 4.0
+        assert result["league_size"] == 12

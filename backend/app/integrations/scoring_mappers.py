@@ -75,6 +75,10 @@ def yahoo_to_settings(raw_scoring: dict, league_size: int) -> dict:
     shapes degrade to the scoring defaults below instead of raising a raw 500 —
     a malformed provider payload must never escape as an uncaught error.
     """
+    # Upstream .get(...) chains can hand us None (or any non-dict) when the
+    # provider payload is malformed — normalize to {} so this never raises.
+    if not isinstance(raw_scoring, dict):
+        raw_scoring = {}
     raw_stat = raw_scoring.get("stat", [])
     # A single-stat league arrives as a bare dict, not a list — wrap it so the
     # loop below sees one item. Anything that isn't a list/dict (e.g. None) has
