@@ -5,9 +5,11 @@ from unittest.mock import AsyncMock, MagicMock
 from app.integrations.yahoo_fantasy import (
     list_user_leagues,
     fetch_league,
+    _parse_leagues,
     YahooLeagueSummary,
     YahooLeagueData,
     YahooReauthRequired,
+    YahooLeaguesParseError,
 )
 
 # Yahoo's OAuth token endpoint that refresh_access_token POSTs to.
@@ -78,6 +80,24 @@ SETTINGS_RESPONSE = {
 }
 
 
+# A well-formed response for an account with no NFL leagues: Yahoo returns the
+# games envelope with count == 0 (we requested the games sub-resource, so it is
+# present even when empty). This MUST parse to [] without raising.
+EMPTY_LEAGUES_RESPONSE = {
+    "fantasy_content": {
+        "users": {
+            "0": {
+                "user": [
+                    {"guid": "ABCDEF"},
+                    {"games": {"count": 0}},
+                ]
+            },
+            "count": 1,
+        }
+    }
+}
+
+
 def _make_user(access_token="enc_access", refresh_token="enc_refresh"):
     user = MagicMock()
     user.yahoo_access_token = access_token
@@ -103,6 +123,119 @@ async def test_list_user_leagues_returns_summaries(respx_mock):
     assert leagues[0].name == "My FF League"
     assert leagues[0].season == 2024
     assert leagues[0].num_teams == 12
+
+
+def test_parse_leagues_parses_well_formed_response():
+    """Sanity: the happy path still returns the parsed summary."""
+    leagues = _parse_leagues(LEAGUES_RESPONSE)
+    assert [l.league_key for l in leagues] == ["423.l.12345"]
+
+
+def test_parse_leagues_empty_account_returns_empty():
+    """A genuinely empty account (games count == 0) returns [] WITHOUT raising —
+    it must stay distinguishable from a schema-drift failure."""
+    assert _parse_leagues(EMPTY_LEAGUES_RESPONSE) == []
+
+
+def test_parse_leagues_raises_on_missing_key():
+    """A response missing an expected key is schema drift: it must raise
+    YahooLeaguesParseError, not silently return [] (issue #643)."""
+    malformed = {"fantasy_content": {"users": {"0": {"user": [{"guid": "X"}]}}}}
+    with pytest.raises(YahooLeaguesParseError):
+        _parse_leagues(malformed)
+
+
+def test_parse_leagues_raises_on_league_shape_drift():
+    """A count that promises a league Yahoo then nests unexpectedly is drift —
+    it must raise rather than swallow the KeyError into an empty list."""
+    drifted = {
+        "fantasy_content": {
+            "users": {
+                "0": {
+                    "user": [
+                        {"guid": "X"},
+                        {
+                            "games": {
+                                "0": {
+                                    "game": [
+                                        {"season": "2024"},
+                                        {
+                                            "leagues": {
+                                                # count says 1 league exists, but the
+                                                # entry lacks the "league" key.
+                                                "0": {"not_league": []},
+                                                "count": 1,
+                                            }
+                                        },
+                                    ]
+                                },
+                                "count": 1,
+                            }
+                        },
+                    ]
+                },
+                "count": 1,
+            }
+        }
+    }
+    with pytest.raises(YahooLeaguesParseError):
+        _parse_leagues(drifted)
+
+
+def test_parse_leagues_logs_on_drift(caplog):
+    """The swallowed exception is no longer silent: a warning with a traceback is
+    logged before the parse error is raised."""
+    import logging
+
+    malformed = {"fantasy_content": {}}
+    with caplog.at_level(logging.WARNING, logger="app.integrations.yahoo_fantasy"):
+        with pytest.raises(YahooLeaguesParseError):
+            _parse_leagues(malformed)
+    assert any(
+        "Yahoo leagues parse failed" in r.message and r.exc_info
+        for r in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_list_user_leagues_raises_on_malformed_response(respx_mock):
+    """End-to-end at the client boundary: a 200 with a malformed body raises
+    YahooLeaguesParseError rather than returning []."""
+    url = "https://fantasysports.yahooapis.com/fantasy/v2/users;use_login=1/games;game_keys=nfl/leagues"
+    respx_mock.get(url).mock(
+        return_value=httpx.Response(200, json={"fantasy_content": {"unexpected": True}})
+    )
+
+    db = AsyncMock()
+    user = _make_user()
+
+    with pytest.MonkeyPatch().context() as m:
+        m.setattr("app.integrations.yahoo_fantasy.decrypt", lambda x: x)
+        m.setattr("app.integrations.yahoo_fantasy.encrypt", lambda x: x)
+        with pytest.raises(YahooLeaguesParseError):
+            await list_user_leagues(user, db)
+
+
+@pytest.mark.asyncio
+async def test_list_user_leagues_follows_redirect(respx_mock):
+    """The Yahoo client must follow redirects (httpx defaults follow_redirects
+    to False); a 302 hop to a canonical URL must still resolve to league data
+    rather than leaving a 3xx body for resp.json() to choke on."""
+    url = "https://fantasysports.yahooapis.com/fantasy/v2/users;use_login=1/games;game_keys=nfl/leagues"
+    canonical = "https://fantasysports.yahooapis.com/fantasy/v2/users/canonical/leagues"
+    respx_mock.get(url).mock(return_value=httpx.Response(302, headers={"location": canonical}))
+    respx_mock.get(canonical).mock(return_value=httpx.Response(200, json=LEAGUES_RESPONSE))
+
+    db = AsyncMock()
+    user = _make_user()
+
+    with pytest.MonkeyPatch().context() as m:
+        m.setattr("app.integrations.yahoo_fantasy.decrypt", lambda x: x)
+        m.setattr("app.integrations.yahoo_fantasy.encrypt", lambda x: x)
+        leagues = await list_user_leagues(user, db)
+
+    assert len(leagues) == 1
+    assert leagues[0].league_key == "423.l.12345"
 
 
 @pytest.mark.asyncio
@@ -250,6 +383,29 @@ async def test_get_yahoo_leagues_endpoint(async_client, test_db):
     data = resp.json()
     assert len(data) == 1
     assert data[0]["league_key"] == "423.l.99"
+
+
+@pytest.mark.asyncio
+async def test_get_yahoo_leagues_malformed_returns_non_200(async_client, test_db, respx_mock):
+    """A schema-drifted Yahoo response (HTTP 200 body we can't parse) must surface
+    as a provider error, NOT a 200 with an empty list that reads as "no leagues"
+    (issue #643)."""
+    _LEAGUES_URL = "https://fantasysports.yahooapis.com/fantasy/v2/users;use_login=1/games;game_keys=nfl/leagues"
+    respx_mock.get(_LEAGUES_URL).mock(
+        return_value=httpx.Response(200, json={"fantasy_content": {"unexpected": True}})
+    )
+
+    user, profile = await _make_yahoo_user_and_profile(test_db)
+    from app.auth.jwt import encode_jwt
+    jwt = encode_jwt(str(user.id))
+
+    resp = await async_client.get(
+        f"/api/profiles/{profile.id}/link/yahoo/leagues",
+        cookies={"autotiers_session": jwt},
+    )
+
+    assert resp.status_code != 200
+    assert resp.status_code == 502  # routed through _provider_http_error
 
 
 @pytest.mark.asyncio

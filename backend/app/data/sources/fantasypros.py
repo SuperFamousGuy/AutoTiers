@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.data.matching import fuzzy_match
+from app.data.matching import PositionMatchIndex, fuzzy_match
 from app.data.sources.base import SourceResult
 from app.models import Player, Projection, ADPData
 
@@ -30,6 +30,9 @@ class FantasyProsFetcher:
         attempted = datetime.utcnow()
         today = date.today()
         upserted = 0
+        # Shared across projections (position × format) and ADP so fuzzy_match
+        # issues one position query + one normalization pass for the whole run.
+        match_index = PositionMatchIndex()
 
         try:
             async with httpx.AsyncClient(base_url=self.base_url, timeout=30.0, follow_redirects=True,
@@ -40,14 +43,14 @@ class FantasyProsFetcher:
                         resp = await client.get(f"/nfl/projections/{position}.php", params={"scoring": ff_param, "week": "draft"})
                         resp.raise_for_status()
                         upserted += await self._parse_projections(
-                            db, resp.text, position.upper(), ff_format, today
+                            db, resp.text, position.upper(), ff_format, today, match_index
                         )
 
                 # ADP per format
                 for adp_format, slug in _ADP_FORMATS.items():
                     resp = await client.get(f"/nfl/adp/{slug}.php")
                     resp.raise_for_status()
-                    upserted += await self._parse_adp(db, resp.text, adp_format, today)
+                    upserted += await self._parse_adp(db, resp.text, adp_format, today, match_index)
         except Exception as e:
             return SourceResult(source=self.name, rows_upserted=0,
                                 last_attempted=attempted, success=False, error=str(e))
@@ -58,6 +61,7 @@ class FantasyProsFetcher:
 
     async def _parse_projections(
         self, db: AsyncSession, html: str, position: str, scoring_format: str, today: date,
+        match_index: PositionMatchIndex | None = None,
     ) -> int:
         soup = BeautifulSoup(html, "lxml")
         table = soup.find("table", id="data")
@@ -117,7 +121,7 @@ class FantasyProsFetcher:
                     position, name, points,
                 )
 
-            player = await fuzzy_match(db, name, team, position)
+            player = await fuzzy_match(db, name, team, position, index=match_index)
             if player is None:
                 logger.warning("[fantasypros] unmatched %s | %s %s", position, name, team or "?")
                 continue
@@ -139,7 +143,10 @@ class FantasyProsFetcher:
             upserted += 1
         return upserted
 
-    async def _parse_adp(self, db: AsyncSession, html: str, fmt: str, today: date) -> int:
+    async def _parse_adp(
+        self, db: AsyncSession, html: str, fmt: str, today: date,
+        match_index: PositionMatchIndex | None = None,
+    ) -> int:
         soup = BeautifulSoup(html, "lxml")
         table = soup.find("table", id="data")
         if table is None:
@@ -161,7 +168,7 @@ class FantasyProsFetcher:
             if not name:
                 continue
 
-            player = await fuzzy_match(db, name, team, position)
+            player = await fuzzy_match(db, name, team, position, index=match_index)
             if player is None:
                 logger.warning("[fantasypros adp] unmatched %s %s | %s", fmt, name, team or "?")
                 continue

@@ -140,93 +140,104 @@ export function EspnConnectForm({ profile, onLinked, onRefresh }: Props) {
     <div className="space-y-3">
       {error && <p className="text-xs text-red-600">{error}</p>}
 
-      {/* Public / Private toggle */}
-      <div className="flex gap-2" role="group" aria-label="League visibility">
-        <Button
-          size="sm"
-          variant={isPrivate ? "outline" : "default"}
-          aria-label="Public league"
-          aria-pressed={!isPrivate}
-          onClick={() => setIsPrivate(false)}
-        >
-          Public league
-        </Button>
-        <Button
-          size="sm"
-          variant={isPrivate ? "default" : "outline"}
-          aria-label="Private league"
-          aria-pressed={isPrivate}
-          onClick={() => setIsPrivate(true)}
-        >
-          Private league
-        </Button>
-      </div>
-
-      {/* League ID */}
-      <label className="block text-sm">
-        <span>
-          League ID{" "}
-          {isPrivate && (
-            <span className="text-xs text-muted-foreground">(optional if using cookies only)</span>
-          )}
-        </span>
-        <input
-          className="mt-1 block w-full rounded border px-2 py-1 text-sm"
-          value={leagueId}
-          onChange={(e) => setLeagueId(e.target.value)}
-          aria-label="League ID"
-          placeholder="e.g. 336041"
-        />
-      </label>
-      {!isPrivate && (
-        <p className="text-xs text-muted-foreground">
-          Find it in your ESPN league URL:{" "}
-          /fantasy/football/leagues/<strong>{leagueId || "336041"}</strong>
-        </p>
-      )}
-
-      {/* Private credentials */}
-      {isPrivate && (
-        <div className="space-y-2 rounded border bg-muted/40 p-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium">🍪 Private credentials</span>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Open fantasy.espn.com, press F12, then navigate to Cookies:
-            Chrome uses <strong>Application → Cookies → fantasy.espn.com</strong>,
-            Firefox uses <strong>Storage → Cookies → fantasy.espn.com</strong>.
-            Copy the values for <code>SWID</code> and <code>espn_s2</code>.
-          </p>
-          <label className="block text-xs">
-            <span>SWID</span>
-            <input
-              type="password"
-              className="mt-1 block w-full rounded border px-2 py-1 text-sm"
-              value={swid}
-              onChange={(e) => setSwid(e.target.value)}
-              aria-label="SWID"
-              placeholder="{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}"
-            />
-          </label>
-          <label className="block text-xs">
-            <span>espn_s2</span>
-            <input
-              type="password"
-              className="mt-1 block w-full rounded border px-2 py-1 text-sm"
-              value={espnS2}
-              onChange={(e) => setEspnS2(e.target.value)}
-              aria-label="espn_s2"
-              placeholder="long opaque string"
-            />
-          </label>
+      <form
+        className="space-y-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (connectDisabled) return;
+          handleConnect();
+        }}
+      >
+        {/* Public / Private toggle — type=button so they never submit the form */}
+        <div className="flex gap-2" role="group" aria-label="League visibility">
+          <Button
+            type="button"
+            size="sm"
+            variant={isPrivate ? "outline" : "default"}
+            aria-label="Public league"
+            aria-pressed={!isPrivate}
+            onClick={() => setIsPrivate(false)}
+          >
+            Public league
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={isPrivate ? "default" : "outline"}
+            aria-label="Private league"
+            aria-pressed={isPrivate}
+            onClick={() => setIsPrivate(true)}
+          >
+            Private league
+          </Button>
         </div>
-      )}
 
-      <div className="flex justify-end">
-        <Button size="sm" disabled={connectDisabled} onClick={handleConnect}>
-          Connect
-        </Button>
-      </div>
+        {/* League ID */}
+        <label className="block text-sm">
+          <span>
+            League ID{" "}
+            {isPrivate && (
+              <span className="text-xs text-muted-foreground">(optional if using cookies only)</span>
+            )}
+          </span>
+          <input
+            className="mt-1 block w-full rounded border px-2 py-1 text-sm"
+            value={leagueId}
+            onChange={(e) => setLeagueId(e.target.value)}
+            aria-label="League ID"
+            placeholder="e.g. 336041"
+          />
+        </label>
+        {!isPrivate && (
+          <p className="text-xs text-muted-foreground">
+            Find it in your ESPN league URL:{" "}
+            /fantasy/football/leagues/<strong>{leagueId || "336041"}</strong>
+          </p>
+        )}
+
+        {/* Private credentials */}
+        {isPrivate && (
+          <div className="space-y-2 rounded border bg-muted/40 p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium">🍪 Private credentials</span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Open fantasy.espn.com, press F12, then navigate to Cookies:
+              Chrome uses <strong>Application → Cookies → fantasy.espn.com</strong>,
+              Firefox uses <strong>Storage → Cookies → fantasy.espn.com</strong>.
+              Copy the values for <code>SWID</code> and <code>espn_s2</code>.
+            </p>
+            <label className="block text-xs">
+              <span>SWID</span>
+              <input
+                type="password"
+                className="mt-1 block w-full rounded border px-2 py-1 text-sm"
+                value={swid}
+                onChange={(e) => setSwid(e.target.value)}
+                aria-label="SWID"
+                placeholder="{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}"
+              />
+            </label>
+            <label className="block text-xs">
+              <span>espn_s2</span>
+              <input
+                type="password"
+                className="mt-1 block w-full rounded border px-2 py-1 text-sm"
+                value={espnS2}
+                onChange={(e) => setEspnS2(e.target.value)}
+                aria-label="espn_s2"
+                placeholder="long opaque string"
+              />
+            </label>
+          </div>
+        )}
+
+        <div className="flex justify-end">
+          <Button type="submit" size="sm" disabled={connectDisabled}>
+            Connect
+          </Button>
+        </div>
+      </form>
     </div>
   );
 }

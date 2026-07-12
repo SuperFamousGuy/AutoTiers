@@ -127,6 +127,32 @@ describe("SleeperConnectForm", () => {
     await waitFor(() => expect(onLinked).toHaveBeenCalled());
   });
 
+  // --- Enter-to-submit (issue #641) ---
+
+  it("Enter on the username step triggers Continue (not Connect) and advances", async () => {
+    const { listSleeperLeagues, connectSleeper } = await import("@/api/linkedLeague");
+    (listSleeperLeagues as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([{ id: "L1", name: "Champs", season: 2026 }])
+      .mockResolvedValueOnce([]);
+    render(<SleeperConnectForm profile={baseProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    await u.type(screen.getByLabelText(/sleeper username/i), "alice{Enter}");
+    // The visible (username) step's handler ran — leagues were looked up...
+    await waitFor(() => expect(screen.getByText(/champs/i)).toBeInTheDocument());
+    expect(listSleeperLeagues).toHaveBeenCalled();
+    // ...and the not-yet-visible league step's handler did NOT fire.
+    expect(connectSleeper).not.toHaveBeenCalled();
+  });
+
+  it("does not submit on Enter while the username is blank", async () => {
+    const { listSleeperLeagues } = await import("@/api/linkedLeague");
+    render(<SleeperConnectForm profile={baseProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    await u.click(screen.getByLabelText(/sleeper username/i));
+    await u.keyboard("{Enter}");
+    expect(listSleeperLeagues).not.toHaveBeenCalled();
+  });
+
   // --- step indicator ---
 
   it("shows a step indicator on the username step", () => {

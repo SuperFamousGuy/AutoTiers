@@ -9,7 +9,7 @@ import { ApiError, TimeoutError } from "@/api/client";
  * Pull out the human-readable detail/msg when the body is structured, and fall
  * back to the raw string only when it isn't JSON we recognise.
  */
-function extractApiErrorMessage(raw: string): string {
+export function extractApiErrorMessage(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
     return trimmed;

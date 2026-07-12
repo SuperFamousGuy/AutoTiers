@@ -217,11 +217,15 @@ describe("LinkedAccountsDialog", () => {
     await waitFor(() => expect(refresh).toHaveBeenCalled());
   });
 
-  it("shows the API error message when unlinkGoogle fails", async () => {
+  it("unwraps the FastAPI JSON detail (not the raw blob) when unlinkGoogle fails", async () => {
     const { unlinkGoogle } = await import("@/api/auth");
     const { ApiError } = await import("@/api/client");
+    // The real shape: DELETE /api/auth/google/link raises HTTPException(400,
+    // detail=...), so apiFetch/unlinkProvider store the JSON envelope as the
+    // ApiError message. Regression for #642: the user must read the sentence,
+    // not the JSON braces.
     (unlinkGoogle as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-      new ApiError(400, "Cannot unlink last sign-in method"),
+      new ApiError(400, JSON.stringify({ detail: "Cannot unlink last sign-in method" })),
     );
     render(
       <LinkedAccountsDialog open={true} onOpenChange={noop}
@@ -230,7 +234,25 @@ describe("LinkedAccountsDialog", () => {
     );
     const u = userEvent.setup();
     await u.click(screen.getByRole("button", { name: /disconnect google/i }));
-    expect(await screen.findByText(/last sign-in method/i)).toBeInTheDocument();
+    const err = await screen.findByText(/cannot unlink last sign-in method/i);
+    // The extracted sentence renders, and the JSON envelope does not leak through.
+    expect(err).toHaveTextContent("Cannot unlink last sign-in method");
+    expect(err.textContent).not.toMatch(/[{}[\]]|detail/);
+  });
+
+  it("falls back to the generic message when unlinkGoogle fails with a non-ApiError", async () => {
+    const { unlinkGoogle } = await import("@/api/auth");
+    (unlinkGoogle as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new TypeError("Failed to fetch"),
+    );
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop}
+        user={{ ...baseUser, google_subject: "g-sub" }}
+        onRefresh={noop} initialError={null} />,
+    );
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /disconnect google/i }));
+    expect(await screen.findByText(/disconnect failed\. please try again\./i)).toBeInTheDocument();
   });
 
   it("Link Google navigates to the authorize URL with intent=link", async () => {
@@ -299,12 +321,16 @@ describe("LinkedAccountsDialog", () => {
     }
   });
 
-  it("shows the API error message when unlinkYahoo fails", async () => {
+  it("unwraps the FastAPI JSON detail (not the raw blob) when unlinkYahoo fails", async () => {
+    // The real backend body for the last-sign-in-method rejection is a JSON
+    // envelope, which unlinkProvider stores verbatim as ApiError.message.
+    // Regression for #642: the extracted sentence renders, not the JSON.
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,
       status: 400,
       statusText: "Bad Request",
-      text: () => Promise.resolve("Cannot unlink last sign-in method"),
+      text: () =>
+        Promise.resolve(JSON.stringify({ detail: "Cannot unlink last sign-in method" })),
     });
     vi.stubGlobal("fetch", fetchMock);
     try {
@@ -315,7 +341,9 @@ describe("LinkedAccountsDialog", () => {
       );
       const u = userEvent.setup();
       await u.click(screen.getByRole("button", { name: /disconnect yahoo/i }));
-      expect(await screen.findByText(/last sign-in method/i)).toBeInTheDocument();
+      const err = await screen.findByText(/cannot unlink last sign-in method/i);
+      expect(err).toHaveTextContent("Cannot unlink last sign-in method");
+      expect(err.textContent).not.toMatch(/[{}[\]]|detail/);
     } finally {
       vi.unstubAllGlobals();
     }
@@ -464,7 +492,8 @@ describe("LinkedAccountsDialog", () => {
         onRefresh={noop} initialError={null}
         activeProfile={{ ...activeProfile, linked_league: yahooLeague() }} />,
     );
-    const yahooTab = screen.getByRole("tab", { name: /^yahoo$/i });
+    // Accessible name gains the ", league connected" suffix once linked (#665).
+    const yahooTab = screen.getByRole("tab", { name: /^yahoo, league connected$/i });
     expect(yahooTab.querySelector("span.bg-green-500")).not.toBeNull();
   });
 
@@ -478,11 +507,58 @@ describe("LinkedAccountsDialog", () => {
         }} />,
     );
     expect(
-      screen.getByRole("tab", { name: /^sleeper$/i }).querySelector("span.bg-green-500"),
+      screen
+        .getByRole("tab", { name: /^sleeper, league connected$/i })
+        .querySelector("span.bg-green-500"),
     ).not.toBeNull();
     expect(
       screen.getByRole("tab", { name: /^yahoo$/i }).querySelector("span.bg-green-500"),
     ).toBeNull();
+  });
+
+  // --- Connected-state announcement to assistive tech (issue #665) ---
+  // The green dot is aria-hidden, so the connected state must reach screen
+  // readers through the tab's accessible name, not the visual dot alone.
+  it("a connected tab's accessible name announces the linked state", () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null}
+        activeProfile={{ ...activeProfile, linked_league: yahooLeague() }} />,
+    );
+    // The linked (Yahoo) tab announces "..., league connected"; an unlinked tab
+    // (ESPN here) keeps its bare label, so the two states are distinguishable.
+    expect(
+      screen.getByRole("tab", { name: /^yahoo, league connected$/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("tab", { name: /^yahoo$/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^espn$/i })).toBeInTheDocument();
+  });
+
+  it("an unconnected tab's accessible name is the bare label (no suffix)", () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
+    );
+    // No linked league on the profile, so no tab carries the connected suffix.
+    expect(screen.getByRole("tab", { name: /^sleeper$/i })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("tab", { name: /league connected/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the connected dot aria-hidden so it is not double-announced", () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null}
+        activeProfile={{ ...activeProfile, linked_league: yahooLeague() }} />,
+    );
+    const dot = screen
+      .getByRole("tab", { name: /^yahoo, league connected$/i })
+      .querySelector("span.bg-green-500");
+    expect(dot).not.toBeNull();
+    expect(dot).toHaveAttribute("aria-hidden", "true");
   });
 
   it("exposes a labelled tablist containing role=tab for each platform", () => {

@@ -131,49 +131,58 @@ export function CbsConnectForm({ profile, onLinked, onRefresh }: Props) {
         We don't store your password — only the token CBS gives back.
       </p>
 
-      <label className="block text-sm">
-        <span>CBS email</span>
-        <input
-          type="email"
-          className="mt-1 block w-full rounded border px-2 py-1 text-sm"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          aria-label="CBS email"
-          placeholder="you@example.com"
-        />
-      </label>
+      <form
+        className="space-y-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (connectDisabled) return;
+          handleConnect();
+        }}
+      >
+        <label className="block text-sm">
+          <span>CBS email</span>
+          <input
+            type="email"
+            className="mt-1 block w-full rounded border px-2 py-1 text-sm"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            aria-label="CBS email"
+            placeholder="you@example.com"
+          />
+        </label>
 
-      <label className="block text-sm">
-        <span>CBS password</span>
-        <input
-          type="password"
-          className="mt-1 block w-full rounded border px-2 py-1 text-sm"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          aria-label="CBS password"
-          placeholder="••••••••"
-        />
-      </label>
+        <label className="block text-sm">
+          <span>CBS password</span>
+          <input
+            type="password"
+            className="mt-1 block w-full rounded border px-2 py-1 text-sm"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            aria-label="CBS password"
+            placeholder="••••••••"
+          />
+        </label>
 
-      <label className="block text-sm">
-        <span>League ID</span>
-        <input
-          className="mt-1 block w-full rounded border px-2 py-1 text-sm"
-          value={leagueId}
-          onChange={(e) => setLeagueId(e.target.value)}
-          aria-label="League ID"
-          placeholder="e.g. 123456"
-        />
-      </label>
-      <p className="text-xs text-muted-foreground">
-        Find it in your CBS league URL: https://{leagueId || "123456"}.football.cbssports.com/...
-      </p>
+        <label className="block text-sm">
+          <span>League ID</span>
+          <input
+            className="mt-1 block w-full rounded border px-2 py-1 text-sm"
+            value={leagueId}
+            onChange={(e) => setLeagueId(e.target.value)}
+            aria-label="League ID"
+            placeholder="e.g. 123456"
+          />
+        </label>
+        <p className="text-xs text-muted-foreground">
+          Find it in your CBS league URL: https://{leagueId || "123456"}.football.cbssports.com/...
+        </p>
 
-      <div className="flex justify-end">
-        <Button size="sm" disabled={connectDisabled} onClick={handleConnect}>
-          Connect
-        </Button>
-      </div>
+        <div className="flex justify-end">
+          <Button type="submit" size="sm" disabled={connectDisabled}>
+            Connect
+          </Button>
+        </div>
+      </form>
     </div>
   );
 }

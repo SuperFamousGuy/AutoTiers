@@ -127,6 +127,44 @@ describe("CbsConnectForm", () => {
     expect(await screen.findByText(/connect failed/i)).toBeInTheDocument();
   });
 
+  // --- Enter-to-submit (issue #641) ---
+
+  it("submits on Enter from an input once all required fields are filled", async () => {
+    const { connectCbs } = await import("@/api/linkedLeague");
+    (connectCbs as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      linked_league: {
+        profile_id: "p1", provider: "cbs", league_id: "999999",
+        league_metadata_json: { name: "CBS Champs", season: 2026 },
+        keepers_json: [], adp_json: null, last_synced_at: "x",
+      },
+      profile: baseProfile,
+    });
+    const onLinked = vi.fn();
+    render(<CbsConnectForm profile={baseProfile} onLinked={onLinked} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    await u.type(screen.getByLabelText(/cbs email/i), "fan@example.com");
+    await u.type(screen.getByLabelText(/cbs password/i), "hunter2");
+    // Enter from the last field submits the form — no mouse click on Connect.
+    await u.type(screen.getByLabelText(/league id/i), "999999{Enter}");
+    await waitFor(() =>
+      expect(connectCbs).toHaveBeenCalledWith("p1", {
+        email: "fan@example.com",
+        password: "hunter2",
+        league_id: "999999",
+      }),
+    );
+    await waitFor(() => expect(onLinked).toHaveBeenCalled());
+  });
+
+  it("does not submit on Enter while the Connect guard is unmet", async () => {
+    const { connectCbs } = await import("@/api/linkedLeague");
+    render(<CbsConnectForm profile={baseProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    // Only the email is filled; password + league ID missing, so Connect is disabled.
+    await u.type(screen.getByLabelText(/cbs email/i), "fan@example.com{Enter}");
+    expect(connectCbs).not.toHaveBeenCalled();
+  });
+
   // --- connected state ---
 
   it("shows connected state card when profile.linked_league.provider === 'cbs'", () => {

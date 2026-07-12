@@ -126,7 +126,7 @@ async def fetch_league(league_id: str, season: int) -> LeagueData:
     headers = {"User-Agent": _BROWSER_UA, "Accept": "application/json"}
     params = {"leagueId": str(league_id), "season": str(season)}
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
         resp = await client.get(f"{_BASE_URL}/{_VIEW}", params=params, headers=headers)
         resp.raise_for_status()
         payload = resp.json()
@@ -155,6 +155,29 @@ async def fetch_league(league_id: str, season: int) -> LeagueData:
         # than fabricating an empty league row.
         raise NflLeagueNotFound(
             f"NFL.com returned no league data for league {league_id}, season {season}"
+        )
+
+    # NFL.com is documented above as lying about status codes, so its response
+    # shape is not fully trustworthy: an ambiguous id, multiple games entries,
+    # or a future shape change could return an unrelated/default league that
+    # _first_league would happily hand back. Verify the league the body
+    # actually describes is the one we asked for before persisting it under the
+    # caller-supplied league_id — otherwise mismatched data is silently accepted.
+    # Check `None` explicitly rather than truthiness: a valid-but-falsy id
+    # (0 or "") is present data, not a missing key, and must not silently fall
+    # back to the other field.
+    returned_id = league.get("leagueId")
+    if returned_id is None:
+        returned_id = league.get("id")
+    if returned_id is None:
+        raise NflApiError(
+            f"NFL.com returned a league with no id for requested league "
+            f"{league_id!r} (season {season}); refusing to persist unverifiable data"
+        )
+    if str(returned_id) != str(league_id):
+        raise NflApiError(
+            f"NFL.com returned league {returned_id!r} for requested league "
+            f"{league_id!r} (season {season}); refusing to persist mismatched data"
         )
 
     name = league.get("name") or f"NFL league {league_id}"
