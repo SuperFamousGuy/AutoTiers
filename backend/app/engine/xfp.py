@@ -56,8 +56,10 @@ class _StatLike(Protocol):
     pass_yards: float
     pass_tds: int
     interceptions: int
-    fumbles_lost: int
-    two_pt_conversions: int
+    # fumbles_lost / two_pt_conversions are intentionally NOT part of the
+    # required surface: the xFP math never reads them, and _to_player_stats
+    # pulls them via getattr() so older stat stubs that predate these
+    # attributes still satisfy the Protocol.
 
 
 @dataclass(frozen=True)
