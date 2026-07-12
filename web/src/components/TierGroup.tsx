@@ -1,4 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { ChevronDown } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { PlayerCard } from "./PlayerCard";
 import type { TieredPlayer } from "@/api/types";
 
@@ -34,31 +36,97 @@ export function TierGroup({ label, descriptiveLabel, players, draftMode, isDraft
 
   const countShown = draftMode ? availableCount : players.length;
 
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between bg-muted/60 rounded px-3 py-1.5 my-1">
-        <span className="text-sm font-bold text-foreground">
-          {label}
-          {descriptiveLabel && (
-            <>
-              <span className="mx-1.5 font-normal text-muted-foreground">·</span>
-              <span className="font-normal text-muted-foreground">{descriptiveLabel}</span>
-            </>
-          )}
-        </span>
+  // Per-tier collapse state. Only meaningful in Draft Mode — outside Draft Mode
+  // the tier always renders fully and no toggle is shown.
+  //
+  // A tier auto-collapses once every player in it is drafted (its dead,
+  // struck-through rows stop pushing the next-available tier off-screen on a
+  // phone) and auto-expands again the moment a player is undrafted back into it.
+  // Between those transitions the user can still collapse/expand manually via
+  // the header chevron. We track the previous Draft-Mode and available-count
+  // values and adjust `expanded` during render (the React "derived from props"
+  // pattern) so the collapse lands in the same commit as the draft toggle —
+  // no post-paint flash of the full list.
+  const draftActive = draftMode === true;
+  const [expanded, setExpanded] = useState(() => !(draftActive && availableCount === 0));
+  const [prevDraftActive, setPrevDraftActive] = useState(draftActive);
+  const [prevAvailable, setPrevAvailable] = useState(availableCount);
+
+  if (prevDraftActive !== draftActive || prevAvailable !== availableCount) {
+    setPrevDraftActive(draftActive);
+    setPrevAvailable(availableCount);
+    if (!draftActive) {
+      // Leaving Draft Mode resets collapse state — the tier is fully expanded
+      // again and any manual collapse is forgotten.
+      setExpanded(true);
+    } else if (!prevDraftActive) {
+      // Entering Draft Mode — start collapsed only if the tier is already
+      // fully drafted (e.g. restored from a persisted board).
+      setExpanded(availableCount > 0);
+    } else if (prevAvailable > 0 && availableCount === 0) {
+      setExpanded(false); // last available player drafted → auto-collapse
+    } else if (prevAvailable === 0 && availableCount > 0) {
+      setExpanded(true); // undrafted back into an empty tier → auto-expand
+    }
+  }
+
+  const showRows = !draftActive || expanded;
+
+  const header = (
+    <>
+      <span className="text-sm font-bold text-foreground">
+        {label}
+        {descriptiveLabel && (
+          <>
+            <span className="mx-1.5 font-normal text-muted-foreground">·</span>
+            <span className="font-normal text-muted-foreground">{descriptiveLabel}</span>
+          </>
+        )}
+      </span>
+      <span className="flex items-center gap-1.5">
         <span className="text-xs bg-background rounded px-1.5 py-0.5 text-muted-foreground">
           {countShown} {countShown === 1 ? "player" : "players"}
         </span>
-      </div>
-      {displayPlayers.map((p) => (
-        <PlayerCard
-          key={p.player_id}
-          player={p}
-          draftMode={draftMode}
-          drafted={isDrafted?.(p.player_id) ?? false}
-          onToggleDraft={onToggleDraft}
-        />
-      ))}
+        {draftActive && (
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 text-muted-foreground transition-transform shrink-0",
+              !expanded && "-rotate-90",
+            )}
+            aria-hidden="true"
+          />
+        )}
+      </span>
+    </>
+  );
+
+  return (
+    <div className="space-y-1">
+      {draftActive ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          aria-expanded={expanded}
+          aria-label={`${expanded ? "Collapse" : "Expand"} ${label}`}
+          className="flex w-full items-center justify-between bg-muted/60 rounded px-3 py-1.5 my-1 text-left"
+        >
+          {header}
+        </button>
+      ) : (
+        <div className="flex items-center justify-between bg-muted/60 rounded px-3 py-1.5 my-1">
+          {header}
+        </div>
+      )}
+      {showRows &&
+        displayPlayers.map((p) => (
+          <PlayerCard
+            key={p.player_id}
+            player={p}
+            draftMode={draftMode}
+            drafted={isDrafted?.(p.player_id) ?? false}
+            onToggleDraft={onToggleDraft}
+          />
+        ))}
     </div>
   );
 }
