@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { buildDraftWorkbookSheets } from "@/lib/xlsx";
+import {
+  buildDraftWorkbookSheets,
+  buildXlsxFilename,
+  DEFAULT_XLSX_FILENAME,
+} from "@/lib/xlsx";
 import { DRAFT_CSV_HEADERS, draftRowValues, generateDraftCsvString } from "@/lib/csv";
 import type { ScoringFormat, TieredPlayer } from "@/api/types";
 
@@ -40,6 +44,57 @@ const opts = (format: ScoringFormat = "standard") => ({ scoringFormat: format })
 function cellValues(sheet: { data: Array<Array<{ value?: unknown }>> }): string[][] {
   return sheet.data.map((row) => row.map((cell) => String(cell.value)));
 }
+
+describe("buildXlsxFilename", () => {
+  // Fixed date so the date suffix is deterministic (2026-07-12).
+  const date = new Date(2026, 6, 12);
+
+  it("derives the filename from profile name, scoring format, and date", () => {
+    expect(buildXlsxFilename("Redraft", "half_ppr", date)).toBe(
+      "redraft-half-ppr-tiers-2026-07-12.xlsx",
+    );
+  });
+
+  it("maps each scoring format to a hyphenated label", () => {
+    expect(buildXlsxFilename("League", "standard", date)).toBe(
+      "league-standard-tiers-2026-07-12.xlsx",
+    );
+    expect(buildXlsxFilename("League", "half_ppr", date)).toBe(
+      "league-half-ppr-tiers-2026-07-12.xlsx",
+    );
+    expect(buildXlsxFilename("League", "ppr", date)).toBe(
+      "league-ppr-tiers-2026-07-12.xlsx",
+    );
+  });
+
+  it("slugifies messy names (case, spaces, punctuation) into a safe token", () => {
+    expect(buildXlsxFilename("  My League #1!  ", "ppr", date)).toBe(
+      "my-league-1-ppr-tiers-2026-07-12.xlsx",
+    );
+  });
+
+  it("zero-pads single-digit month and day", () => {
+    expect(buildXlsxFilename("League", "ppr", new Date(2026, 0, 3))).toBe(
+      "league-ppr-tiers-2026-01-03.xlsx",
+    );
+  });
+
+  it("falls back to tiers.xlsx when no profile name is available", () => {
+    expect(buildXlsxFilename(null, "ppr", date)).toBe(DEFAULT_XLSX_FILENAME);
+    expect(buildXlsxFilename(undefined, "ppr", date)).toBe(DEFAULT_XLSX_FILENAME);
+    expect(buildXlsxFilename("", "ppr", date)).toBe(DEFAULT_XLSX_FILENAME);
+  });
+
+  it("falls back to tiers.xlsx when the name slugifies to nothing", () => {
+    expect(buildXlsxFilename("!!!", "ppr", date)).toBe(DEFAULT_XLSX_FILENAME);
+    expect(buildXlsxFilename("   ", "ppr", date)).toBe(DEFAULT_XLSX_FILENAME);
+  });
+
+  it("uses the current date when none is provided", () => {
+    const name = buildXlsxFilename("League", "ppr");
+    expect(name).toMatch(/^league-ppr-tiers-\d{4}-\d{2}-\d{2}\.xlsx$/);
+  });
+});
 
 describe("buildDraftWorkbookSheets", () => {
   it("always includes an 'All' sheet first, even with no players", () => {

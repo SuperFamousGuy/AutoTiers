@@ -93,6 +93,34 @@ describe("NflConnectForm", () => {
     );
   });
 
+  // --- Enter-to-submit (issue #641) ---
+
+  it("submits on Enter from the League ID field (season pre-fills)", async () => {
+    const { connectNfl } = await import("@/api/linkedLeague");
+    (connectNfl as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      linked_league: nflLinkedProfile.linked_league,
+      profile: nflLinkedProfile,
+    });
+    const onLinked = vi.fn();
+    render(<NflConnectForm profile={baseProfile} onLinked={onLinked} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    await u.type(screen.getByLabelText("League ID"), "55555{Enter}");
+    await waitFor(() =>
+      expect(connectNfl).toHaveBeenCalledWith("p1", expect.objectContaining({ league_id: "55555" })),
+    );
+    expect(onLinked).toHaveBeenCalled();
+  });
+
+  it("does not submit on Enter while the Connect guard is unmet", async () => {
+    const { connectNfl } = await import("@/api/linkedLeague");
+    render(<NflConnectForm profile={baseProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    // League ID empty → Connect disabled → Enter must be a no-op.
+    await u.clear(screen.getByLabelText("Season"));
+    await u.type(screen.getByLabelText("Season"), "2025{Enter}");
+    expect(connectNfl).not.toHaveBeenCalled();
+  });
+
   it("renders the connected state (no inputs) when provider is nfl", () => {
     render(<NflConnectForm profile={nflLinkedProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
     expect(screen.getByText("Connected!")).toBeInTheDocument();

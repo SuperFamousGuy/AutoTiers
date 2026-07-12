@@ -8,6 +8,7 @@ import {
   unlinkYahoo,
 } from "@/api/auth";
 import { ApiError } from "@/api/client";
+import { extractApiErrorMessage } from "@/lib/errors";
 import { SleeperConnectForm } from "@/components/SleeperConnectForm";
 import { EspnConnectForm } from "@/components/EspnConnectForm";
 import { YahooConnectForm } from "@/components/YahooConnectForm";
@@ -191,7 +192,15 @@ export function LinkedAccountsDialog({
       await unlinkGoogle();
       await onRefresh();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Disconnect failed. Please try again.");
+      // apiFetch/unlinkProvider store the raw response body as ApiError.message,
+      // which for a FastAPI HTTPException is a JSON envelope like
+      // {"detail":"Cannot unlink last sign-in method"}. Unwrap it the same way
+      // Generate errors do, so the user reads the sentence — not the braces (#642).
+      setError(
+        e instanceof ApiError
+          ? extractApiErrorMessage(e.message) || "Disconnect failed. Please try again."
+          : "Disconnect failed. Please try again.",
+      );
     } finally {
       setGoogleBusy(false);
     }
@@ -216,7 +225,12 @@ export function LinkedAccountsDialog({
       await unlinkYahoo();
       await onRefresh();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Disconnect failed. Please try again.");
+      // Same JSON-envelope unwrapping as the Google handler above (#642).
+      setError(
+        e instanceof ApiError
+          ? extractApiErrorMessage(e.message) || "Disconnect failed. Please try again."
+          : "Disconnect failed. Please try again.",
+      );
     } finally {
       setYahooBusy(false);
     }
@@ -393,7 +407,10 @@ export function LinkedAccountsDialog({
                 type="button"
                 role="tab"
                 id={`tab-${id}`}
-                aria-label={label}
+                // The green dot is aria-hidden, so a linked tab would otherwise
+                // announce identically to an unlinked one (#665). Fold the
+                // connected state into the accessible name via a text suffix.
+                aria-label={isConnected ? `${label}, league connected` : label}
                 aria-selected={selected}
                 aria-controls="linked-accounts-tabpanel"
                 tabIndex={selected ? 0 : -1}

@@ -55,10 +55,13 @@ describe("App — generate failure is surfaced, not swallowed (#607)", () => {
     await waitFor(() => {
       expect(screen.getByText(/couldn't generate your tier list/i)).toBeInTheDocument();
     });
-    // …the toast fired from onError. Radix mirrors the toast title into a
-    // transient screen-reader announce region for ~1s, so the copy can briefly
-    // match twice; assert at least one match rather than exactly one.
-    expect(screen.getAllByText(/generate failed/i).length).toBeGreaterThan(0);
+    // …the toast fired from onError. Match the visible toast title exactly:
+    // Radix Toast also mirrors the title into a transient, visually-hidden
+    // aria-live announce region ("Notification Generate failed <description>"),
+    // so a loose /generate failed/i regex matches two nodes whenever that region
+    // is still mounted at assert time — flaky on slower CI. The exact-string
+    // query only matches the title node, whose text is exactly "Generate failed".
+    expect(screen.getByText("Generate failed")).toBeInTheDocument();
     // …and the misleading pre-generate copy is gone.
     expect(screen.queryByText(/click generate to build/i)).not.toBeInTheDocument();
   });

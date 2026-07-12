@@ -137,9 +137,10 @@ async def test_generate_negative_weight_returns_422(async_client):
     assert resp.status_code == 422
 
 
-def test_370_touches_categorized_as_regression():
+def test_370_touches_bands_categorized_as_regression():
     from app.api.rules import _categorize
-    assert _categorize("370 Touches") == "Regression"
+    assert _categorize("370 Touches (Young RB)") == "Regression"
+    assert _categorize("370 Touches (Veteran RB)") == "Regression"
 
 
 def test_year_after_categorized_as_regression():
@@ -176,12 +177,14 @@ async def test_generate_computes_prior_touches_for_rbs(async_client, test_db):
                            scoring_format="ppr", projected_points=290.0, last_updated=date.today()))
     await test_db.commit()
 
-    body = {**_GENERATE_BODY, "rules": {"RB": [{"name": "370 Touches", "enabled": True, "weight": 1.0}]}}
+    # The seeded RB is age 26 (rush_att 300 + receptions 80 = 380 touches),
+    # so the young age band should fire.
+    body = {**_GENERATE_BODY, "rules": {"RB": [{"name": "370 Touches (Young RB)", "enabled": True, "weight": 1.0}]}}
     resp = await async_client.post("/api/generate", json=body)
     assert resp.status_code == 200
     players = resp.json()["players"]
     workhorse = next(p for p in players if p["player_id"] == "test-workhorse")
-    assert "370 Touches" in workhorse["rules_applied"]
+    assert "370 Touches (Young RB)" in workhorse["rules_applied"]
 
 
 async def test_generate_computes_injured_two_years_ago_for_rb(async_client, test_db):

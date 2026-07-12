@@ -58,13 +58,18 @@ function triggerCsvDownload(content: string, filename: string): void {
 }
 
 /**
- * Downloads the customer-facing draft cheat-sheet as a multi-tab workbook
- * `tiers.xlsx`: an "All" sheet plus one sheet per position that has players.
- * Async because workbook construction (write-excel-file) is async.
+ * Downloads the customer-facing draft cheat-sheet as a multi-tab workbook: an
+ * "All" sheet plus one sheet per position that has players. The filename is
+ * derived from the active profile name, scoring format, and date (e.g.
+ * `redraft-half-ppr-tiers-2026-07-12.xlsx`) so exports for different
+ * leagues/profiles on draft day are distinguishable; it falls back to
+ * `tiers.xlsx` when no profile name is available. Async because workbook
+ * construction (write-excel-file) is async.
  */
 export async function downloadDraftXlsx(
   players: TieredPlayer[],
   scoringFormat: ScoringFormat,
+  profileName?: string | null,
   tierLabelOverrides?: Partial<Record<number, string>>,
 ): Promise<void> {
   const options: DraftCsvOptions = { scoringFormat, tierLabelOverrides };
@@ -72,9 +77,9 @@ export async function downloadDraftXlsx(
   // it pulls in) so it is code-split into its own async chunk and only fetched
   // when the user actually clicks Download Excel — keeping it out of the main
   // initial-load bundle. Do not convert this back to a static import.
-  const { buildDraftXlsxBlob } = await import("@/lib/xlsx");
+  const { buildDraftXlsxBlob, buildXlsxFilename } = await import("@/lib/xlsx");
   const blob = await buildDraftXlsxBlob(players, options);
-  triggerBlobDownload(blob, "tiers.xlsx");
+  triggerBlobDownload(blob, buildXlsxFilename(profileName, scoringFormat));
 }
 
 /** Downloads the full debug CSV as `tiers-debug.csv` (dev-only, ?debug=1). */
