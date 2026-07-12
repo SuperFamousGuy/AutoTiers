@@ -407,7 +407,10 @@ export function LinkedAccountsDialog({
                 type="button"
                 role="tab"
                 id={`tab-${id}`}
-                aria-label={label}
+                // The green dot is aria-hidden, so a linked tab would otherwise
+                // announce identically to an unlinked one (#665). Fold the
+                // connected state into the accessible name via a text suffix.
+                aria-label={isConnected ? `${label}, league connected` : label}
                 aria-selected={selected}
                 aria-controls="linked-accounts-tabpanel"
                 tabIndex={selected ? 0 : -1}
