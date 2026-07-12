@@ -83,7 +83,9 @@ class DataFetcher:
                     ))
                 except Exception:
                     # Best-effort bookkeeping; never mask the cancellation.
-                    logger.debug("failed to record shutdown status for %s", name)
+                    logger.debug(
+                        "failed to record shutdown status for %s", name, exc_info=True
+                    )
                 raise
             except Exception as e:
                 result = SourceResult(
