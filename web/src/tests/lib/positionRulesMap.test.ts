@@ -50,9 +50,16 @@ describe("positionRulesMap", () => {
     }
   });
 
-  it("370 Touches does not appear in any position tab (hidden by design)", () => {
+  it("370 Touches age bands do not appear in any position tab (hidden by design)", () => {
+    const hidden = [
+      "370 Touches",
+      "370 Touches (Young RB)",
+      "370 Touches (Veteran RB)",
+    ];
     for (const pos of POSITIONS) {
-      expect(POSITION_RULES_MAP[pos]).not.toContain("370 Touches");
+      for (const name of hidden) {
+        expect(POSITION_RULES_MAP[pos]).not.toContain(name);
+      }
     }
   });
 

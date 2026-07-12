@@ -149,9 +149,9 @@ def test_builtin_rules_is_nonempty_list_of_rules():
         assert rule.conditions
 
 
-def test_builtin_rules_count_is_25():
-    """Adding TE Year-3 Leap rule (was 24)."""
-    assert len(BUILTIN_RULES) == 25
+def test_builtin_rules_count_is_26():
+    """Splitting flat '370 Touches' into two age bands and adding TE Year-3 Leap rule (was 24)."""
+    assert len(BUILTIN_RULES) == 26
 
 
 def test_opportunity_rules_categorized_as_regression():
@@ -265,21 +265,70 @@ def test_apply_rules_tracks_per_rule_applications():
     assert app.delta == 20.0
 
 
-def test_370_touches_rule_fires_on_rb_with_high_touches():
+def _touches_band(name: str):
     import dataclasses
-    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "370 Touches"), enabled=True)
-    ctx = _ctx(prior_touches=375)
-    result = apply_rules(200.0, ctx, [rule])
-    assert "370 Touches" in result.rules_applied
-    assert result.adjusted_score == 180.0  # 200 * 0.90
+    return dataclasses.replace(
+        next(r for r in BUILTIN_RULES if r.name == name), enabled=True
+    )
 
 
-def test_370_touches_rule_does_not_fire_under_threshold():
-    import dataclasses
-    rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "370 Touches"), enabled=True)
-    ctx = _ctx(prior_touches=369)
+def test_370_touches_young_band_fires_on_young_rb():
+    rule = _touches_band("370 Touches (Young RB)")
+    ctx = _ctx(prior_touches=375, age=24)
     result = apply_rules(200.0, ctx, [rule])
-    assert "370 Touches" not in result.rules_applied
+    assert "370 Touches (Young RB)" in result.rules_applied
+    assert result.adjusted_score == 174.0  # 200 * 0.87
+
+
+def test_370_touches_veteran_band_fires_on_veteran_rb():
+    rule = _touches_band("370 Touches (Veteran RB)")
+    ctx = _ctx(prior_touches=375, age=29)
+    result = apply_rules(200.0, ctx, [rule])
+    assert "370 Touches (Veteran RB)" in result.rules_applied
+    assert result.adjusted_score == 150.0  # 200 * 0.75
+
+
+def test_370_touches_young_and_veteran_give_different_multipliers():
+    """Acceptance criterion (#498): a 24yo and a 29yo 380-touch RB differ."""
+    young = _touches_band("370 Touches (Young RB)")
+    veteran = _touches_band("370 Touches (Veteran RB)")
+    young_score = apply_rules(200.0, _ctx(prior_touches=380, age=24), [young, veteran]).adjusted_score
+    veteran_score = apply_rules(200.0, _ctx(prior_touches=380, age=29), [young, veteran]).adjusted_score
+    assert young_score == 174.0   # young band only
+    assert veteran_score == 150.0  # veteran band only
+    assert young_score != veteran_score
+
+
+def test_370_touches_bands_are_mutually_exclusive_at_boundary():
+    """age 26 -> young only; age 27 -> veteran only. No overlap, no gap."""
+    young = _touches_band("370 Touches (Young RB)")
+    veteran = _touches_band("370 Touches (Veteran RB)")
+    at_26 = apply_rules(200.0, _ctx(prior_touches=380, age=26), [young, veteran])
+    at_27 = apply_rules(200.0, _ctx(prior_touches=380, age=27), [young, veteran])
+    assert at_26.rules_applied == ["370 Touches (Young RB)"]
+    assert at_27.rules_applied == ["370 Touches (Veteran RB)"]
+
+
+def test_370_touches_neither_band_fires_under_touch_threshold():
+    young = _touches_band("370 Touches (Young RB)")
+    veteran = _touches_band("370 Touches (Veteran RB)")
+    result = apply_rules(200.0, _ctx(prior_touches=369, age=24), [young, veteran])
+    assert result.rules_applied == []
+    assert result.adjusted_score == 200.0
+
+
+def test_370_touches_neither_band_fires_when_age_unknown():
+    """Documented behavior: a 370+ touch RB with unknown age fires neither band.
+
+    `_evaluate` treats a None field as a non-match, so both age conditions fail.
+    This is deliberate (see builtin_rules.py) — locked here so a future edit
+    can't silently start (or keep) penalizing missing-age players by accident.
+    """
+    young = _touches_band("370 Touches (Young RB)")
+    veteran = _touches_band("370 Touches (Veteran RB)")
+    result = apply_rules(200.0, _ctx(prior_touches=380, age=None), [young, veteran])
+    assert result.rules_applied == []
+    assert result.adjusted_score == 200.0
 
 
 def test_player_context_accepts_prior_touches():
@@ -442,9 +491,10 @@ def test_builtin_target_share_premium_has_rb_wr_te_positions():
     assert rule.positions == ["RB", "WR", "TE"]
 
 
-def test_builtin_370_touches_has_rb_position():
-    rule = next(r for r in BUILTIN_RULES if r.name == "370 Touches")
-    assert rule.positions == ["RB"]
+def test_builtin_370_touches_bands_have_rb_position():
+    for name in ("370 Touches (Young RB)", "370 Touches (Veteran RB)"):
+        rule = next(r for r in BUILTIN_RULES if r.name == name)
+        assert rule.positions == ["RB"]
 
 
 def test_builtin_handcuff_rb_has_rb_position():
