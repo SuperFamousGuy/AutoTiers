@@ -131,37 +131,46 @@ export function NflConnectForm({ profile, onLinked, onRefresh }: Props) {
         We read your NFL.com league's public info — its name and size. No NFL.com login needed.
       </p>
 
-      <label className="block text-sm">
-        <span>League ID</span>
-        <input
-          className="mt-1 block w-full rounded border px-2 py-1 text-sm"
-          value={leagueId}
-          onChange={(e) => setLeagueId(e.target.value)}
-          aria-label="League ID"
-          placeholder="e.g. 123456"
-        />
-      </label>
-      <p className="text-xs text-muted-foreground">
-        Find it in your NFL.com league URL: https://fantasy.nfl.com/league/{leagueId || "123456"}
-      </p>
+      <form
+        className="space-y-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (connectDisabled) return;
+          handleConnect();
+        }}
+      >
+        <label className="block text-sm">
+          <span>League ID</span>
+          <input
+            className="mt-1 block w-full rounded border px-2 py-1 text-sm"
+            value={leagueId}
+            onChange={(e) => setLeagueId(e.target.value)}
+            aria-label="League ID"
+            placeholder="e.g. 123456"
+          />
+        </label>
+        <p className="text-xs text-muted-foreground">
+          Find it in your NFL.com league URL: https://fantasy.nfl.com/league/{leagueId || "123456"}
+        </p>
 
-      <label className="block text-sm">
-        <span>Season</span>
-        <input
-          type="number"
-          className="mt-1 block w-full rounded border px-2 py-1 text-sm"
-          value={season}
-          onChange={(e) => setSeason(e.target.value)}
-          aria-label="Season"
-          placeholder="2024"
-        />
-      </label>
+        <label className="block text-sm">
+          <span>Season</span>
+          <input
+            type="number"
+            className="mt-1 block w-full rounded border px-2 py-1 text-sm"
+            value={season}
+            onChange={(e) => setSeason(e.target.value)}
+            aria-label="Season"
+            placeholder="2024"
+          />
+        </label>
 
-      <div className="flex justify-end">
-        <Button size="sm" disabled={connectDisabled} aria-label="Connect NFL" onClick={handleConnect}>
-          Connect
-        </Button>
-      </div>
+        <div className="flex justify-end">
+          <Button type="submit" size="sm" disabled={connectDisabled} aria-label="Connect NFL">
+            Connect
+          </Button>
+        </div>
+      </form>
     </div>
   );
 }

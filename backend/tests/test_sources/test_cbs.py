@@ -1,7 +1,7 @@
 import pytest
 import respx
 from httpx import Response
-from sqlalchemy import select
+from sqlalchemy import event, select
 from app.data.sources.cbs import CBSFetcher
 from app.models import Player, Projection
 
@@ -124,6 +124,51 @@ async def test_cbs_fetcher_skips_rows_with_unparseable_points(test_db):
     assert result.success is True
     # Only Chase upserts (3 formats), the garbage row is skipped silently.
     assert result.rows_upserted == 3
+
+
+@pytest.mark.asyncio
+async def test_cbs_fetcher_queries_position_once_not_per_row(test_engine, test_db):
+    """N+1 guard: fuzzy matching must issue at most one WR position query for the
+    whole run, not one per row × scoring format. Three WR rows across three
+    scoring formats would be nine queries without the per-run PositionMatchIndex."""
+    for i in range(3):
+        test_db.add(Player(id=f"wr_{i}", name=f"Wide Receiver {i}", position="WR", team="MIN"))
+    await test_db.commit()
+
+    html = _valid_cbs_html([
+        ("Wide Receiver 0", "MIN", "298.5"),
+        ("Wide Receiver 1", "MIN", "271.0"),
+        ("Wide Receiver 2", "MIN", "245.5"),
+    ])
+
+    position_queries: list[str] = []
+
+    def _listener(conn, cursor, statement, parameters, context, executemany):
+        normalized = " ".join(statement.split()).lower()
+        if "from players" in normalized and "players.position" in normalized:
+            position_queries.append(statement)
+
+    event.listen(test_engine.sync_engine, "before_cursor_execute", _listener)
+    try:
+        with respx.mock(base_url="https://www.cbssports.com") as router:
+            router.get(url__regex=r"/fantasy/football/projections/WR/.*").mock(
+                return_value=Response(200, text=html),
+            )
+            router.get(url__regex=r"/fantasy/football/projections/(QB|RB|TE)/.*").mock(
+                return_value=Response(200, text="<html><body><table class='TableBase'><tbody></tbody></table></body></html>"),
+            )
+            fetcher = CBSFetcher()
+            result = await fetcher.fetch(test_db)
+    finally:
+        event.remove(test_engine.sync_engine, "before_cursor_execute", _listener)
+
+    assert result.success is True
+    # 3 players × 3 scoring formats = 9 upserts, but only ONE WR position query.
+    assert result.rows_upserted == 9
+    assert len(position_queries) == 1, (
+        f"expected one WR position query for the whole run, got {len(position_queries)} "
+        "(N+1 regression — PositionMatchIndex not shared across rows/formats)"
+    )
 
 
 @pytest.mark.asyncio
