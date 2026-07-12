@@ -49,23 +49,24 @@ export function TierGroup({ label, descriptiveLabel, players, draftMode, isDraft
   // no post-paint flash of the full list.
   const draftActive = draftMode === true;
   const [expanded, setExpanded] = useState(() => !(draftActive && availableCount === 0));
-  const [prevDraftActive, setPrevDraftActive] = useState(draftActive);
-  const [prevAvailable, setPrevAvailable] = useState(availableCount);
+  // Previous-props tracking is kept in a single state value so a change lands as
+  // at most one setState here (plus the optional `setExpanded`), rather than one
+  // per tracked prop — fewer re-render passes when toggling Draft Mode on a long board.
+  const [prev, setPrev] = useState({ draftActive, availableCount });
 
-  if (prevDraftActive !== draftActive || prevAvailable !== availableCount) {
-    setPrevDraftActive(draftActive);
-    setPrevAvailable(availableCount);
+  if (prev.draftActive !== draftActive || prev.availableCount !== availableCount) {
+    setPrev({ draftActive, availableCount });
     if (!draftActive) {
       // Leaving Draft Mode resets collapse state — the tier is fully expanded
       // again and any manual collapse is forgotten.
       setExpanded(true);
-    } else if (!prevDraftActive) {
+    } else if (!prev.draftActive) {
       // Entering Draft Mode — start collapsed only if the tier is already
       // fully drafted (e.g. restored from a persisted board).
       setExpanded(availableCount > 0);
-    } else if (prevAvailable > 0 && availableCount === 0) {
+    } else if (prev.availableCount > 0 && availableCount === 0) {
       setExpanded(false); // last available player drafted → auto-collapse
-    } else if (prevAvailable === 0 && availableCount > 0) {
+    } else if (prev.availableCount === 0 && availableCount > 0) {
       setExpanded(true); // undrafted back into an empty tier → auto-expand
     }
   }
