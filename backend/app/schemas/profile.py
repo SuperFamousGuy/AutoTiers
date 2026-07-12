@@ -17,8 +17,11 @@ _MAX_JSON_BYTES = 64 * 1024
 def _reject_oversized_json(value: Optional[dict], field_name: str) -> Optional[dict]:
     """Raise if `value` serializes to more than _MAX_JSON_BYTES of JSON.
 
-    Measures the UTF-8 byte length of the JSON serialization as a proxy for
-    what Postgres would store. Returns the value unchanged when within the cap
+    Measures the UTF-8 byte length of the JSON serialization as a conservative
+    proxy for payload size / write amplification. It is not the exact on-disk
+    size — Postgres stores JSONB in a binary format whose size differs from the
+    UTF-8 length of the JSON text — but it reliably bounds the amount we accept
+    and write on each autosave. Returns the value unchanged when within the cap
     (or None, for the optional fields on ProfileUpdate).
     """
     if value is None:

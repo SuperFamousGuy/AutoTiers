@@ -78,6 +78,7 @@ async def test_patch_profile_rejects_oversized_settings_json(async_client):
         "settings_json": {"league_size": 10},
         "rules_json": {},
     })
+    assert create.status_code == 201
     pid = create.json()["id"]
 
     r = await async_client.patch(f"/api/profiles/{pid}", json={
