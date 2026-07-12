@@ -297,6 +297,8 @@ class _StatSnapshot:
     actual_tds: Optional[int]
     expected_tds: Optional[float]
     red_zone_looks: Optional[int]
+    fumbles_lost: Optional[int]
+    two_pt_conversions: Optional[int]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -348,6 +350,8 @@ def _snapshot_stat(s: PlayerStat) -> _StatSnapshot:
         actual_tds=s.actual_tds,
         expected_tds=s.expected_tds,
         red_zone_looks=s.red_zone_looks,
+        fumbles_lost=s.fumbles_lost,
+        two_pt_conversions=s.two_pt_conversions,
     )
 
 
@@ -539,6 +543,8 @@ def _compute_ranked_players(
                 pass_tds=stat.pass_tds or 0,
                 interceptions=stat.interceptions or 0,
                 games_played=stat.games_played or 1,
+                fumbles_lost=stat.fumbles_lost or 0,
+                two_pt_conversions=stat.two_pt_conversions or 0,
             )
             prior_actual = calculate_fantasy_points(ps, settings, position=player.position)
 

@@ -90,6 +90,13 @@ class LeagueSettings:
     # byte-identical to pre-#525 behaviour for every existing caller. Trailing
     # default so callers that don't set it (tests, scripts) keep working.
     te_premium_bonus: float = 0.0
+    # Turnovers / 2-point conversions (#663): the ESPN / NFL.com / FantasyPros
+    # consensus defaults — every fumble lost is -2 and every 2-point conversion
+    # (passing, rushing, or receiving) is +2. Trailing defaults so existing
+    # callers are unaffected; a player with zero of either is scored identically
+    # to before this field existed.
+    fumble_lost_points: float = -2.0
+    two_pt_points: float = 2.0
 
 
 @dataclass
@@ -106,6 +113,11 @@ class PlayerStats:
     pass_tds: int
     interceptions: int
     games_played: int
+    # Turnovers / 2-point conversions (#663). Default 0 so every existing caller
+    # (tests, xfp adapters, scripts) keeps byte-identical output — a player with
+    # neither a fumble lost nor a 2-pt conversion scores exactly as before.
+    fumbles_lost: int = 0
+    two_pt_conversions: int = 0
 
 
 def _score_receiving(stats: PlayerStats, settings: LeagueSettings, position: str = "") -> float:
@@ -154,13 +166,34 @@ def _score_passing(stats: PlayerStats, settings: LeagueSettings) -> float:
     )
 
 
+def _score_turnovers_and_conversions(stats: PlayerStats, settings: LeagueSettings) -> float:
+    """Fumbles-lost penalty + 2-point-conversion bonus (#663).
+
+    Applies to every position — a QB, RB, WR, or TE can all fumble or convert a
+    2-pt play. Defaults (``fumble_lost_points=-2.0``, ``two_pt_points=2.0``) match
+    the ESPN / NFL.com / FantasyPros consensus. With both counts at their default
+    of 0 this returns 0.0, so ``calculate_fantasy_points`` is unchanged for any
+    player without a fumble lost or 2-pt conversion.
+    """
+    return (
+        stats.fumbles_lost * settings.fumble_lost_points
+        + stats.two_pt_conversions * settings.two_pt_points
+    )
+
+
 def calculate_fantasy_points(stats: PlayerStats, settings: LeagueSettings, position: str = "") -> float:
-    """Total fantasy points across all categories. Behavior unchanged — this is now a sum of the component helpers."""
+    """Total fantasy points across all categories. Sum of the component helpers.
+
+    #663 adds fumbles-lost and 2-pt-conversion scoring via
+    ``_score_turnovers_and_conversions``; both counts default to 0 so output is
+    byte-identical to the pre-#663 formula for any player without either.
+    """
     pts = (
         _score_passing(stats, settings)
         + _score_rushing(stats, settings)
         + _score_tds_only(stats, settings)
         + _score_receiving(stats, settings, position)
+        + _score_turnovers_and_conversions(stats, settings)
     )
     return round(pts, 2)
 

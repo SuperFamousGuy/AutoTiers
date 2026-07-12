@@ -185,6 +185,7 @@ def _snapshot_pool(n_per_position: int = 6) -> list[_PlayerSnapshot]:
                 rush_tds=2, pass_att=0, pass_yards=0.0, pass_tds=0, interceptions=0,
                 snap_pct=0.75, carry_share=0.4, target_share=0.2,
                 actual_tds=8, expected_tds=6.0, red_zone_looks=10,
+                fumbles_lost=1, two_pt_conversions=0,
             )
             pool.append(_PlayerSnapshot(
                 id=f"{pos.lower()}_{i}", name=f"{pos} Player {i}", position=pos,

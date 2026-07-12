@@ -58,6 +58,38 @@ async def test_nfl_data_upserts_seasonal_stats(test_db, mock_nfl_data):
 
 
 @pytest.mark.asyncio
+async def test_nfl_data_populates_fumbles_lost_and_two_pt(test_db, mock_nfl_data):
+    """#663: nflverse's split fumble/2-pt columns are summed into single counts."""
+    test_db.add(Player(id="4017", name="Josh Allen", position="QB", team="BUF", gsis_id="00-0034796"))
+    test_db.add(Player(id="6794", name="Ja'Marr Chase", position="WR", team="CIN", gsis_id="00-0036900"))
+    test_db.add(Player(id="9999", name="Justin Jefferson", position="WR", team="MIN", gsis_id="00-0036322"))
+    await test_db.commit()
+
+    fetcher = NflDataFetcher(prior_seasons=1, latest_season=2025)
+    await fetcher.fetch(test_db)
+
+    allen = await test_db.scalar(
+        select(PlayerStat).where(PlayerStat.player_id == "4017", PlayerStat.season == 2025)
+    )
+    # rushing(1) + receiving(0) + sack(3) fumbles = 4; passing(2) + rushing(1) 2pt = 3
+    assert allen.fumbles_lost == 4
+    assert allen.two_pt_conversions == 3
+
+    chase = await test_db.scalar(
+        select(PlayerStat).where(PlayerStat.player_id == "6794", PlayerStat.season == 2025)
+    )
+    assert chase.fumbles_lost == 1
+    assert chase.two_pt_conversions == 1
+
+    # A player with all-zero splits records 0, not NULL — the scorer treats both alike.
+    jefferson = await test_db.scalar(
+        select(PlayerStat).where(PlayerStat.player_id == "9999", PlayerStat.season == 2025)
+    )
+    assert jefferson.fumbles_lost == 0
+    assert jefferson.two_pt_conversions == 0
+
+
+@pytest.mark.asyncio
 async def test_nfl_data_idempotent_on_rerun(test_db, mock_nfl_data):
     test_db.add(Player(id="4017", name="Josh Allen", position="QB", team="BUF", gsis_id="00-0034796"))
     await test_db.commit()

@@ -56,6 +56,8 @@ class _StatLike(Protocol):
     pass_yards: float
     pass_tds: int
     interceptions: int
+    fumbles_lost: int
+    two_pt_conversions: int
 
 
 @dataclass(frozen=True)
@@ -81,6 +83,12 @@ def _to_player_stats(s: _StatLike) -> PlayerStats:
         pass_tds=s.pass_tds or 0,
         interceptions=s.interceptions or 0,
         games_played=s.games_played or 1,
+        # #663: carried through so PlayerStats is fully populated. Inert for the
+        # xFP math itself (opportunity regression scores receiving/rushing/TDs
+        # only, never turnovers), but keeps the adapter faithful to the source
+        # object. getattr guards test stubs that predate these attributes.
+        fumbles_lost=getattr(s, "fumbles_lost", 0) or 0,
+        two_pt_conversions=getattr(s, "two_pt_conversions", 0) or 0,
     )
 
 
