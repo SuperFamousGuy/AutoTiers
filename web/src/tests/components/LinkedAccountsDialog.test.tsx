@@ -464,7 +464,8 @@ describe("LinkedAccountsDialog", () => {
         onRefresh={noop} initialError={null}
         activeProfile={{ ...activeProfile, linked_league: yahooLeague() }} />,
     );
-    const yahooTab = screen.getByRole("tab", { name: /^yahoo$/i });
+    // Accessible name gains the ", league connected" suffix once linked (#665).
+    const yahooTab = screen.getByRole("tab", { name: /^yahoo, league connected$/i });
     expect(yahooTab.querySelector("span.bg-green-500")).not.toBeNull();
   });
 
@@ -478,11 +479,58 @@ describe("LinkedAccountsDialog", () => {
         }} />,
     );
     expect(
-      screen.getByRole("tab", { name: /^sleeper$/i }).querySelector("span.bg-green-500"),
+      screen
+        .getByRole("tab", { name: /^sleeper, league connected$/i })
+        .querySelector("span.bg-green-500"),
     ).not.toBeNull();
     expect(
       screen.getByRole("tab", { name: /^yahoo$/i }).querySelector("span.bg-green-500"),
     ).toBeNull();
+  });
+
+  // --- Connected-state announcement to assistive tech (issue #665) ---
+  // The green dot is aria-hidden, so the connected state must reach screen
+  // readers through the tab's accessible name, not the visual dot alone.
+  it("a connected tab's accessible name announces the linked state", () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null}
+        activeProfile={{ ...activeProfile, linked_league: yahooLeague() }} />,
+    );
+    // The linked (Yahoo) tab announces "..., league connected"; an unlinked tab
+    // (ESPN here) keeps its bare label, so the two states are distinguishable.
+    expect(
+      screen.getByRole("tab", { name: /^yahoo, league connected$/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("tab", { name: /^yahoo$/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^espn$/i })).toBeInTheDocument();
+  });
+
+  it("an unconnected tab's accessible name is the bare label (no suffix)", () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
+    );
+    // No linked league on the profile, so no tab carries the connected suffix.
+    expect(screen.getByRole("tab", { name: /^sleeper$/i })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("tab", { name: /league connected/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the connected dot aria-hidden so it is not double-announced", () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null}
+        activeProfile={{ ...activeProfile, linked_league: yahooLeague() }} />,
+    );
+    const dot = screen
+      .getByRole("tab", { name: /^yahoo, league connected$/i })
+      .querySelector("span.bg-green-500");
+    expect(dot).not.toBeNull();
+    expect(dot).toHaveAttribute("aria-hidden", "true");
   });
 
   it("exposes a labelled tablist containing role=tab for each platform", () => {
