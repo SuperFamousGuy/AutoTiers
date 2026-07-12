@@ -53,8 +53,9 @@ name: claude-auto-merge
 #                       1/2/4/5.
 #  4. No open threads : zero reviewThreads with isResolved==false, AND no human's
 #                       latest review is CHANGES_REQUESTED.
-#  5. Quiet 12h       : now - max(last commit, comments, review comments, reviews)
-#                       >= QUIET_HOURS. REBASE EXEMPTION (issue #473): for BOT
+#  5. Quiet window    : now - max(last commit, comments, review comments, reviews)
+#                       >= QUIET_HOURS (see env below for the current value).
+#                       REBASE EXEMPTION (issue #473): for BOT
 #                       authors the commit stamp is the head commit's AUTHOR
 #                       date, not its COMMITTER date. A Dependabot rebase (e.g.
 #                       onto an updated main after a sibling PR merges) force-
