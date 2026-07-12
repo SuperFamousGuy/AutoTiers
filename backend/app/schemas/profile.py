@@ -1,9 +1,35 @@
 """Request/response shapes for /api/profiles."""
+import json
 import uuid
 from typing import Optional, Any
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.schemas.linked_league import LinkedLeagueOut
+
+# Autosave POSTs/PATCHes settings_json and rules_json on every settings tweak,
+# so an unbounded payload is a repeated write-amplification vector, not a
+# one-off. Cap the serialized size of each JSON blob before it reaches Postgres.
+# 64KB is far above any legitimate profile (real payloads are a few KB) while
+# still rejecting megabyte-scale or deeply-nested abuse.
+_MAX_JSON_BYTES = 64 * 1024
+
+
+def _reject_oversized_json(value: Optional[dict], field_name: str) -> Optional[dict]:
+    """Raise if `value` serializes to more than _MAX_JSON_BYTES of JSON.
+
+    Measures the UTF-8 byte length of the JSON serialization as a proxy for
+    what Postgres would store. Returns the value unchanged when within the cap
+    (or None, for the optional fields on ProfileUpdate).
+    """
+    if value is None:
+        return value
+    size = len(json.dumps(value).encode("utf-8"))
+    if size > _MAX_JSON_BYTES:
+        raise ValueError(
+            f"{field_name} is too large ({size} bytes); "
+            f"maximum is {_MAX_JSON_BYTES} bytes."
+        )
+    return value
 
 
 class ProfileOut(BaseModel):
@@ -56,11 +82,21 @@ class ProfileCreate(BaseModel):
     settings_json: dict[str, Any]
     rules_json: dict[str, list[dict[str, Any]]]
 
+    @field_validator("settings_json", "rules_json")
+    @classmethod
+    def _bound_json_size(cls, value: dict, info) -> dict:
+        return _reject_oversized_json(value, info.field_name)
+
 
 class ProfileUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=80)
     settings_json: Optional[dict[str, Any]] = None
     rules_json: Optional[dict[str, list[dict[str, Any]]]] = None
+
+    @field_validator("settings_json", "rules_json")
+    @classmethod
+    def _bound_json_size(cls, value: Optional[dict], info) -> Optional[dict]:
+        return _reject_oversized_json(value, info.field_name)
 
 
 class ProfilesListResponse(BaseModel):
