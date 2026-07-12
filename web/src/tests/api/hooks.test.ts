@@ -76,8 +76,22 @@ describe("file downloads", () => {
       expect(revokeObjectURL).toHaveBeenCalledWith("blob:fake-url");
     });
 
-    it("downloads as tiers.xlsx", async () => {
+    it("falls back to tiers.xlsx when no profile name is given", async () => {
       await downloadDraftXlsx([basePlayer], "standard");
+      expect(anchor.download).toBe("tiers.xlsx");
+    });
+
+    it("derives the filename from the profile name, scoring format, and date", async () => {
+      await downloadDraftXlsx([basePlayer], "half_ppr", "My League #1");
+      // e.g. "my-league-1-half-ppr-tiers-2026-07-12.xlsx" — date is the real
+      // current date, so assert the shape rather than a frozen day.
+      expect(anchor.download).toMatch(
+        /^my-league-1-half-ppr-tiers-\d{4}-\d{2}-\d{2}\.xlsx$/,
+      );
+    });
+
+    it("falls back to tiers.xlsx when the profile name slugifies to nothing", async () => {
+      await downloadDraftXlsx([basePlayer], "standard", "!!!");
       expect(anchor.download).toBe("tiers.xlsx");
     });
 
@@ -89,7 +103,7 @@ describe("file downloads", () => {
 
     it("accepts tier label overrides without throwing", async () => {
       await expect(
-        downloadDraftXlsx([basePlayer], "standard", { 1: "Studs" }),
+        downloadDraftXlsx([basePlayer], "standard", "My League", { 1: "Studs" }),
       ).resolves.toBeUndefined();
       expect(click).toHaveBeenCalledOnce();
     });

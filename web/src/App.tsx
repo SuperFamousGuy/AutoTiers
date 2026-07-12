@@ -554,6 +554,7 @@ export default function App() {
                 void downloadDraftXlsx(
                   generate.data.players,
                   settings.scoring_format,
+                  profiles.find((p) => p.id === activeProfileId)?.name ?? null,
                   resolvedTierNames,
                 );
               }
