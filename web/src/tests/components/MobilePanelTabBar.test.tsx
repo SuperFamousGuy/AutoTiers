@@ -76,6 +76,65 @@ describe("MobilePanelTabBar", () => {
     expect(screen.getByRole("tab", { name: "Rules" })).not.toHaveAttribute("aria-busy", "true");
   });
 
+  it("only the active tab is in the tab order (roving tabindex)", () => {
+    render(<MobilePanelTabBar active="rules" onChange={() => {}} />);
+    expect(screen.getByRole("tab", { name: "Rules" })).toHaveAttribute("tabindex", "0");
+    expect(screen.getByRole("tab", { name: "Settings" })).toHaveAttribute("tabindex", "-1");
+    expect(screen.getByRole("tab", { name: "Tiers" })).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("ArrowRight moves active and focus to the next tab", async () => {
+    const onChange = vi.fn();
+    render(<MobilePanelTabBar active="settings" onChange={onChange} />);
+    const user = userEvent.setup();
+    const settings = screen.getByRole("tab", { name: "Settings" });
+    settings.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(onChange).toHaveBeenCalledWith("rules");
+    expect(screen.getByRole("tab", { name: "Rules" })).toHaveFocus();
+  });
+
+  it("ArrowLeft moves active and focus to the previous tab", async () => {
+    const onChange = vi.fn();
+    render(<MobilePanelTabBar active="rules" onChange={onChange} />);
+    const user = userEvent.setup();
+    screen.getByRole("tab", { name: "Rules" }).focus();
+    await user.keyboard("{ArrowLeft}");
+    expect(onChange).toHaveBeenCalledWith("settings");
+    expect(screen.getByRole("tab", { name: "Settings" })).toHaveFocus();
+  });
+
+  it("ArrowRight wraps from the last tab to the first", async () => {
+    const onChange = vi.fn();
+    render(<MobilePanelTabBar active="tiers" onChange={onChange} />);
+    const user = userEvent.setup();
+    screen.getByRole("tab", { name: "Tiers" }).focus();
+    await user.keyboard("{ArrowRight}");
+    expect(onChange).toHaveBeenCalledWith("settings");
+    expect(screen.getByRole("tab", { name: "Settings" })).toHaveFocus();
+  });
+
+  it("ArrowLeft wraps from the first tab to the last", async () => {
+    const onChange = vi.fn();
+    render(<MobilePanelTabBar active="settings" onChange={onChange} />);
+    const user = userEvent.setup();
+    screen.getByRole("tab", { name: "Settings" }).focus();
+    await user.keyboard("{ArrowLeft}");
+    expect(onChange).toHaveBeenCalledWith("tiers");
+    expect(screen.getByRole("tab", { name: "Tiers" })).toHaveFocus();
+  });
+
+  it("ignores non-arrow keys without moving focus or active", async () => {
+    const onChange = vi.fn();
+    render(<MobilePanelTabBar active="settings" onChange={onChange} />);
+    const user = userEvent.setup();
+    const settings = screen.getByRole("tab", { name: "Settings" });
+    settings.focus();
+    await user.keyboard("{ArrowDown}");
+    expect(onChange).not.toHaveBeenCalled();
+    expect(settings).toHaveFocus();
+  });
+
   it("announces via a live region while pending and clears it afterward", () => {
     const { rerender } = render(
       <MobilePanelTabBar active="settings" onChange={() => {}} generateIsPending />,
