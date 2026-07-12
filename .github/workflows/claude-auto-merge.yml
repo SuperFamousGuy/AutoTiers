@@ -53,14 +53,14 @@ name: claude-auto-merge
 #                       1/2/4/5.
 #  4. No open threads : zero reviewThreads with isResolved==false, AND no human's
 #                       latest review is CHANGES_REQUESTED.
-#  5. Quiet 24h       : now - max(last commit, comments, review comments, reviews)
+#  5. Quiet 12h       : now - max(last commit, comments, review comments, reviews)
 #                       >= QUIET_HOURS. REBASE EXEMPTION (issue #473): for BOT
 #                       authors the commit stamp is the head commit's AUTHOR
 #                       date, not its COMMITTER date. A Dependabot rebase (e.g.
 #                       onto an updated main after a sibling PR merges) force-
 #                       pushes a commit whose committer date is "now" but whose
 #                       author date is preserved from the original bump, so
-#                       committer date would reset this 24h clock on every
+#                       committer date would reset this quiet clock on every
 #                       sibling merge and could stall the PR forever. Author
 #                       date only advances on genuinely new authorship, so a
 #                       rebase-only push no longer resets the clock while a
@@ -111,7 +111,11 @@ env:
   # PRs before arming. Set back to "true" to return to report-only.
   DRY_RUN: "false"
   # Criterion 5 threshold (hours of inactivity required before merge).
-  QUIET_HOURS: "24"
+  # Lowered 24 -> 12 (2026-07-12): with the review-pass pipeline healthy, a
+  # full day of silence added ~1 day of latency per PR for no extra safety —
+  # Copilot reviews and sweeper passes all land well within 12h of the last
+  # push, so anything still quiet after 12h is as settled as it was at 24.
+  QUIET_HOURS: "12"
   # Criterion 2 (mergeable) settling retries. GitHub computes `mergeable` async;
   # a first read is often UNKNOWN. On UNKNOWN we re-fetch the PR up to
   # MERGEABLE_RETRIES times, MERGEABLE_BACKOFF_SECONDS apart, before giving up
@@ -194,7 +198,7 @@ jobs:
           # authored by a Copilot-licensed identity, so it NEVER reviews
           # Dependabot/bot PRs (community #185376) -> predicate 3 is permanently
           # unsatisfiable for them. We waive it and rely on CI-green + mergeable +
-          # quiet-24h (the meaningful gates for a dependency bump). Non-bot PRs
+          # quiet-hours (the meaningful gates for a dependency bump). Non-bot PRs
           # still require a Copilot review. Reused by predicate 6 below.
           author = pull.get("author") or {}
           author_login = author.get("login", "")
@@ -233,7 +237,7 @@ jobs:
           # rebasing onto an updated main after a sibling PR merges) force-pushes
           # a new commit whose COMMITTER date is "now" but whose AUTHOR date is
           # preserved from the original bump. Counting committedDate would reset
-          # the 24h quiet clock on every sibling merge, so a PR that keeps getting
+          # the quiet clock on every sibling merge, so a PR that keeps getting
           # rebased never ages into eligibility. For bots we use authoredDate,
           # which only advances on genuinely new authorship (a real new commit by
           # anyone has a fresh author date) -- so a rebase-only push no longer
