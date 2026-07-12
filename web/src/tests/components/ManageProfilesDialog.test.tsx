@@ -165,6 +165,23 @@ describe("ManageProfilesDialog", () => {
     expect(await screen.findByText(/rename failed\. please try again/i)).toBeInTheDocument();
   });
 
+  it("does not surface a 5xx response body; falls back to the generic message", async () => {
+    // ApiError.message is resp.text() — on a 500 that's often an HTML error
+    // page or stack trace. It must never reach the user.
+    const onRename = vi.fn().mockRejectedValue(
+      new ApiError(500, "<html><body>Internal Server Error at 0x7f</body></html>"),
+    );
+    _render({ onRename });
+    const user = userEvent.setup();
+    await user.click(screen.getAllByRole("button", { name: /rename/i })[0]);
+    const input = screen.getByDisplayValue("PPR 12-team");
+    await user.clear(input);
+    await user.type(input, "Updated Name");
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+    expect(await screen.findByText(/rename failed\. please try again/i)).toBeInTheDocument();
+    expect(screen.queryByText(/internal server error/i)).not.toBeInTheDocument();
+  });
+
   it("marks only the active profile's row with an Active badge and aria-label", () => {
     _render({ activeProfileId: "p2" });
     // The active row is distinguishable to assistive tech.

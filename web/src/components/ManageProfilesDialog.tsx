@@ -20,10 +20,12 @@ interface ManageProfilesDialogProps {
  * Prefer the backend's human-readable detail for an ApiError (409 duplicate
  * name, 422 blank name — see backend/app/api/profiles_api.py), unwrapping
  * FastAPI's `{ detail }` JSON envelope. Fall back to `fallback` for anything
- * that isn't an ApiError carrying a message (e.g. a network failure).
+ * that isn't an ApiError carrying a message (e.g. a network failure), and for
+ * 5xx responses — their raw body (often an HTML error page) is noise, not a
+ * message meant for the user (same policy as describeGenerateError).
  */
 function errorMessage(e: unknown, fallback: string): string {
-  if (e instanceof ApiError) {
+  if (e instanceof ApiError && e.status < 500) {
     const detail = extractApiErrorMessage(e.message);
     if (detail) return detail;
   }
