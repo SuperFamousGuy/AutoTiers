@@ -1,8 +1,12 @@
+import logging
 from dataclasses import dataclass, field
 from typing import Optional
 import jenkspy
 
 from app.engine.rules import RuleApplication
+
+
+logger = logging.getLogger(__name__)
 
 
 POSITION_MAX_TIERS = {"QB": 3, "RB": 5, "WR": 5, "TE": 3, "K": 2, "DST": 3}
@@ -87,15 +91,45 @@ class TieredPlayer:
     is_favorite_team: Optional[bool] = None
 
 
-def _jenks_interior_breaks(scores: list[float], max_classes: int) -> list[float]:
+def _jenks_interior_breaks(
+    scores: list[float], max_classes: int, context: str = ""
+) -> list[float]:
     unique = sorted(set(scores), reverse=True)
     n_classes = min(max_classes, len(unique))
     if n_classes < 2:
+        # Fewer than two distinct scores: no interior break is possible. This is
+        # the legitimate "all-identical / single value" path — the caller falls
+        # back to quantile tiering. Stay quiet (debug only) so it never spams.
+        logger.debug(
+            "jenks skipped (%s): %d scores, %d unique — single tier",
+            context or "unlabelled",
+            len(scores),
+            len(unique),
+        )
         return []
     try:
         breaks = jenkspy.jenks_breaks(scores, n_classes=n_classes)
-    except (ValueError, Exception):
-        # All scores identical or insufficient variance — single tier
+    except ValueError as exc:
+        # jenkspy rejected the input despite having >=2 distinct scores. The
+        # common trigger is a non-finite score (NaN/inf) leaking in from a bad
+        # projection — a real data regression, not the expected all-identical
+        # case (which returns above). Surface it so it shows up in logs instead
+        # of silently collapsing everyone into one tier via the quantile
+        # fallback. Non-ValueError failures (TypeError from None, MemoryError,
+        # a future jenkspy API break) are deliberately NOT caught — they
+        # propagate loudly rather than degrading tier quality in silence.
+        finite = [s for s in scores if s == s]  # drop NaN for min/max reporting
+        logger.warning(
+            "jenks_breaks failed (%s): %d scores (%d unique), "
+            "n_classes=%d, min=%s max=%s — falling back to quantile tiers: %s",
+            context or "unlabelled",
+            len(scores),
+            len(unique),
+            n_classes,
+            min(finite) if finite else "n/a",
+            max(finite) if finite else "n/a",
+            exc,
+        )
         return []
     return list(breaks[1:-1])  # drop min and max; keep interior breakpoints only
 
@@ -162,7 +196,7 @@ def _compute_overall_breaks(scores: list[float], overall_tier_count: int) -> lis
     if clamped <= 1:
         return []
     if clamped <= _JENKS_TIER_THRESHOLD:
-        breaks = _jenks_interior_breaks(scores, max_classes=clamped)
+        breaks = _jenks_interior_breaks(scores, max_classes=clamped, context="overall")
         if breaks:
             return breaks
         # Jenks failed (all-identical or insufficient variance) — fall through to quantile
@@ -173,7 +207,7 @@ def _cluster_position(players: list[TieredPlayer], position: str, max_tiers: int
     if not players:
         return
     scores = [p.vbd_score for p in players]
-    breaks = _jenks_interior_breaks(scores, max_tiers)
+    breaks = _jenks_interior_breaks(scores, max_tiers, context=f"{position} positional")
 
     # Fallback: if Jenks couldn't find breaks but we have enough players for at
     # least 2 tiers, force quantile-based tiers. Common for K/DST where VBD
