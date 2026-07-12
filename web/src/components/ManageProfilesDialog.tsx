@@ -74,11 +74,11 @@ export function ManageProfilesDialog({ open, onOpenChange, profiles, activeProfi
                       className="flex-1"
                       autoFocus
                     />
-                    <Button size="sm" onClick={() => handleRename(p.id)} disabled={draftName.trim() === "" || busyId === p.id}>
+                    <Button size="sm" onClick={() => handleRename(p.id)} disabled={draftName.trim() === "" || busyId !== null}>
                       {busyId === p.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                       Save
                     </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setEditingId(null)} disabled={busyId === p.id}>Cancel</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setEditingId(null)} disabled={busyId !== null}>Cancel</Button>
                   </>
                 ) : (
                   <>
@@ -93,17 +93,17 @@ export function ManageProfilesDialog({ open, onOpenChange, profiles, activeProfi
                         </span>
                       )}
                     </span>
-                    <Button size="sm" variant="ghost" onClick={() => { setEditingId(p.id); setDraftName(p.name); setError(null); }} disabled={busyId === p.id}>Rename</Button>
+                    <Button size="sm" variant="ghost" onClick={() => { setEditingId(p.id); setDraftName(p.name); setError(null); }} disabled={busyId !== null}>Rename</Button>
                     {confirmDeleteId === p.id ? (
                       <>
-                        <Button size="sm" variant="destructive" onClick={() => handleDelete(p.id)} disabled={busyId === p.id}>
+                        <Button size="sm" variant="destructive" onClick={() => handleDelete(p.id)} disabled={busyId !== null}>
                           {busyId === p.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                           {p.id === activeProfileId ? "Delete active profile" : "Confirm Delete"}
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setConfirmDeleteId(null)} disabled={busyId === p.id}>Cancel</Button>
+                        <Button size="sm" variant="ghost" onClick={() => setConfirmDeleteId(null)} disabled={busyId !== null}>Cancel</Button>
                       </>
                     ) : (
-                      <Button size="sm" variant="ghost" onClick={() => { setConfirmDeleteId(p.id); setError(null); }} aria-label={`delete ${p.name}`}>
+                      <Button size="sm" variant="ghost" onClick={() => { setConfirmDeleteId(p.id); setError(null); }} disabled={busyId !== null} aria-label={`delete ${p.name}`}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     )}

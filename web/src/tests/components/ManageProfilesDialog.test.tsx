@@ -223,4 +223,29 @@ describe("ManageProfilesDialog", () => {
     resolveDelete();
     await waitFor(() => expect(screen.queryByRole("button", { name: /confirm delete/i })).not.toBeInTheDocument());
   });
+
+  it("disables other rows' actions while an operation is in flight anywhere", async () => {
+    let resolveRename: () => void = () => {};
+    const onRename = vi.fn().mockImplementation(
+      () => new Promise<void>((resolve) => { resolveRename = resolve; }),
+    );
+    _render({ onRename });
+    const user = userEvent.setup();
+    await user.click(screen.getAllByRole("button", { name: /rename/i })[0]);
+    const input = screen.getByDisplayValue("PPR 12-team");
+    await user.clear(input);
+    await user.type(input, "Updated Name");
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+    // While row 1's rename is in flight, the other rows' affordances are
+    // disabled too — the handlers hold a global lock, so an enabled-looking
+    // button would silently no-op.
+    for (const rename of screen.getAllByRole("button", { name: /rename/i })) {
+      expect(rename).toBeDisabled();
+    }
+    expect(screen.getByLabelText(/delete Standard Keeper/i)).toBeDisabled();
+
+    resolveRename();
+    await waitFor(() => expect(screen.getByLabelText(/delete Standard Keeper/i)).toBeEnabled());
+  });
 });
