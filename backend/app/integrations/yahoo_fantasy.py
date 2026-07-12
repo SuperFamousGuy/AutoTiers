@@ -56,7 +56,7 @@ class YahooLeagueData:
 
 async def _get(url: str, access_token: str) -> dict:
     """GET with Bearer auth, requesting JSON format. Raises httpx.HTTPStatusError on non-2xx."""
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
         resp = await client.get(
             url,
             params={"format": "json"},

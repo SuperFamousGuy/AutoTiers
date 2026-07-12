@@ -172,3 +172,26 @@ async def test_fetch_league_gives_players_dict_its_own_larger_timeout(monkeypatc
         league_calls = [c for c in router.calls if c.request.url.path == "/v1/league/L1"]
         assert league_calls
         assert league_calls[0].request.extensions["timeout"]["read"] == 10.0
+
+
+@pytest.mark.asyncio
+async def test_list_user_leagues_follows_redirect():
+    """The Sleeper client must follow redirects (httpx defaults follow_redirects
+    to False); a 302 hop must be followed transparently, not left as a 3xx body
+    that resp.json() can't parse."""
+    canonical = "https://api.sleeper.app/v1/user/alice/canonical"
+    with respx.mock() as router:
+        router.get("https://api.sleeper.app/v1/user/alice").mock(
+            return_value=Response(302, headers={"location": canonical}),
+        )
+        router.get(canonical).mock(
+            return_value=Response(200, json={"user_id": "u123", "username": "alice"}),
+        )
+        router.get("https://api.sleeper.app/v1/user/u123/leagues/nfl/2026").mock(
+            return_value=Response(200, json=[
+                {"league_id": "L1", "name": "PPR Champs", "season": "2026"},
+            ]),
+        )
+        result = await list_user_leagues("alice", 2026)
+    assert len(result) == 1
+    assert result[0].id == "L1"
