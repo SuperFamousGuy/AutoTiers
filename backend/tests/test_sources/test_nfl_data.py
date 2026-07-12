@@ -185,3 +185,38 @@ async def test_nfl_data_nan_td_prob_does_not_poison_expected_tds(test_db, mock_n
     # Only the valid play (0.55) counts; the NaN play contributes 0.0, not NaN.
     assert not math.isnan(kyren.expected_tds)
     assert kyren.expected_tds == pytest.approx(0.55, abs=0.01)
+
+
+@pytest.mark.asyncio
+async def test_nfl_data_all_nan_snap_pct_clears_stale_value(test_db, monkeypatch):
+    """When a player's offense_pct rows are all NaN, the aggregated mean is NaN
+    and any previously persisted snap_pct must be cleared to None — not left
+    stale on the existing row. Regression test for issue #631 (review)."""
+    seasonal_df = pd.read_csv(FIXTURES / "nfl_data_seasonal.csv")
+    snap_df = pd.DataFrame({
+        "player": ["Josh Allen", "Josh Allen"],
+        "gsis_id": ["00-0034796", "00-0034796"],
+        "team": ["BUF", "BUF"],
+        "position": ["QB", "QB"],
+        "offense_snaps": [float("nan"), float("nan")],
+        "offense_pct": [float("nan"), float("nan")],
+    })
+
+    import app.data.sources.nfl_data as mod
+    monkeypatch.setattr(mod, "import_seasonal_data", lambda years: seasonal_df.copy())
+    monkeypatch.setattr(mod, "import_snap_counts", lambda years: snap_df.copy())
+    monkeypatch.setattr(mod, "import_pbp_data", lambda years: pd.DataFrame())
+    monkeypatch.setattr(mod, "import_schedules", lambda years: pd.DataFrame())
+
+    test_db.add(Player(id="4017", name="Josh Allen", position="QB", team="BUF", gsis_id="00-0034796"))
+    # Pre-existing row with a stale snap_pct from an earlier fetch.
+    test_db.add(PlayerStat(player_id="4017", season=2025, snap_pct=0.77))
+    await test_db.commit()
+
+    fetcher = NflDataFetcher(prior_seasons=1, latest_season=2025)
+    await fetcher.fetch(test_db)
+
+    allen = await test_db.scalar(
+        select(PlayerStat).where(PlayerStat.player_id == "4017", PlayerStat.season == 2025)
+    )
+    assert allen.snap_pct is None

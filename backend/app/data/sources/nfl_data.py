@@ -121,10 +121,14 @@ class NflDataFetcher:
                 stat.games_played = int(row.get("games") or 0)
                 stat.actual_tds = stat.rec_tds + stat.rush_tds + stat.pass_tds
 
-                if gsis in snap_by_gsis and not pd.isna(snap_by_gsis[gsis]):
-                    # mean() over all-NaN offense_pct rows yields NaN; skip
-                    # rather than store a misleading snap_pct.
-                    stat.snap_pct = float(snap_by_gsis[gsis])
+                if gsis in snap_by_gsis:
+                    if pd.isna(snap_by_gsis[gsis]):
+                        # mean() over all-NaN offense_pct rows yields NaN; clear
+                        # any previously persisted value rather than leave a
+                        # stale (possibly NaN) snap_pct on an existing row.
+                        stat.snap_pct = None
+                    else:
+                        stat.snap_pct = float(snap_by_gsis[gsis])
                 if gsis in rz_looks:
                     stat.red_zone_looks = rz_looks[gsis]
                 if gsis in xtds:
