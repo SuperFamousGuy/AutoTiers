@@ -50,6 +50,68 @@ async def test_unlink_yahoo_success_when_other_provider_remains(async_client, te
 
 
 @pytest.mark.asyncio
+async def test_unlink_yahoo_clears_fantasy_tokens(async_client, test_db):
+    """Normal state (#507): subject + tokens all cleared in one commit."""
+    u = User(
+        email="u@example.com",
+        password_hash=hash_password("password-long-enough"),
+        yahoo_subject="y-sub",
+        yahoo_access_token="enc-access",
+        yahoo_refresh_token="enc-refresh",
+    )
+    test_db.add(u)
+    await test_db.commit()
+    await _login(async_client)
+
+    r = await async_client.delete("/api/auth/yahoo/link")
+    assert r.status_code == 204
+
+    await test_db.refresh(u)
+    assert u.yahoo_subject is None
+    assert u.yahoo_access_token is None
+    assert u.yahoo_refresh_token is None
+
+
+@pytest.mark.asyncio
+async def test_unlink_yahoo_revokes_tokens_for_legacy_null_subject(async_client, test_db):
+    """Legacy row from the old subject-null bug: yahoo_subject is None but the
+    OAuth tokens are still populated. Unlink must revoke + clear the tokens even
+    though the early-return would otherwise make it a no-op."""
+    u = User(
+        email="u@example.com",
+        password_hash=hash_password("password-long-enough"),
+        yahoo_subject=None,
+        yahoo_access_token="enc-access",
+        yahoo_refresh_token="enc-refresh",
+    )
+    test_db.add(u)
+    await test_db.commit()
+    await _login(async_client)
+
+    r = await async_client.delete("/api/auth/yahoo/link")
+    assert r.status_code == 204
+
+    await test_db.refresh(u)
+    assert u.yahoo_access_token is None
+    assert u.yahoo_refresh_token is None
+
+
+@pytest.mark.asyncio
+async def test_unlink_yahoo_noop_when_nothing_linked(async_client, test_db):
+    """No subject and no tokens: idempotent 204, nothing changes."""
+    u = User(
+        email="u@example.com",
+        password_hash=hash_password("password-long-enough"),
+    )
+    test_db.add(u)
+    await test_db.commit()
+    await _login(async_client)
+
+    r = await async_client.delete("/api/auth/yahoo/link")
+    assert r.status_code == 204
+
+
+@pytest.mark.asyncio
 async def test_unlink_rejected_when_last_method(async_client, test_db):
     """User has only google_subject — unlinking it would lock them out."""
     u = User(email="u@example.com", google_subject="g-sub")
