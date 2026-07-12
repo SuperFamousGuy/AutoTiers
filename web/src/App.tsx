@@ -8,6 +8,7 @@ import { SettingsPanel, DEFAULT_FULL_SEASON_GAMES, DEFAULT_PRIOR_YEAR_RAMP, DEFA
 import { RulesPanel } from "@/components/RulesPanel";
 import { TiersPanel } from "@/components/TiersPanel";
 import { ProfilePicker } from "@/components/ProfilePicker";
+import { MobileProfileMenuItems } from "@/components/MobileProfileMenuItems";
 import { ManageProfilesDialog } from "@/components/ManageProfilesDialog";
 import { LinkedAccountsDialog } from "@/components/LinkedAccountsDialog";
 import { MobilePanelTabBar, type MobilePanel } from "@/components/MobilePanelTabBar";
@@ -296,9 +297,21 @@ export default function App() {
 
   const handleDeleteProfile = useCallback(async (id: string) => {
     await deleteProfile(id);
-    setProfiles(profiles.filter((p) => p.id !== id));
-    if (activeProfileId === id) setActiveProfileId(null);
-  }, [profiles, activeProfileId, setProfiles]);
+    setProfiles((prev) => prev.filter((p) => p.id !== id));
+    if (activeProfileId === id) {
+      setActiveProfileId(null);
+      // Deleting the active profile must mirror the select/new-profile reset:
+      // clear the orphaned tier list (computed for a now-deleted profile),
+      // return the mobile view to Settings, re-arm the auto-switch guard, and
+      // drop the captured request so the staleness banner has nothing to
+      // compare against. Without this the Tiers panel keeps rendering stale
+      // tiers and Generate would fire with a silently wrong payload (#626).
+      generate.reset();
+      setLastGeneratedRequest(null);
+      setMobilePanel("settings");
+      hasAutoSwitchedToTiers.current = false;
+    }
+  }, [activeProfileId, setProfiles, generate.reset]);
 
   const handleUndo = useCallback(async () => {
     if (!activeProfileId) return;
@@ -346,7 +359,15 @@ export default function App() {
     };
   };
 
-  const canGenerate = weightsAreValid(settings.weights) && canonicalRules.length > 0;
+  // Generate needs valid weights, loaded rules, and — when profiles exist — an
+  // active profile. Deleting the active profile sets activeProfileId to null;
+  // without this guard Generate would stay enabled and fire buildRequest() with
+  // keepers/league_adp silently undefined (profiles.find returns undefined)
+  // (#626). Logged-out users have no profiles, so they stay able to generate.
+  const canGenerate =
+    weightsAreValid(settings.weights) &&
+    canonicalRules.length > 0 &&
+    (profiles.length === 0 || activeProfileId !== null);
 
   // The request the current settings/rules would send. Recomputed each render so
   // the staleness check below reflects edits within a single render (#523).
@@ -405,7 +426,16 @@ export default function App() {
         onToggleDark={toggleDark}
         onShowOnboarding={startOnboarding}
         onOpenLinkedAccounts={user ? () => { setLinkingError(null); setLinkedOpen(true); } : undefined}
-        activeProfileName={profiles.find((p) => p.id === activeProfileId)?.name ?? null}
+        mobileProfileMenu={user ? (
+          <MobileProfileMenuItems
+            profiles={profiles}
+            activeId={activeProfileId}
+            onSelect={handleSelectProfile}
+            onNew={handleNewProfile}
+            onManage={() => setManageOpen(true)}
+            canCreate={profiles.length < 5}
+          />
+        ) : null}
         profilePicker={user ? (
           <div className="flex items-center gap-2">
             <ProfilePicker

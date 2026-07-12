@@ -253,4 +253,92 @@ describe("ManageProfilesDialog", () => {
     await user.click(screen.getByRole("button", { name: /confirm delete/i }));
     expect(await screen.findByText(/delete failed\. please try again/i)).toBeInTheDocument();
   });
+
+  it("Cancel during confirm-delete reverts the row without deleting", async () => {
+    const props = _render();
+    const user = userEvent.setup();
+    await user.click(screen.getByLabelText(/delete PPR 12-team/i));
+    // Confirm-delete state is active
+    expect(screen.getByRole("button", { name: /confirm delete/i })).toBeInTheDocument();
+    // A keyboard-reachable Cancel backs out without deleting
+    await user.click(screen.getByRole("button", { name: /^cancel$/i }));
+    expect(props.onDelete).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /confirm delete/i })).not.toBeInTheDocument();
+    // Row is back to normal — the trash affordance is visible again
+    expect(screen.getByLabelText(/delete PPR 12-team/i)).toBeInTheDocument();
+  });
+
+  it("disables the row's buttons while a rename is in flight and cannot double-submit", async () => {
+    let resolveRename: () => void = () => {};
+    const onRename = vi.fn().mockImplementation(
+      () => new Promise<void>((resolve) => { resolveRename = resolve; }),
+    );
+    _render({ onRename });
+    const user = userEvent.setup();
+    await user.click(screen.getAllByRole("button", { name: /rename/i })[0]);
+    const input = screen.getByDisplayValue("PPR 12-team");
+    await user.clear(input);
+    await user.type(input, "Updated Name");
+
+    const save = screen.getByRole("button", { name: /^save$/i });
+    await user.click(save);
+    // In flight: Save and Cancel are disabled, so a rapid second click can't re-fire
+    expect(save).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^cancel$/i })).toBeDisabled();
+    // A spinner communicates the in-flight state on the active button
+    expect(save.querySelector(".animate-spin")).toBeInTheDocument();
+    await user.click(save);
+    expect(onRename).toHaveBeenCalledTimes(1);
+
+    resolveRename();
+    await waitFor(() => expect(screen.queryByDisplayValue("Updated Name")).not.toBeInTheDocument());
+  });
+
+  it("disables the row's buttons while a delete is in flight and cannot double-submit", async () => {
+    let resolveDelete: () => void = () => {};
+    const onDelete = vi.fn().mockImplementation(
+      () => new Promise<void>((resolve) => { resolveDelete = resolve; }),
+    );
+    _render({ onDelete });
+    const user = userEvent.setup();
+    await user.click(screen.getByLabelText(/delete PPR 12-team/i));
+
+    const confirm = screen.getByRole("button", { name: /confirm delete/i });
+    await user.click(confirm);
+    // In flight: Confirm Delete and Cancel are disabled, so a rapid second click can't re-fire
+    expect(confirm).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^cancel$/i })).toBeDisabled();
+    // A spinner communicates the in-flight state on the active button
+    expect(confirm.querySelector(".animate-spin")).toBeInTheDocument();
+    await user.click(confirm);
+    expect(onDelete).toHaveBeenCalledTimes(1);
+
+    resolveDelete();
+    await waitFor(() => expect(screen.queryByRole("button", { name: /confirm delete/i })).not.toBeInTheDocument());
+  });
+
+  it("disables other rows' actions while an operation is in flight anywhere", async () => {
+    let resolveRename: () => void = () => {};
+    const onRename = vi.fn().mockImplementation(
+      () => new Promise<void>((resolve) => { resolveRename = resolve; }),
+    );
+    _render({ onRename });
+    const user = userEvent.setup();
+    await user.click(screen.getAllByRole("button", { name: /rename/i })[0]);
+    const input = screen.getByDisplayValue("PPR 12-team");
+    await user.clear(input);
+    await user.type(input, "Updated Name");
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+    // While row 1's rename is in flight, the other rows' affordances are
+    // disabled too — the handlers hold a global lock, so an enabled-looking
+    // button would silently no-op.
+    for (const rename of screen.getAllByRole("button", { name: /rename/i })) {
+      expect(rename).toBeDisabled();
+    }
+    expect(screen.getByLabelText(/delete Standard Keeper/i)).toBeDisabled();
+
+    resolveRename();
+    await waitFor(() => expect(screen.getByLabelText(/delete Standard Keeper/i)).toBeEnabled());
+  });
 });

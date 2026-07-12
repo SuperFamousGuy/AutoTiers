@@ -217,11 +217,15 @@ describe("LinkedAccountsDialog", () => {
     await waitFor(() => expect(refresh).toHaveBeenCalled());
   });
 
-  it("shows the API error message when unlinkGoogle fails", async () => {
+  it("unwraps the FastAPI JSON detail (not the raw blob) when unlinkGoogle fails", async () => {
     const { unlinkGoogle } = await import("@/api/auth");
     const { ApiError } = await import("@/api/client");
+    // The real shape: DELETE /api/auth/google/link raises HTTPException(400,
+    // detail=...), so apiFetch/unlinkProvider store the JSON envelope as the
+    // ApiError message. Regression for #642: the user must read the sentence,
+    // not the JSON braces.
     (unlinkGoogle as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-      new ApiError(400, "Cannot unlink last sign-in method"),
+      new ApiError(400, JSON.stringify({ detail: "Cannot unlink last sign-in method" })),
     );
     render(
       <LinkedAccountsDialog open={true} onOpenChange={noop}
@@ -230,7 +234,25 @@ describe("LinkedAccountsDialog", () => {
     );
     const u = userEvent.setup();
     await u.click(screen.getByRole("button", { name: /disconnect google/i }));
-    expect(await screen.findByText(/last sign-in method/i)).toBeInTheDocument();
+    const err = await screen.findByText(/cannot unlink last sign-in method/i);
+    // The extracted sentence renders, and the JSON envelope does not leak through.
+    expect(err).toHaveTextContent("Cannot unlink last sign-in method");
+    expect(err.textContent).not.toMatch(/[{}[\]]|detail/);
+  });
+
+  it("falls back to the generic message when unlinkGoogle fails with a non-ApiError", async () => {
+    const { unlinkGoogle } = await import("@/api/auth");
+    (unlinkGoogle as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new TypeError("Failed to fetch"),
+    );
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop}
+        user={{ ...baseUser, google_subject: "g-sub" }}
+        onRefresh={noop} initialError={null} />,
+    );
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /disconnect google/i }));
+    expect(await screen.findByText(/disconnect failed\. please try again\./i)).toBeInTheDocument();
   });
 
   it("Link Google navigates to the authorize URL with intent=link", async () => {
@@ -299,12 +321,16 @@ describe("LinkedAccountsDialog", () => {
     }
   });
 
-  it("shows the API error message when unlinkYahoo fails", async () => {
+  it("unwraps the FastAPI JSON detail (not the raw blob) when unlinkYahoo fails", async () => {
+    // The real backend body for the last-sign-in-method rejection is a JSON
+    // envelope, which unlinkProvider stores verbatim as ApiError.message.
+    // Regression for #642: the extracted sentence renders, not the JSON.
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,
       status: 400,
       statusText: "Bad Request",
-      text: () => Promise.resolve("Cannot unlink last sign-in method"),
+      text: () =>
+        Promise.resolve(JSON.stringify({ detail: "Cannot unlink last sign-in method" })),
     });
     vi.stubGlobal("fetch", fetchMock);
     try {
@@ -315,7 +341,9 @@ describe("LinkedAccountsDialog", () => {
       );
       const u = userEvent.setup();
       await u.click(screen.getByRole("button", { name: /disconnect yahoo/i }));
-      expect(await screen.findByText(/last sign-in method/i)).toBeInTheDocument();
+      const err = await screen.findByText(/cannot unlink last sign-in method/i);
+      expect(err).toHaveTextContent("Cannot unlink last sign-in method");
+      expect(err.textContent).not.toMatch(/[{}[\]]|detail/);
     } finally {
       vi.unstubAllGlobals();
     }
