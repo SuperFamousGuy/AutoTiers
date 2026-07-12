@@ -208,7 +208,14 @@ export function YahooConnectForm({ profile, user, onLinked, onRefresh }: Props) 
           </p>
         )
       ) : (
-        <>
+        <form
+          className="space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (busy || !chosenKey) return;
+            handleConnect();
+          }}
+        >
           <label className="block text-sm">
             <span>Select Your League</span>
             <select
@@ -225,11 +232,11 @@ export function YahooConnectForm({ profile, user, onLinked, onRefresh }: Props) 
             </select>
           </label>
           <div className="flex justify-end">
-            <Button size="sm" disabled={busy || !chosenKey} onClick={handleConnect}>
+            <Button type="submit" size="sm" disabled={busy || !chosenKey}>
               Connect
             </Button>
           </div>
-        </>
+        </form>
       )}
     </div>
   );
