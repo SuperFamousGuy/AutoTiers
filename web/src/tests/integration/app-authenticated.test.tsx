@@ -218,6 +218,27 @@ describe("App (authenticated integration)", () => {
     });
   });
 
+  it("opens Manage profiles from the mobile hamburger menu (#499)", async () => {
+    // The desktop ProfilePicker lives in a `hidden lg:flex` container, so on
+    // narrow viewports profile management is only reachable via the always-present
+    // hamburger menu's MobileProfileMenuItems. Clicking its "Manage Profiles…"
+    // entry must open the same ManageProfilesDialog the desktop picker opens.
+    mockAuthenticated();
+    renderApp();
+    const user = userEvent.setup();
+
+    await waitFor(() => expect(screen.getByLabelText(/menu/i)).toBeInTheDocument());
+    await user.click(screen.getByLabelText(/menu/i));
+
+    // The mobile menu item (distinct from the desktop ProfilePicker's item) fires
+    // the onManage handler App wires straight to setManageOpen.
+    await user.click(screen.getByRole("menuitem", { name: /Manage Profiles/i }));
+
+    // The dialog opened — its rename controls are present.
+    const renameButtons = await screen.findAllByRole("button", { name: /^rename$/i });
+    expect(renameButtons.length).toBeGreaterThan(0);
+  });
+
   it("delete via Manage profiles calls DELETE on the profile", async () => {
     mockAuthenticated();
     let deletedId: string | null = null;
