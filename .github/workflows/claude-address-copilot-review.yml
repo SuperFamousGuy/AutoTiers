@@ -31,12 +31,26 @@ name: claude-address-copilot-review
 #  - GitHub cron can drift or skip ticks under load. Acceptable here: the work
 #    signal is idempotent, so a skipped tick is just picked up by the next one.
 #
-# TERMINATION (MAX_PASSES=3):
+# TERMINATION (MAX_PASSES=3) + FINAL-RESOLVE AT CAP:
 # Per PR, an incrementing `claude-review-pass-K` label is stamped BEFORE Claude
 # pushes. The scan counts existing `claude-review-pass-*` labels; at >=MAX_PASSES
-# the PR is skipped forever (until a human removes the labels to re-arm). A
-# one-time `claude-review-capped` label guards the cap-notice comment so it is
-# not re-posted every tick.
+# no further Claude passes run. Previously a capped PR was parked FOREVER (a
+# one-time `claude-review-capped` label + notice, waiting for a human who never
+# came): the 2026-07-12 backlog incident found 9 of 21 open PRs capped for up
+# to 8 days — all CI-green and mergeable — because each Claude fix-push
+# triggers a Copilot RE-review whose fresh nits burn the next pass, so 3
+# passes never converge, and auto-merge gates on zero unresolved threads.
+#
+# Now, at cap, the scan runs FINAL-RESOLVE instead of parking: after 3 full
+# address passes the remaining Copilot threads are nitpick-class by
+# construction, so the scan replies to each remaining Copilot-authored thread,
+# resolves it, and posts ONE summary comment recording the suggestions. Cap
+# means "ship with noted nitpicks", not "abandon". Deterministic gh/GraphQL —
+# no Claude, no quota. Human threads are NEVER touched (first-comment author
+# must be the Copilot reviewer). Idempotent + re-entrant: a later push that
+# spawns new Copilot threads on a capped PR just gets another final-resolve
+# tick (resolving threads does not push code, so it cannot re-trigger a
+# Copilot re-review — no loop). Gated by FINAL_RESOLVE_DRY_RUN below.
 
 on:
   schedule:
@@ -48,7 +62,12 @@ on:
     # idempotent, so a Copilot re-review that misses one tick is simply picked
     # up by the next one. The idle path is cheap (scan-only).
     - cron: "0 * * * *"
-  workflow_dispatch: {} # manual kick for testing
+  workflow_dispatch: # manual kick for testing
+    inputs:
+      final_resolve_dry_run:
+        description: "Override FINAL_RESOLVE_DRY_RUN for a single manual run (true/false)."
+        required: false
+        type: string
 
 concurrency:
   # Serialize sweeper ticks so two overlapping cron runs never both read the
@@ -69,6 +88,14 @@ env:
   # Copilot re-review of the fix -> follow-up fix) while bounding token spend
   # and guaranteeing termination even if Copilot keeps finding nits.
   MAX_PASSES: 3
+  # DRY_RUN (shipped "true" per repo convention): when a PR is at/over
+  # MAX_PASSES and still has unresolved Copilot threads, final-resolve replies
+  # to + resolves each remaining Copilot thread and posts one summary comment
+  # (see FINAL-RESOLVE AT CAP above). While "true", the scan only LOGS what it
+  # would resolve and keeps the legacy park-with-notice behaviour. Arm by
+  # flipping to "false" after one dry-run tick logs sensible verdicts (or pass
+  # the final_resolve_dry_run=false workflow_dispatch input for a single run).
+  FINAL_RESOLVE_DRY_RUN: "true"
 
 jobs:
   # STAGE 1 (cheap): scan for eligible PRs. Pure gh/GraphQL, no toolchain, no
@@ -88,6 +115,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PR_AUTHOR_PAT }}
           REPO: ${{ github.repository }}
+          FINAL_RESOLVE_DRY_RUN_OVERRIDE: ${{ github.event.inputs.final_resolve_dry_run }}
         run: |
           set -euo pipefail
           OWNER="${REPO%/*}"
@@ -153,21 +181,95 @@ jobs:
             if [ "$unresolved" -gt 0 ] && [ "$passes" -lt "$MAX_PASSES" ]; then
               eligible="$(echo "$eligible" | python3 -c "import json,sys; a=json.load(sys.stdin); a.append($pr); print(json.dumps(a))")"
             elif [ "$unresolved" -gt 0 ] && [ "$passes" -ge "$MAX_PASSES" ]; then
-              # Cap reached AND still has unresolved threads: post a one-time
-              # notice, guarded by the claude-review-capped label so it is not
-              # re-posted every tick.
-              already="$(gh pr view "$pr" --repo "$REPO" --json labels \
-                --jq '[.labels[].name | select(. == "claude-review-capped")] | length')"
-              if [ "$already" -eq 0 ]; then
+              # Cap reached AND still-unresolved Copilot threads: FINAL-RESOLVE
+              # (see header). Fetch the remaining Copilot-authored unresolved
+              # threads as TSV rows: node id, path, line, first-comment excerpt.
+              # Excerpt is newline/tab-flattened so @tsv rows stay one-line.
+              gh api graphql \
+                -f query='
+                query($owner: String!, $repo: String!, $pr: Int!) {
+                  repository(owner: $owner, name: $repo) {
+                    pullRequest(number: $pr) {
+                      reviewThreads(first: 50) {
+                        nodes {
+                          id
+                          isResolved
+                          path
+                          line
+                          comments(first: 1) { nodes { author { login } body } }
+                        }
+                      }
+                    }
+                  }
+                }' -f owner="$OWNER" -f repo="$NAME" -F pr="$pr" \
+                --jq '.data.repository.pullRequest.reviewThreads.nodes[]
+                        | select(.isResolved == false)
+                        | select((.comments.nodes[0].author.login // empty)
+                                 | . == "Copilot" or . == "copilot-pull-request-reviewer" or . == "copilot-pull-request-reviewer[bot]")
+                        | [.id,
+                           (.path // "—"),
+                           ((.line // 0) | tostring),
+                           ((.comments.nodes[0].body // "") | gsub("[\r\n\t]+"; " ") | .[0:160])]
+                        | @tsv' > /tmp/cap_threads.tsv
+
+              count="$(grep -c . /tmp/cap_threads.tsv || true)"
+              dry_run="${FINAL_RESOLVE_DRY_RUN_OVERRIDE:-$FINAL_RESOLVE_DRY_RUN}"
+
+              if [ "$dry_run" = "true" ]; then
+                echo "PR #$pr: capped with $count unresolved Copilot thread(s); FINAL_RESOLVE_DRY_RUN — would reply to + resolve:"
+                sed 's/^/  would resolve: /' /tmp/cap_threads.tsv
+                # Legacy park-with-notice behaviour stays while dry:
+                already="$(gh pr view "$pr" --repo "$REPO" --json labels \
+                  --jq '[.labels[].name | select(. == "claude-review-capped")] | length')"
+                if [ "$already" -eq 0 ]; then
+                  gh label create "claude-review-capped" --repo "$REPO" \
+                    --color b60205 --description "Auto-address cap (MAX_PASSES) reached; needs human" \
+                    2>/dev/null || true
+                  gh pr edit "$pr" --repo "$REPO" --add-label "claude-review-capped"
+                  gh pr comment "$pr" --repo "$REPO" --body \
+                    "Automated Copilot-review passes hit the cap (MAX_PASSES=${MAX_PASSES}). There are still unresolved Copilot threads. A human should review and resolve them, then remove the \`claude-review-pass-*\` labels to re-arm the sweeper."
+                  echo "PR #$pr: capped; posted one-time notice."
+                else
+                  echo "PR #$pr: capped; notice already posted, skipping."
+                fi
+              elif [ "$count" -gt 0 ]; then
+                # ARMED: reply first, then resolve (resolving before replying
+                # detaches the reply from the visible thread — see the
+                # resolve-pr-comments skill), accumulating the summary as we go.
+                printf '%s\n\n' \
+                  "Automated review passes hit the cap (MAX_PASSES=${MAX_PASSES}). After ${MAX_PASSES} full address passes the remaining Copilot suggestions are recorded below and their threads resolved, so nitpick-class feedback does not park an otherwise-mergeable PR indefinitely (auto-merge gates on zero unresolved threads). Any suggestion worth acting on should be filed as an issue." \
+                  > /tmp/cap_summary.md
+                while IFS="$(printf '\t')" read -r tid path line excerpt; do
+                  [ -n "$tid" ] || continue
+                  echo "PR #$pr: final-resolving thread $tid ($path:$line)"
+                  gh api graphql \
+                    -f query='
+                    mutation($threadId: ID!, $body: String!) {
+                      addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $threadId, body: $body }) {
+                        comment { id }
+                      }
+                    }' -f threadId="$tid" \
+                    -f body="Pass cap reached (MAX_PASSES=${MAX_PASSES}). Recording this suggestion in the cap summary comment and resolving the thread so it does not block the merge queue indefinitely. If it warrants action, it should be filed as an issue." \
+                    >/dev/null
+                  gh api graphql \
+                    -f query='
+                    mutation($threadId: ID!) {
+                      resolveReviewThread(input: { threadId: $threadId }) {
+                        thread { id isResolved }
+                      }
+                    }' -f threadId="$tid" >/dev/null
+                  printf -- '- `%s:%s` — %s\n' "$path" "$line" "$excerpt" >> /tmp/cap_summary.md
+                done < /tmp/cap_threads.tsv
+                gh pr comment "$pr" --repo "$REPO" --body-file /tmp/cap_summary.md
+                # Keep the capped label as an audit marker (it no longer means
+                # "needs human" once final-resolve is armed).
                 gh label create "claude-review-capped" --repo "$REPO" \
-                  --color b60205 --description "Auto-address cap (MAX_PASSES) reached; needs human" \
+                  --color b60205 --description "Auto-address cap (MAX_PASSES) reached; remaining threads final-resolved" \
                   2>/dev/null || true
-                gh pr edit "$pr" --repo "$REPO" --add-label "claude-review-capped"
-                gh pr comment "$pr" --repo "$REPO" --body \
-                  "Automated Copilot-review passes hit the cap (MAX_PASSES=${MAX_PASSES}). There are still unresolved Copilot threads. A human should review and resolve them, then remove the \`claude-review-pass-*\` labels to re-arm the sweeper."
-                echo "PR #$pr: capped; posted one-time notice."
+                gh pr edit "$pr" --repo "$REPO" --add-label "claude-review-capped" 2>/dev/null || true
+                echo "PR #$pr: final-resolved $count thread(s) and posted the cap summary."
               else
-                echo "PR #$pr: capped; notice already posted, skipping."
+                echo "PR #$pr: capped but no Copilot-authored unresolved threads matched; nothing to final-resolve."
               fi
             fi
           done
