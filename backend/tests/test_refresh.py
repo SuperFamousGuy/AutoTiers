@@ -1,13 +1,16 @@
+import asyncio
 import json
 import pytest
 import respx
 import pandas as pd
+from datetime import datetime
 from httpx import Response
 from pathlib import Path
 
 from sqlalchemy import select
 from app.models import Player, PlayerStat, Projection, DataSourceStatus
 from app.data.fetcher import DataFetcher
+from app.data.sources.base import SourceResult
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -147,3 +150,139 @@ async def test_refresh_returns_skipped_when_sleeper_fails(test_db):
     assert "503" in results["sleeper"]["last_error"]
     for src in ("nfl_data_py", "fantasypros", "cbs"):
         assert "skipped" in (results[src]["last_error"] or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_refresh_propagates_cancellation(test_db, monkeypatch):
+    """Cancelling the task mid-loop must propagate CancelledError, not swallow it.
+
+    Regression for issue #660: the loop used `except BaseException`, which caught
+    asyncio.CancelledError and kept running — defeating cooperative cancellation on
+    shutdown/--reload/timeout. The refresh must end cancelled and NOT advance to the
+    remaining downstream sources.
+    """
+    from app.data.sources.sleeper import SleeperFetcher
+    from app.data.sources.nfl_data import NflDataFetcher
+    from app.data.sources.fantasypros import FantasyProsFetcher
+    from app.data.sources.cbs import CBSFetcher
+
+    nfl_fetch_started = asyncio.Event()
+    downstream_after_cancel_called = False
+
+    async def fake_sleeper_fetch(self, db):
+        return SourceResult(source="sleeper", rows_upserted=1, last_attempted=datetime.utcnow(), success=True)
+
+    async def blocking_nfl_fetch(self, db):
+        nfl_fetch_started.set()
+        # Block so the task is parked in this await when we cancel it.
+        await asyncio.sleep(3600)
+        return SourceResult(source="nfl_data_py", rows_upserted=0, last_attempted=datetime.utcnow(), success=True)
+
+    async def record_call(self, db):
+        nonlocal downstream_after_cancel_called
+        downstream_after_cancel_called = True
+        return SourceResult(source="x", rows_upserted=0, last_attempted=datetime.utcnow(), success=True)
+
+    monkeypatch.setattr(SleeperFetcher, "fetch", fake_sleeper_fetch)
+    monkeypatch.setattr(NflDataFetcher, "fetch", blocking_nfl_fetch)
+    monkeypatch.setattr(FantasyProsFetcher, "fetch", record_call)
+    monkeypatch.setattr(CBSFetcher, "fetch", record_call)
+
+    fetcher = DataFetcher(prior_season=2025, current_season=2026)
+    task = asyncio.create_task(fetcher.refresh_all(test_db))
+
+    await asyncio.wait_for(nfl_fetch_started.wait(), timeout=5)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    # The loop stopped: it never advanced to the sources after nfl_data_py.
+    assert downstream_after_cancel_called is False
+
+    # Best-effort bookkeeping status was recorded for the cancelled source.
+    nfl_status = await test_db.scalar(
+        select(DataSourceStatus).where(DataSourceStatus.source == "nfl_data_py")
+    )
+    assert nfl_status is not None
+    assert "shutdown" in nfl_status.last_error
+
+
+@pytest.mark.asyncio
+async def test_refresh_cancellation_propagates_even_if_bookkeeping_fails(test_db, monkeypatch):
+    """A failure while recording the shutdown status must never mask CancelledError.
+
+    Guards the best-effort `except Exception` inside the cancellation handler
+    (issue #660): if persisting the "skipped — shutdown" status raises, the
+    original cancellation must still propagate.
+    """
+    from app.data.sources.sleeper import SleeperFetcher
+    from app.data.sources.nfl_data import NflDataFetcher
+
+    nfl_fetch_started = asyncio.Event()
+
+    async def ok_sleeper(self, db):
+        return SourceResult(source="sleeper", rows_upserted=1, last_attempted=datetime.utcnow(), success=True)
+
+    async def blocking_nfl_fetch(self, db):
+        nfl_fetch_started.set()
+        await asyncio.sleep(3600)
+
+    orig_persist = DataFetcher._persist
+
+    async def flaky_persist(db, result):
+        if result.error == "skipped — shutdown":
+            raise RuntimeError("db already closed")
+        return await orig_persist(db, result)
+
+    monkeypatch.setattr(SleeperFetcher, "fetch", ok_sleeper)
+    monkeypatch.setattr(NflDataFetcher, "fetch", blocking_nfl_fetch)
+    monkeypatch.setattr(DataFetcher, "_persist", staticmethod(flaky_persist))
+
+    fetcher = DataFetcher(prior_season=2025, current_season=2026)
+    task = asyncio.create_task(fetcher.refresh_all(test_db))
+
+    await asyncio.wait_for(nfl_fetch_started.wait(), timeout=5)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+@pytest.mark.asyncio
+async def test_refresh_continues_on_plain_exception(test_db, monkeypatch):
+    """A non-HTTP exception from a source becomes a failed SourceResult; loop continues.
+
+    Guards the `except Exception` branch (issue #660): switching away from
+    `except BaseException` must not narrow which ordinary errors are tolerated.
+    """
+    from app.data.sources.sleeper import SleeperFetcher
+    from app.data.sources.nfl_data import NflDataFetcher
+    from app.data.sources.fantasypros import FantasyProsFetcher
+    from app.data.sources.cbs import CBSFetcher
+
+    async def ok_sleeper(self, db):
+        return SourceResult(source="sleeper", rows_upserted=1, last_attempted=datetime.utcnow(), success=True)
+
+    async def boom_nfl(self, db):
+        raise RuntimeError("kaboom")
+
+    async def ok_fantasypros(self, db):
+        return SourceResult(source="fantasypros", rows_upserted=2, last_attempted=datetime.utcnow(), success=True)
+
+    async def ok_cbs(self, db):
+        return SourceResult(source="cbs", rows_upserted=3, last_attempted=datetime.utcnow(), success=True)
+
+    monkeypatch.setattr(SleeperFetcher, "fetch", ok_sleeper)
+    monkeypatch.setattr(NflDataFetcher, "fetch", boom_nfl)
+    monkeypatch.setattr(FantasyProsFetcher, "fetch", ok_fantasypros)
+    monkeypatch.setattr(CBSFetcher, "fetch", ok_cbs)
+
+    fetcher = DataFetcher(prior_season=2025, current_season=2026)
+    results = await fetcher.refresh_all(test_db)
+
+    assert results["nfl_data_py"]["last_error"] is not None
+    assert "kaboom" in results["nfl_data_py"]["last_error"]
+    # The failure was isolated: sources after nfl_data_py still ran and succeeded.
+    assert results["fantasypros"]["last_error"] is None
+    assert results["cbs"]["last_error"] is None
