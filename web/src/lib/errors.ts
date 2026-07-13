@@ -64,3 +64,26 @@ export function describeGenerateError(error: unknown): string {
   }
   return "Something went wrong. Please try again.";
 }
+
+/**
+ * Save-flavoured sibling of describeGenerateError for profile PATCH failures
+ * (used by the Undo handler). Same error taxonomy, but the 5xx copy talks about
+ * saving the change rather than building tiers, since no Generate ran.
+ */
+export function describeSaveError(error: unknown): string {
+  if (error instanceof TimeoutError) {
+    return "The request timed out. Check your connection and try again.";
+  }
+  if (error instanceof ApiError) {
+    if (error.status >= 500) {
+      return "The server couldn't save the change. Please try again.";
+    }
+    const message = extractApiErrorMessage(error.message);
+    if (message) return message;
+    return `The request failed (${error.status}).`;
+  }
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+  return "Something went wrong. Please try again.";
+}

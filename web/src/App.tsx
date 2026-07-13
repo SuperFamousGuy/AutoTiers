@@ -24,7 +24,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { verifyEmail } from "@/api/auth";
 import { createProfile, updateProfile, deleteProfile, activateProfile } from "@/api/profiles";
 import { useAutoSave } from "@/hooks/useAutoSave";
-import { describeGenerateError } from "@/lib/errors";
+import { describeGenerateError, describeSaveError } from "@/lib/errors";
 import { weightsAreValid } from "@/lib/weights";
 import { buildResolvedTierNames, resolveTierLabelOverrides } from "@/lib/tiers";
 import type { Rule, GenerateRequest, PositionRulesState } from "@/api/types";
@@ -320,6 +320,9 @@ export default function App() {
     // Drop the current tip; the entry before it becomes the new tip.
     const trimmed = current.slice(0, -1);
     const newTip = trimmed[trimmed.length - 1];
+    // The snapshot we're reverting away from — kept so we can restore exact
+    // server-truth local state if the PATCH below fails.
+    const prevTip = current[current.length - 1];
 
     // Apply to local state immediately so the UI updates without waiting
     // for the server round-trip.
@@ -330,9 +333,28 @@ export default function App() {
     // matches tip") now blocks the debounced save from firing redundantly —
     // but the server still has the old tip, so we PATCH explicitly here.
     setHistory((prev) => ({ ...prev, [activeProfileId]: trimmed }));
-    const updated = await updateProfile(activeProfileId, newTip);
-    setProfiles(profiles.map((p) => (p.id === activeProfileId ? updated : p)));
-  }, [activeProfileId, history, profiles, setProfiles]);
+    try {
+      const updated = await updateProfile(activeProfileId, newTip);
+      setProfiles(profiles.map((p) => (p.id === activeProfileId ? updated : p)));
+      // Confirm the (otherwise silent) revert so a mis-click next to the
+      // ProfilePicker is at least visible and self-explanatory (#694).
+      toast({ title: "Reverted to previous settings", variant: "success" });
+    } catch (err) {
+      // The PATCH failed, so the server still holds `prevTip`. Roll the
+      // optimistic local state (settings, rules, AND the trimmed history) back
+      // to that server-truth snapshot — otherwise the UI would show a "reverted"
+      // state the server never accepted, silently diverging from persistence and
+      // leaving no way back to the pre-undo settings (#694).
+      setSettings(prevTip.settings_json as unknown as SettingsState);
+      setPositionRules(prevTip.rules_json as unknown as PositionRulesState);
+      setHistory((prev) => ({ ...prev, [activeProfileId]: current }));
+      toast({
+        title: "Couldn't undo",
+        description: describeSaveError(err),
+        variant: "error",
+      });
+    }
+  }, [activeProfileId, history, profiles, setProfiles, toast]);
 
   const buildRequest = (): GenerateRequest => {
     const active = profiles.find((p) => p.id === activeProfileId);
@@ -447,7 +469,13 @@ export default function App() {
               canCreate={profiles.length < 5}
             />
             {canUndo && (
-              <Button size="sm" variant="ghost" onClick={handleUndo}>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleUndo}
+                aria-label="Undo last change"
+                title="Revert settings and rules to the previous saved version"
+              >
                 Undo
               </Button>
             )}
