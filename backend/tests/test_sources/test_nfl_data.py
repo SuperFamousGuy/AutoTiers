@@ -220,3 +220,102 @@ async def test_nfl_data_all_nan_snap_pct_clears_stale_value(test_db, monkeypatch
         select(PlayerStat).where(PlayerStat.player_id == "4017", PlayerStat.season == 2025)
     )
     assert allen.snap_pct is None
+
+
+@pytest.mark.asyncio
+async def test_nfl_data_absent_from_pbp_resets_stale_rz_and_xtds(test_db, monkeypatch):
+    """A player with stale red_zone_looks/expected_tds from a prior fetch who has
+    zero red-zone plays in the current (non-empty) PBP pull must end with both
+    reset to 0/0.0 — not left at the stale value. Regression test for issue #689."""
+    seasonal_df = pd.read_csv(FIXTURES / "nfl_data_seasonal.csv")
+    # PBP is non-empty (source succeeded this run) but contains only a red-zone
+    # play for Chase — Josh Allen is entirely absent from the red-zone dicts.
+    pbp_df = pd.DataFrame([
+        {"play_id": 1, "game_id": 1, "season": 2025, "yardline_100": 5,
+         "play_type": "pass", "td_prob": 0.5, "rusher_player_id": None,
+         "receiver_player_id": "00-0036900", "touchdown": 1,
+         "rush_touchdown": 0, "pass_touchdown": 1},
+    ])
+
+    import app.data.sources.nfl_data as mod
+    monkeypatch.setattr(mod, "import_seasonal_data", lambda years: seasonal_df.copy())
+    monkeypatch.setattr(mod, "import_snap_counts", lambda years: pd.DataFrame())
+    monkeypatch.setattr(mod, "import_pbp_data", lambda years: pbp_df.copy())
+    monkeypatch.setattr(mod, "import_schedules", lambda years: pd.DataFrame())
+
+    test_db.add(Player(id="4017", name="Josh Allen", position="QB", team="BUF", gsis_id="00-0034796"))
+    # Pre-existing row with stale PBP-derived values from an earlier fetch.
+    test_db.add(PlayerStat(player_id="4017", season=2025, red_zone_looks=15, expected_tds=2.1))
+    await test_db.commit()
+
+    fetcher = NflDataFetcher(prior_seasons=1, latest_season=2025)
+    await fetcher.fetch(test_db)
+
+    allen = await test_db.scalar(
+        select(PlayerStat).where(PlayerStat.player_id == "4017", PlayerStat.season == 2025)
+    )
+    assert allen.red_zone_looks == 0
+    assert allen.expected_tds == 0.0
+
+
+@pytest.mark.asyncio
+async def test_nfl_data_empty_pbp_preserves_existing_rz_and_xtds(test_db, monkeypatch):
+    """When the PBP source failed for the season (empty df), existing
+    red_zone_looks/expected_tds must be left untouched — don't wipe on a failed
+    fetch. Guards the partial-source-failure path for issue #689."""
+    seasonal_df = pd.read_csv(FIXTURES / "nfl_data_seasonal.csv")
+
+    import app.data.sources.nfl_data as mod
+    monkeypatch.setattr(mod, "import_seasonal_data", lambda years: seasonal_df.copy())
+    monkeypatch.setattr(mod, "import_snap_counts", lambda years: pd.DataFrame())
+    monkeypatch.setattr(mod, "import_pbp_data", lambda years: pd.DataFrame())
+    monkeypatch.setattr(mod, "import_schedules", lambda years: pd.DataFrame())
+
+    test_db.add(Player(id="4017", name="Josh Allen", position="QB", team="BUF", gsis_id="00-0034796"))
+    test_db.add(PlayerStat(player_id="4017", season=2025, red_zone_looks=15, expected_tds=2.1))
+    await test_db.commit()
+
+    fetcher = NflDataFetcher(prior_seasons=1, latest_season=2025)
+    await fetcher.fetch(test_db)
+
+    allen = await test_db.scalar(
+        select(PlayerStat).where(PlayerStat.player_id == "4017", PlayerStat.season == 2025)
+    )
+    assert allen.red_zone_looks == 15
+    assert allen.expected_tds == pytest.approx(2.1)
+
+
+@pytest.mark.asyncio
+async def test_nfl_data_absent_from_snap_pull_resets_stale_snap_pct(test_db, monkeypatch):
+    """A player with a stale snap_pct who has zero snap rows in the current
+    (non-empty, schema-valid) snap pull must reset to None — distinct from the
+    all-NaN aggregate case. Regression test for issue #689."""
+    seasonal_df = pd.read_csv(FIXTURES / "nfl_data_seasonal.csv")
+    # Snap source succeeded this run but only carries a row for Chase; Allen has
+    # zero snap rows this pull and must not keep his stale snap_pct.
+    snap_df = pd.DataFrame({
+        "player": ["Ja'Marr Chase"],
+        "gsis_id": ["00-0036900"],
+        "team": ["CIN"],
+        "position": ["WR"],
+        "offense_snaps": [60.0],
+        "offense_pct": [0.9],
+    })
+
+    import app.data.sources.nfl_data as mod
+    monkeypatch.setattr(mod, "import_seasonal_data", lambda years: seasonal_df.copy())
+    monkeypatch.setattr(mod, "import_snap_counts", lambda years: snap_df.copy())
+    monkeypatch.setattr(mod, "import_pbp_data", lambda years: pd.DataFrame())
+    monkeypatch.setattr(mod, "import_schedules", lambda years: pd.DataFrame())
+
+    test_db.add(Player(id="4017", name="Josh Allen", position="QB", team="BUF", gsis_id="00-0034796"))
+    test_db.add(PlayerStat(player_id="4017", season=2025, snap_pct=0.77))
+    await test_db.commit()
+
+    fetcher = NflDataFetcher(prior_seasons=1, latest_season=2025)
+    await fetcher.fetch(test_db)
+
+    allen = await test_db.scalar(
+        select(PlayerStat).where(PlayerStat.player_id == "4017", PlayerStat.season == 2025)
+    )
+    assert allen.snap_pct is None
