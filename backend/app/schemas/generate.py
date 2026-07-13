@@ -98,57 +98,66 @@ class GenerateRequest(BaseModel):
             raise ValueError(f"Score weights must sum to 1.0, got {total:.2f}")
         return weight_consensus
 
-    @field_validator("keepers")
+    # All three size-bounding validators run in `mode="before"` so the length
+    # checks execute on the raw payload *before* Pydantic parses/coerces every
+    # element (building millions of models, coercing every float, running
+    # per-item validation). On the unauthenticated `/api/generate` endpoint that
+    # ordering is the whole point: an oversized payload must be rejected without
+    # first doing the expensive per-item work it is trying to trigger. Each
+    # validator type-guards the raw value and passes anything unexpected through
+    # untouched so Pydantic still produces its normal type-error for malformed
+    # input.
+    @field_validator("keepers", mode="before")
     @classmethod
-    def bound_keepers(cls, v: Optional[list[str]]) -> Optional[list[str]]:
-        if v is None:
-            return v
-        if len(v) > _MAX_KEEPERS:
-            raise ValueError(
-                f"keepers has too many entries ({len(v)}); maximum is {_MAX_KEEPERS}."
-            )
-        for name in v:
-            if len(name) > _MAX_KEEPER_NAME_LEN:
+    def bound_keepers(cls, v):
+        if isinstance(v, list):
+            if len(v) > _MAX_KEEPERS:
                 raise ValueError(
-                    f"keeper name is too long ({len(name)} chars); "
-                    f"maximum is {_MAX_KEEPER_NAME_LEN}."
+                    f"keepers has too many entries ({len(v)}); maximum is {_MAX_KEEPERS}."
                 )
+            for name in v:
+                if isinstance(name, str) and len(name) > _MAX_KEEPER_NAME_LEN:
+                    raise ValueError(
+                        f"keeper name is too long ({len(name)} chars); "
+                        f"maximum is {_MAX_KEEPER_NAME_LEN}."
+                    )
         return v
 
-    @field_validator("league_adp")
+    @field_validator("league_adp", mode="before")
     @classmethod
-    def bound_league_adp(cls, v: Optional[dict[str, float]]) -> Optional[dict[str, float]]:
-        if v is None:
-            return v
-        if len(v) > _MAX_LEAGUE_ADP_ENTRIES:
-            raise ValueError(
-                f"league_adp has too many entries ({len(v)}); "
-                f"maximum is {_MAX_LEAGUE_ADP_ENTRIES}."
-            )
-        for key in v:
-            if len(key) > _MAX_LEAGUE_ADP_KEY_LEN:
+    def bound_league_adp(cls, v):
+        if isinstance(v, dict):
+            if len(v) > _MAX_LEAGUE_ADP_ENTRIES:
                 raise ValueError(
-                    f"league_adp key is too long ({len(key)} chars); "
-                    f"maximum is {_MAX_LEAGUE_ADP_KEY_LEN}."
+                    f"league_adp has too many entries ({len(v)}); "
+                    f"maximum is {_MAX_LEAGUE_ADP_ENTRIES}."
                 )
+            for key in v:
+                if isinstance(key, str) and len(key) > _MAX_LEAGUE_ADP_KEY_LEN:
+                    raise ValueError(
+                        f"league_adp key is too long ({len(key)} chars); "
+                        f"maximum is {_MAX_LEAGUE_ADP_KEY_LEN}."
+                    )
         return v
 
-    @field_validator("rules")
+    @field_validator("rules", mode="before")
     @classmethod
-    def bound_rules(
-        cls, v: dict[str, list[RuleOverrideSchema]]
-    ) -> dict[str, list[RuleOverrideSchema]]:
-        if len(v) > _MAX_RULE_POSITIONS:
-            raise ValueError(
-                f"rules has too many positions ({len(v)}); "
-                f"maximum is {_MAX_RULE_POSITIONS}."
-            )
-        for position, overrides in v.items():
-            if len(overrides) > _MAX_RULE_OVERRIDES_PER_POSITION:
+    def bound_rules(cls, v):
+        if isinstance(v, dict):
+            if len(v) > _MAX_RULE_POSITIONS:
                 raise ValueError(
-                    f"rules['{position}'] has too many overrides ({len(overrides)}); "
-                    f"maximum is {_MAX_RULE_OVERRIDES_PER_POSITION}."
+                    f"rules has too many positions ({len(v)}); "
+                    f"maximum is {_MAX_RULE_POSITIONS}."
                 )
+            for position, overrides in v.items():
+                if (
+                    isinstance(overrides, list)
+                    and len(overrides) > _MAX_RULE_OVERRIDES_PER_POSITION
+                ):
+                    raise ValueError(
+                        f"rules['{position}'] has too many overrides ({len(overrides)}); "
+                        f"maximum is {_MAX_RULE_OVERRIDES_PER_POSITION}."
+                    )
         return v
 
 
