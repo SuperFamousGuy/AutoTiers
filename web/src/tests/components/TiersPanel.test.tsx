@@ -574,10 +574,14 @@ describe("TiersPanel", () => {
         await user.click(screen.getByRole("button", { name: /^reset draft$/i }));
 
         expect(confirmSpy).toHaveBeenCalledTimes(1);
-        // Cancelling leaves the board untouched — the picks survive.
+        // Cancelling leaves the board untouched — the picks survive. Drafting
+        // both of Tier 1's players auto-collapses that tier (#666), so confirm
+        // the picks persisted via the count and the Drafted section rather than
+        // the now-hidden player rows.
         expect(screen.getByText(/2 drafted/i)).toBeInTheDocument();
-        expect(screen.getByRole("button", { name: /mark ja'marr chase as available/i })).toBeInTheDocument();
-        expect(screen.getByRole("button", { name: /mark bijan robinson as available/i })).toBeInTheDocument();
+        const draftedSection = screen.getByText("Drafted (2)").closest("details")!;
+        expect(within(draftedSection).getByText("Ja'Marr Chase")).toBeInTheDocument();
+        expect(within(draftedSection).getByText("Bijan Robinson")).toBeInTheDocument();
       } finally {
         confirmSpy.mockRestore();
       }
@@ -675,6 +679,149 @@ describe("TiersPanel", () => {
       expect(
         screen.getByRole("button", { name: /mark ja'marr chase as available/i }),
       ).toBeInTheDocument();
+    });
+  });
+
+  describe("auto-collapse fully-drafted tiers (#666)", () => {
+    const draftTier1 = async (user: ReturnType<typeof userEvent.setup>) => {
+      // Tier 1 in the fixture is Ja'Marr Chase + Bijan Robinson — draft both to
+      // empty the tier of available players.
+      await user.click(screen.getByRole("button", { name: /mark ja'marr chase as drafted/i }));
+      await user.click(screen.getByRole("button", { name: /mark bijan robinson as drafted/i }));
+    };
+
+    it("shows no tier collapse affordance when Draft Mode is off", () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      // The tier header is plain, non-interactive text with no expand/collapse control.
+      expect(
+        screen.queryByRole("button", { name: /(collapse|expand) tier 1/i }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("makes each tier header a collapse toggle exposing aria-expanded once Draft Mode is on", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+
+      const header = screen.getByRole("button", { name: /collapse tier 1/i });
+      // Tiers with available players start expanded.
+      expect(header).toHaveAttribute("aria-expanded", "true");
+    });
+
+    it("auto-collapses a tier once its last available player is drafted", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+      await draftTier1(user);
+
+      // Header now advertises the collapsed state...
+      const header = screen.getByRole("button", { name: /expand tier 1/i });
+      expect(header).toHaveAttribute("aria-expanded", "false");
+      // ...and the dead drafted rows are removed from the tier so they stop
+      // pushing the next available tier off-screen.
+      expect(
+        screen.queryByRole("button", { name: /mark ja'marr chase as available/i }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /mark bijan robinson as available/i }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("keeps a tier with remaining available players expanded", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+
+      // Draft only one of Tier 1's two players — one is still available.
+      await user.click(screen.getByRole("button", { name: /mark ja'marr chase as drafted/i }));
+
+      expect(screen.getByRole("button", { name: /collapse tier 1/i })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+      expect(
+        screen.getByRole("button", { name: /mark bijan robinson as drafted/i }),
+      ).toBeInTheDocument();
+    });
+
+    it("auto-expands a collapsed tier when a player is undrafted back into it", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+      await draftTier1(user);
+      expect(screen.getByRole("button", { name: /expand tier 1/i })).toBeInTheDocument();
+
+      // The rows are hidden, so undraft via the collapsible Drafted section.
+      const draftedSection = screen.getByText(/^Drafted \(/).closest("details")!;
+      await user.click(within(draftedSection).getByText("Ja'Marr Chase"));
+
+      // Tier re-expands and the reinstated player's row is visible again.
+      expect(screen.getByRole("button", { name: /collapse tier 1/i })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+      expect(
+        screen.getByRole("button", { name: /mark ja'marr chase as drafted/i }),
+      ).toBeInTheDocument();
+    });
+
+    it("lets the user manually expand an auto-collapsed tier via the header toggle", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+      await draftTier1(user);
+
+      await user.click(screen.getByRole("button", { name: /expand tier 1/i }));
+
+      // Manual expand reveals the (drafted) rows without changing draft state.
+      expect(screen.getByRole("button", { name: /collapse tier 1/i })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+      expect(
+        screen.getByRole("button", { name: /mark ja'marr chase as available/i }),
+      ).toBeInTheDocument();
+    });
+
+    it("resets collapse state when Draft Mode is turned off and on again", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      const toggle = screen.getByRole("switch", { name: /draft mode/i });
+      await user.click(toggle);
+      await draftTier1(user);
+
+      // Manually override the auto-collapse to expanded...
+      await user.click(screen.getByRole("button", { name: /expand tier 1/i }));
+      expect(screen.getByRole("button", { name: /collapse tier 1/i })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+
+      // ...then leave and re-enter Draft Mode. The manual override is forgotten
+      // and the still-fully-drafted tier auto-collapses again.
+      await user.click(toggle); // off
+      await user.click(toggle); // on
+      expect(screen.getByRole("button", { name: /expand tier 1/i })).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
+    });
+
+    it("auto-collapses an already-fully-drafted tier the moment Draft Mode is switched on", async () => {
+      // Seed a persisted board where all of Tier 1 is already drafted, then
+      // enter Draft Mode — the tier should come up collapsed with no toggling.
+      localStorage.setItem(
+        "autotiers_draft:default:standard",
+        JSON.stringify(["6794", "8112"]),
+      );
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+
+      expect(screen.getByRole("button", { name: /expand tier 1/i })).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
     });
   });
 });

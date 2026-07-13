@@ -8,11 +8,14 @@ All requests require ?format=json (default response is XML).
 """
 from dataclasses import dataclass
 from typing import Optional
+import logging
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.yahoo import refresh_access_token
 from app.security.fernet import encrypt, decrypt
+
+logger = logging.getLogger(__name__)
 
 _BASE = "https://fantasysports.yahooapis.com/fantasy/v2"
 
@@ -22,6 +25,14 @@ class YahooReauthRequired(Exception):
     can't be renewed and the user must reconnect Yahoo. Mirrors the
     EspnAuthRequired/CbsAuthRequired pattern so callers can surface a
     reconnect prompt instead of a generic "verify credentials" HTTP error."""
+
+
+class YahooLeaguesParseError(Exception):
+    """Yahoo's leagues response didn't match the expected shape — a schema
+    drift (unexpected nesting, locale/date change, malformed count) we can't
+    navigate. Raised instead of silently returning ``[]`` so the failure
+    surfaces through ``_provider_http_error`` as a provider error rather than a
+    false "no leagues found" empty state. See issue #643."""
 
 
 @dataclass
@@ -45,7 +56,7 @@ class YahooLeagueData:
 
 async def _get(url: str, access_token: str) -> dict:
     """GET with Bearer auth, requesting JSON format. Raises httpx.HTTPStatusError on non-2xx."""
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
         resp = await client.get(
             url,
             params={"format": "json"},
@@ -85,7 +96,14 @@ async def _with_refresh(url: str, user, db: AsyncSession) -> dict:
 
 
 def _parse_leagues(data: dict) -> list[YahooLeagueSummary]:
-    """Navigate Yahoo's deeply nested users/games/leagues response structure."""
+    """Navigate Yahoo's deeply nested users/games/leagues response structure.
+
+    A genuinely empty account — Yahoo returns the games/leagues envelope with
+    ``count == 0`` — yields ``[]``. A response whose structure we can't navigate
+    (a schema drift) is logged and raised as :class:`YahooLeaguesParseError`
+    rather than swallowed into a misleading empty list, so the caller surfaces a
+    provider error instead of a false "no leagues found". See issue #643.
+    """
     results = []
     try:
         users = data["fantasy_content"]["users"]
@@ -108,8 +126,9 @@ def _parse_leagues(data: dict) -> list[YahooLeagueSummary]:
                     season=season,
                     num_teams=int(league.get("num_teams", 0)),
                 ))
-    except (KeyError, IndexError, TypeError, ValueError):
-        pass
+    except (KeyError, IndexError, TypeError, ValueError) as e:
+        logger.warning("Yahoo leagues parse failed: %s", e, exc_info=True)
+        raise YahooLeaguesParseError("Unexpected Yahoo leagues response shape") from e
     return results
 
 

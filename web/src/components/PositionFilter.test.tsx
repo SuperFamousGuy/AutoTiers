@@ -43,4 +43,20 @@ describe("PositionFilter", () => {
     render(<PositionFilter value="QB" onChange={vi.fn()} />);
     expect(screen.getByRole("button", { name: "QB" }).className).toContain("pointer-events-none");
   });
+
+  it("marks only the active chip aria-pressed for assistive tech (issue #661)", () => {
+    render(<PositionFilter value="RB" onChange={vi.fn()} />);
+    // The active option announces as pressed/selected to screen readers.
+    expect(screen.getByRole("button", { name: "RB" })).toHaveAttribute("aria-pressed", "true");
+    // Every other chip is explicitly not-pressed (never missing/undefined).
+    for (const opt of POSITION_FILTER_OPTIONS.filter((o) => o !== "RB")) {
+      const label = opt === "ALL" ? "All" : opt;
+      expect(screen.getByRole("button", { name: label })).toHaveAttribute("aria-pressed", "false");
+    }
+  });
+
+  it("wraps the chips in a labelled group so the control set is discoverable", () => {
+    render(<PositionFilter value="ALL" onChange={vi.fn()} />);
+    expect(screen.getByRole("group", { name: "Filter by position" })).toBeInTheDocument();
+  });
 });

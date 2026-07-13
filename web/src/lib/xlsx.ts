@@ -1,4 +1,4 @@
-import type { TieredPlayer } from "@/api/types";
+import type { ScoringFormat, TieredPlayer } from "@/api/types";
 import type { PositionFilterValue } from "@/components/PositionFilter";
 import { POSITION_FILTER_OPTIONS } from "@/components/PositionFilter";
 import {
@@ -106,6 +106,63 @@ function buildSheet(
     stickyRowsCount: STICKY_HEADER_ROWS,
     columns: DRAFT_SHEET_COLUMNS,
   };
+}
+
+/** Filename used when no usable profile name is available. */
+export const DEFAULT_XLSX_FILENAME = "tiers.xlsx";
+
+/**
+ * Short, filename-safe label per scoring format. Kept separate from the API's
+ * underscore token ("half_ppr") so the download reads with hyphens ("half-ppr")
+ * like the rest of the slug. A `Record<ScoringFormat, string>` so a new format
+ * added to the union is a build error until it gets a label here.
+ */
+const SCORING_FORMAT_SLUG: Record<ScoringFormat, string> = {
+  standard: "standard",
+  half_ppr: "half-ppr",
+  ppr: "ppr",
+};
+
+/**
+ * Lowercases, replaces every run of non-alphanumerics with a single hyphen, and
+ * trims leading/trailing hyphens. Returns "" when nothing usable remains (e.g. a
+ * name that is only punctuation/emoji), which the caller treats as "no name".
+ */
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/** Local calendar date as YYYY-MM-DD (zero-padded), for the filename suffix. */
+function formatDatePart(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Derives the Excel export filename from the active profile name, scoring format,
+ * and date — e.g. `redraft-half-ppr-tiers-2026-07-12.xlsx`. This lets a user
+ * exporting for several leagues/profiles on draft day tell the files apart
+ * instead of ending up with `tiers.xlsx`, `tiers (1).xlsx`, …
+ *
+ * Falls back to `DEFAULT_XLSX_FILENAME` ("tiers.xlsx") when no usable profile
+ * name is available — `null`/`undefined`/empty, or a name that slugifies to "".
+ *
+ * `date` is injectable so the output is deterministic under test; production
+ * callers omit it and get the current local date.
+ */
+export function buildXlsxFilename(
+  profileName: string | null | undefined,
+  scoringFormat: ScoringFormat,
+  date: Date = new Date(),
+): string {
+  const slug = profileName ? slugify(profileName) : "";
+  if (!slug) return DEFAULT_XLSX_FILENAME;
+  return `${slug}-${SCORING_FORMAT_SLUG[scoringFormat]}-tiers-${formatDatePart(date)}.xlsx`;
 }
 
 /**

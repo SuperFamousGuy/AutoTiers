@@ -8,6 +8,7 @@ import { SettingsPanel, DEFAULT_FULL_SEASON_GAMES, DEFAULT_PRIOR_YEAR_RAMP, DEFA
 import { RulesPanel } from "@/components/RulesPanel";
 import { TiersPanel } from "@/components/TiersPanel";
 import { ProfilePicker } from "@/components/ProfilePicker";
+import { MobileProfileMenuItems } from "@/components/MobileProfileMenuItems";
 import { ManageProfilesDialog } from "@/components/ManageProfilesDialog";
 import { LinkedAccountsDialog } from "@/components/LinkedAccountsDialog";
 import { MobilePanelTabBar, type MobilePanel } from "@/components/MobilePanelTabBar";
@@ -425,7 +426,16 @@ export default function App() {
         onToggleDark={toggleDark}
         onShowOnboarding={startOnboarding}
         onOpenLinkedAccounts={user ? () => { setLinkingError(null); setLinkedOpen(true); } : undefined}
-        activeProfileName={profiles.find((p) => p.id === activeProfileId)?.name ?? null}
+        mobileProfileMenu={user ? (
+          <MobileProfileMenuItems
+            profiles={profiles}
+            activeId={activeProfileId}
+            onSelect={handleSelectProfile}
+            onNew={handleNewProfile}
+            onManage={() => setManageOpen(true)}
+            canCreate={profiles.length < 5}
+          />
+        ) : null}
         profilePicker={user ? (
           <div className="flex items-center gap-2">
             <ProfilePicker
@@ -544,6 +554,7 @@ export default function App() {
                 void downloadDraftXlsx(
                   generate.data.players,
                   settings.scoring_format,
+                  profiles.find((p) => p.id === activeProfileId)?.name ?? null,
                   resolvedTierNames,
                 );
               }

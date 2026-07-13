@@ -50,16 +50,23 @@ async def fetch_league(
     if parts:
         headers["Cookie"] = "; ".join(parts)
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    # follow_redirects=True so benign redirects (http→https canonicalization,
+    # CDN/load-balancer hops) are transparently followed instead of leaving a
+    # 3xx body for resp.json() to choke on. httpx defaults this to False.
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
         resp = await client.get(url, headers=headers)
-        # 401/403 are the explicit auth-required cases. ESPN also redirects
-        # (3xx) to their login page for private leagues, so treat redirects
-        # the same way — otherwise we'd surface a confusing "ESPN returned
-        # HTTP 302" message that doesn't tell the user to add cookies.
-        if resp.status_code in (401, 403) or resp.is_redirect:
+        # 401/403 are the explicit auth-required cases. ESPN also bounces
+        # private leagues (via a 3xx) to their HTML login page; now that we
+        # follow redirects, that arrives as a non-JSON 200 body rather than a
+        # raw 3xx. Detect both and surface the same "paste your cookies" hint
+        # instead of letting resp.json() blow up with an opaque JSONDecodeError.
+        if resp.status_code in (401, 403):
             raise EspnAuthRequired("ESPN rejected the request — league may be private and cookies missing/expired")
         resp.raise_for_status()
-        data = resp.json()
+        try:
+            data = resp.json()
+        except ValueError:
+            raise EspnAuthRequired("ESPN rejected the request — league may be private and cookies missing/expired")
 
     settings = data.get("settings") or {}
     players_by_id: dict[int, dict] = {p["id"]: p for p in (data.get("players") or [])}

@@ -243,7 +243,16 @@ export function SleeperConnectForm({ profile, onLinked, onRefresh }: Props) {
         </div>
       )}
       {step === "username" ? (
-        <>
+        // Wrap only the username step so Enter submits the username lookup,
+        // never the (not-yet-rendered) league connect.
+        <form
+          className="space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (busy || !username.trim()) return;
+            handleContinue();
+          }}
+        >
           <label className="block text-sm">
             <span>Sleeper Username</span>
             <input
@@ -254,13 +263,21 @@ export function SleeperConnectForm({ profile, onLinked, onRefresh }: Props) {
             />
           </label>
           <div className="flex justify-end gap-2">
-            <Button size="sm" disabled={busy || !username.trim()} onClick={handleContinue}>
+            <Button type="submit" size="sm" disabled={busy || !username.trim()}>
               Continue
             </Button>
           </div>
-        </>
+        </form>
       ) : (
-        <>
+        // Wrap only the league step so Enter submits the league connect.
+        <form
+          className="space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (busy) return;
+            handleConnect();
+          }}
+        >
           <label className="block text-sm">
             <span>Select Your League</span>
             <select
@@ -284,11 +301,11 @@ export function SleeperConnectForm({ profile, onLinked, onRefresh }: Props) {
             >
               ← Wrong username?
             </button>
-            <Button size="sm" disabled={busy} onClick={handleConnect}>
+            <Button type="submit" size="sm" disabled={busy}>
               Connect
             </Button>
           </div>
-        </>
+        </form>
       )}
     </div>
   );
