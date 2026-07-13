@@ -117,7 +117,13 @@ async def test_output_identical_with_or_without_stale_season(async_client, test_
                            scoring_format="ppr", projected_points=CONSENSUS))
     await test_db.commit()
 
-    resp = await async_client.post("/api/generate", json=_body())
+    # Enable the two-seasons-ago rule so the current_year-2 read is observable in
+    # the response: games_played=10 < 12 sets injured_two_years_ago, which fires
+    # "Year After the Year After". Both players carry that row, so it fires for
+    # both and the output stays identical.
+    body = _body()
+    body["rules"] = {"WR": [{"name": "Year After the Year After", "enabled": True, "weight": 1.0}]}
+    resp = await async_client.post("/api/generate", json=body)
     assert resp.status_code == 200, resp.text
     data = resp.json()
 
@@ -129,5 +135,9 @@ async def test_output_identical_with_or_without_stale_season(async_client, test_
     a_cmp = {k: v for k, v in a.items() if k not in ignore}
     b_cmp = {k: v for k, v in b.items() if k not in ignore}
     assert a_cmp == b_cmp
-    # Sanity: the current_year-2 row IS still read (games_played=10 < 12 → flag).
+    # Sanity: the current_year-1 row IS still read — it feeds prior_year_actual.
     assert a["prior_year_actual"] is not None
+    # Sanity: the current_year-2 row (the filter's boundary season) IS still read —
+    # games_played=10 < 12 sets injured_two_years_ago, firing "Year After the Year
+    # After". This assertion is what actually validates the two-seasons-ago path.
+    assert "Year After the Year After" in a["rules_applied"]
