@@ -857,6 +857,62 @@ async def test_set_password_rejects_short_password(async_client, test_db):
 
 
 # ---------------------------------------------------------------------------
+# Issue #692 — Bound password field lengths on reset / change / set
+# ---------------------------------------------------------------------------
+# An over-cap password (>128) must be rejected with 422 by Pydantic BEFORE the
+# handler runs — so token validity / auth state is irrelevant to the rejection.
+
+
+@pytest.mark.asyncio
+async def test_reset_password_rejects_new_password_over_max_length(async_client):
+    """Validation (422) fires before token lookup, so a fake token is fine."""
+    r = await async_client.post("/api/auth/password/reset", json={
+        "token": "irrelevant-never-reached",
+        "new_password": "a" * 129,
+    })
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_change_password_rejects_new_password_over_max_length(async_client):
+    await async_client.post("/api/auth/signup", json={
+        "email": "alice@example.com",
+        "password": "correct horse battery",
+    })
+    r = await async_client.post("/api/auth/password/change", json={
+        "current_password": "correct horse battery",
+        "new_password": "a" * 129,
+    })
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_change_password_rejects_current_password_over_max_length(async_client):
+    await async_client.post("/api/auth/signup", json={
+        "email": "alice@example.com",
+        "password": "correct horse battery",
+    })
+    r = await async_client.post("/api/auth/password/change", json={
+        "current_password": "a" * 129,
+        "new_password": "even better battery",
+    })
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_set_password_rejects_new_password_over_max_length(async_client):
+    """Validation (422) fires before the has-password / auth checks."""
+    await async_client.post("/api/auth/signup", json={
+        "email": "alice@example.com",
+        "password": "correct horse battery",
+    })
+    r = await async_client.post("/api/auth/password/set", json={
+        "new_password": "a" * 129,
+    })
+    assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
 # Cross-slice — token type isolation
 # ---------------------------------------------------------------------------
 
