@@ -16,9 +16,13 @@ import { ToastProvider } from "@/components/ui/toast";
 
 // The code-split workbook builder that downloadDraftXlsx lazy-imports. Mocking it
 // lets us reject (offline / stale chunk) or resolve without a real xlsx library.
+// downloadDraftXlsx also pulls buildXlsxFilename from this module to name the file,
+// so the mock must stub it too — otherwise the success path throws before the
+// download fires. A fixed name is fine here; these tests don't assert on it.
 const buildDraftXlsxBlob = vi.fn();
 vi.mock("@/lib/xlsx", () => ({
   buildDraftXlsxBlob: (...args: unknown[]) => buildDraftXlsxBlob(...args),
+  buildXlsxFilename: () => "tiers.xlsx",
 }));
 
 function renderApp() {
