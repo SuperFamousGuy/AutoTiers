@@ -18,7 +18,7 @@ from typing import Any
 # (te_premium_bonus, full_season_games, prior_year_ramp) mirror the
 # DEFAULT_* constants exported from web/src/components/SettingsPanel.tsx.
 DEFAULT_PROFILE_SETTINGS: dict[str, Any] = {
-    "scoring_format": "standard",
+    "scoring_format": "half_ppr",
     "league_size": 12,
     "draft_rounds": 15,
     "tier_count": 12,
