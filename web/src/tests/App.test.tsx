@@ -50,15 +50,17 @@ describe("App (integration)", () => {
   });
 
   it("defaults a first-run session to Half PPR scoring (#688)", async () => {
+    // First-run means no persisted state — clear anything (onboarding, theme)
+    // that other tests may have left in localStorage.
+    localStorage.clear();
     renderApp();
 
-    // Settings panel renders the scoring-format radio group.
+    // Wait directly on the scoring-format radios rather than an unrelated rule
+    // label, so the assertion isn't order-dependent or brittle to fixture changes.
     await waitFor(() => {
-      expect(screen.getByText("Target Share Premium")).toBeInTheDocument();
+      // Half PPR is the shipped first-run default, not Standard.
+      expect(screen.getByRole("radio", { name: /Half PPR/i })).toBeChecked();
     });
-
-    // Half PPR is the shipped first-run default, not Standard.
-    expect(screen.getByRole("radio", { name: /Half PPR/i })).toBeChecked();
     expect(screen.getByRole("radio", { name: /^Standard$/i })).not.toBeChecked();
   });
 
