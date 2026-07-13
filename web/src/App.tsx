@@ -335,7 +335,10 @@ export default function App() {
     setHistory((prev) => ({ ...prev, [activeProfileId]: trimmed }));
     try {
       const updated = await updateProfile(activeProfileId, newTip);
-      setProfiles(profiles.map((p) => (p.id === activeProfileId ? updated : p)));
+      // Functional updater: this runs after the PATCH await, so apply the swap
+      // to the latest profiles rather than the array captured at render time —
+      // a concurrent save/refresh/mutation must not be clobbered here (#694).
+      setProfiles((prev) => prev.map((p) => (p.id === activeProfileId ? updated : p)));
       // Confirm the (otherwise silent) revert so a mis-click next to the
       // ProfilePicker is at least visible and self-explanatory (#694).
       toast({ title: "Reverted to previous settings", variant: "success" });
@@ -354,7 +357,7 @@ export default function App() {
         variant: "error",
       });
     }
-  }, [activeProfileId, history, profiles, setProfiles, toast]);
+  }, [activeProfileId, history, setProfiles, toast]);
 
   const buildRequest = (): GenerateRequest => {
     const active = profiles.find((p) => p.id === activeProfileId);
