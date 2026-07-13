@@ -91,7 +91,9 @@ describe("LinkedLeagueChip", () => {
 
   it("does not emit an unhandled promise rejection when refresh fails", async () => {
     const unhandled = vi.fn();
-    process.on("unhandledRejection", unhandled);
+    // Runs under jsdom, so assert on the browser-style event the component
+    // must not trip, not Node's process-level `unhandledRejection`.
+    window.addEventListener("unhandledrejection", unhandled);
     try {
       const { refreshLink } = await import("@/api/linkedLeague");
       (refreshLink as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new ApiError(500, "boom"));
@@ -103,7 +105,7 @@ describe("LinkedLeagueChip", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(unhandled).not.toHaveBeenCalled();
     } finally {
-      process.off("unhandledRejection", unhandled);
+      window.removeEventListener("unhandledrejection", unhandled);
     }
   });
 

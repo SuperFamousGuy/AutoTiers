@@ -28,14 +28,23 @@ export function LinkedLeagueChip({ profileId, provider, leagueName, onRefreshed 
     setError(null);
     setBusy(true);
     try {
-      await refreshLink(profileId);
-      await onRefreshed();
-    } catch (e) {
-      setError(
-        e instanceof ApiError
-          ? extractApiErrorMessage(e.message)
-          : "Refresh failed. Try again.",
-      );
+      try {
+        await refreshLink(profileId);
+      } catch (e) {
+        setError(
+          e instanceof ApiError
+            ? extractApiErrorMessage(e.message)
+            : "Refresh failed. Try again.",
+        );
+        return;
+      }
+      // The refresh landed server-side; a refetch failure is a distinct,
+      // non-retryable-as-a-refresh condition, so give it its own message.
+      try {
+        await onRefreshed();
+      } catch {
+        setError("Refreshed, but the view couldn't update. Reload to see the latest.");
+      }
     } finally {
       setBusy(false);
     }
