@@ -293,6 +293,71 @@ async def test_post_espn_rejects_espn_s2_without_swid_with_league_id(async_clien
 
 
 @pytest.mark.asyncio
+async def test_post_espn_rejects_league_id_without_season(async_client, test_db):
+    """A league_id with no season can't be fetched. Rather than silently fall
+    through to the pre-link branch and discard the selection, return 400 and
+    persist nothing."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    r = await async_client.post(
+        f"/api/profiles/{p.id}/link/espn",
+        json={"league_id": "123"},
+    )
+    assert r.status_code == 400
+    assert r.json()["detail"] == "A season is required when linking an ESPN league."
+    from sqlalchemy import select as sql_select
+    rows = (await test_db.scalars(sql_select(LinkedLeague))).all()
+    assert rows == [], "no row should be persisted on the season-required 400 path"
+
+
+@pytest.mark.asyncio
+async def test_post_espn_league_id_only_followup_does_not_null_existing_league(
+    async_client, test_db
+):
+    """Regression: after a league is linked, a malformed league_id-only (no
+    season) follow-up must be rejected before the existing row's league_id is
+    nulled — the caller's prior selection survives."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    with respx.mock() as router:
+        url = (
+            "https://fantasy.espn.com/apis/v3/games/ffl/seasons/2026"
+            "/segments/0/leagues/12345"
+        )
+        router.get(url__startswith=url).mock(
+            return_value=Response(200, json={
+                "id": 12345,
+                "settings": {
+                    "name": "Public", "size": 10,
+                    "scoringSettings": {"scoringItems": [{"statId": 53, "points": 1.0}]},
+                },
+                "teams": [], "players": [],
+                "draftDetail": {"drafted": False, "picks": []},
+            }),
+        )
+        r = await async_client.post(
+            f"/api/profiles/{p.id}/link/espn",
+            json={"league_id": "12345", "season": 2026},
+        )
+    assert r.status_code == 200, r.text
+    assert r.json()["linked_league"]["league_id"] == "12345"
+
+    # Malformed follow-up: league_id but no season.
+    r2 = await async_client.post(
+        f"/api/profiles/{p.id}/link/espn",
+        json={"league_id": "99999"},
+    )
+    assert r2.status_code == 400
+    assert r2.json()["detail"] == "A season is required when linking an ESPN league."
+
+    # The previously-linked league must be untouched.
+    from sqlalchemy import select as sql_select
+    rows = (await test_db.scalars(sql_select(LinkedLeague))).all()
+    assert len(rows) == 1
+    assert rows[0].league_id == "12345"
+
+
+@pytest.mark.asyncio
 async def test_post_espn_pre_link_stores_cookies_with_no_league(async_client, test_db):
     """ESPN body with cookies but no league_id → store cookies, skip league fetch."""
     u, p = await _make_user_and_profile(test_db)
