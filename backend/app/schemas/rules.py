@@ -1,8 +1,15 @@
 from typing import Literal
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from app.engine.rules import EffectType
 
 VALID_OPERATORS = Literal[">", ">=", "<", "<=", "==", "!="]
+
+# Built-in rule names are short slugs (e.g. "Projection Unavailable"); a per-
+# position override only ever references one of them. /api/generate is
+# unauthenticated, so bound the name length to reject oversized strings during
+# validation rather than `normalize_name`-ing them in the engine (see the size
+# bounds in app/schemas/generate.py).
+_MAX_RULE_NAME_LEN = 100
 
 
 class RuleConditionSchema(BaseModel):
@@ -59,7 +66,7 @@ class RuleOverrideSchema(BaseModel):
     keyed by position in the GenerateRequest.rules dict. The backend applies
     these overrides on top of BUILTIN_RULES for each player's position.
     """
-    name: str
+    name: str = Field(max_length=_MAX_RULE_NAME_LEN)
     enabled: bool
     weight: float = 1.0
 

@@ -4,6 +4,22 @@ from app.engine.scoring import ScoringFormat, LeagueType, PriorYearRamp, FULL_SE
 from app.engine.rules import EffectType
 from app.schemas.rules import RuleOverrideSchema
 
+# /api/generate is unauthenticated (`current_user` is Optional), so an anonymous
+# caller can POST arbitrarily large keepers/league_adp/rules payloads. Every
+# entry is fully parsed, dict-comprehended, and `normalize_name`d before any real
+# work, so an unbounded payload is a DoS vector — the same reasoning that capped
+# settings_json/rules_json at 64KB in #673. Bound each collection here so an
+# oversized request is rejected with a 422 during validation, before it reaches
+# the engine. Limits are far above any legitimate request: real league keeper
+# lists are a handful of names, league_adp covers a single draftable pool (a few
+# hundred players at most), and rules only span the 6 real positions.
+_MAX_KEEPERS = 200
+_MAX_KEEPER_NAME_LEN = 100
+_MAX_LEAGUE_ADP_ENTRIES = 1000
+_MAX_LEAGUE_ADP_KEY_LEN = 100
+_MAX_RULE_POSITIONS = 10
+_MAX_RULE_OVERRIDES_PER_POSITION = 200
+
 
 class GenerateRequest(BaseModel):
     scoring_format: ScoringFormat
@@ -81,6 +97,59 @@ class GenerateRequest(BaseModel):
         if abs(total - 1.0) > 0.01:
             raise ValueError(f"Score weights must sum to 1.0, got {total:.2f}")
         return weight_consensus
+
+    @field_validator("keepers")
+    @classmethod
+    def bound_keepers(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+        if v is None:
+            return v
+        if len(v) > _MAX_KEEPERS:
+            raise ValueError(
+                f"keepers has too many entries ({len(v)}); maximum is {_MAX_KEEPERS}."
+            )
+        for name in v:
+            if len(name) > _MAX_KEEPER_NAME_LEN:
+                raise ValueError(
+                    f"keeper name is too long ({len(name)} chars); "
+                    f"maximum is {_MAX_KEEPER_NAME_LEN}."
+                )
+        return v
+
+    @field_validator("league_adp")
+    @classmethod
+    def bound_league_adp(cls, v: Optional[dict[str, float]]) -> Optional[dict[str, float]]:
+        if v is None:
+            return v
+        if len(v) > _MAX_LEAGUE_ADP_ENTRIES:
+            raise ValueError(
+                f"league_adp has too many entries ({len(v)}); "
+                f"maximum is {_MAX_LEAGUE_ADP_ENTRIES}."
+            )
+        for key in v:
+            if len(key) > _MAX_LEAGUE_ADP_KEY_LEN:
+                raise ValueError(
+                    f"league_adp key is too long ({len(key)} chars); "
+                    f"maximum is {_MAX_LEAGUE_ADP_KEY_LEN}."
+                )
+        return v
+
+    @field_validator("rules")
+    @classmethod
+    def bound_rules(
+        cls, v: dict[str, list[RuleOverrideSchema]]
+    ) -> dict[str, list[RuleOverrideSchema]]:
+        if len(v) > _MAX_RULE_POSITIONS:
+            raise ValueError(
+                f"rules has too many positions ({len(v)}); "
+                f"maximum is {_MAX_RULE_POSITIONS}."
+            )
+        for position, overrides in v.items():
+            if len(overrides) > _MAX_RULE_OVERRIDES_PER_POSITION:
+                raise ValueError(
+                    f"rules['{position}'] has too many overrides ({len(overrides)}); "
+                    f"maximum is {_MAX_RULE_OVERRIDES_PER_POSITION}."
+                )
+        return v
 
 
 class RuleApplicationOut(BaseModel):
