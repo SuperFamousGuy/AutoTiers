@@ -54,12 +54,18 @@ class NflDataFetcher:
                 continue
 
             # Build gsis_id → snap_pct map from snap_df for this season.
+            # ``snap_available`` is True only when the groupby actually produced a
+            # season map this run. When the source failed entirely (empty df, or a
+            # schema KeyError) we leave previously-persisted snap_pct untouched
+            # rather than wipe it on a failed fetch.
             snap_by_gsis: dict[str, float] = {}
+            snap_available = False
             if not snap_df.empty:
                 try:
                     # snap_df has multiple rows per player (one per game). Aggregate to season pct.
                     aggregated = snap_df.groupby("gsis_id")["offense_pct"].mean()
                     snap_by_gsis = aggregated.to_dict()
+                    snap_available = True
                 except KeyError as e:
                     # Real nfl_data_py snap_counts uses pfr_player_id, not gsis_id.
                     # Joining via pfr_player_id → gsis_id requires import_ids() — deferred.
@@ -72,7 +78,11 @@ class NflDataFetcher:
             # PBP-derived: red_zone_looks and expected_tds per gsis_id for this season.
             rz_looks: dict[str, int] = {}
             xtds: dict[str, float] = {}
-            if not pbp_df.empty:
+            # ``pbp_available`` distinguishes "player had zero red-zone plays this
+            # run" (write 0) from "the PBP source failed for the season" (leave
+            # existing values untouched — don't wipe on a failed fetch).
+            pbp_available = not pbp_df.empty
+            if pbp_available:
                 # Filter to actual offensive plays — exclude no_plays (penalties) and other non-scrimmage rows.
                 valid_plays = pbp_df[pbp_df["play_type"].isin(["run", "pass"])]
                 rz = valid_plays[valid_plays["yardline_100"] <= 20]
@@ -135,18 +145,20 @@ class NflDataFetcher:
                     + int(row.get("receiving_2pt_conversions") or 0)
                 )
 
-                if gsis in snap_by_gsis:
-                    if pd.isna(snap_by_gsis[gsis]):
-                        # mean() over all-NaN offense_pct rows yields NaN; clear
-                        # any previously persisted value rather than leave a
-                        # stale (possibly NaN) snap_pct on an existing row.
-                        stat.snap_pct = None
-                    else:
-                        stat.snap_pct = float(snap_by_gsis[gsis])
-                if gsis in rz_looks:
-                    stat.red_zone_looks = rz_looks[gsis]
-                if gsis in xtds:
-                    stat.expected_tds = round(xtds[gsis], 3)
+                if snap_available:
+                    # The source produced a season map this run, so write for every
+                    # player row (like the basic stat fields above). A player absent
+                    # from the map genuinely has no snap rows this pull — resolve to
+                    # None — so a stale prior snap_pct can't survive. An all-NaN mean
+                    # also resolves to None (regression case from #631).
+                    raw = snap_by_gsis.get(gsis)
+                    stat.snap_pct = None if raw is None or pd.isna(raw) else float(raw)
+                if pbp_available:
+                    # Likewise for PBP-derived fields: a player absent from this run's
+                    # red-zone plays genuinely has zero looks / zero expected TDs, so
+                    # write the zero rather than leave a stale (often larger) value.
+                    stat.red_zone_looks = rz_looks.get(gsis, 0)
+                    stat.expected_tds = round(xtds.get(gsis, 0.0), 3)
 
                 total_upserted += 1
 
