@@ -10,6 +10,7 @@ import {
 } from "@/api/linkedLeague";
 import { yahooAuthorizeUrl } from "@/api/auth";
 import { ApiError } from "@/api/client";
+import { extractApiErrorMessage } from "@/lib/errors";
 import type { Profile, User } from "@/api/types";
 
 interface Props {
@@ -36,7 +37,7 @@ function YahooConnectedState({ linked, profileId, onRefresh }: ConnectedStatePro
       await refreshLink(profileId);
       await onRefresh();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Refresh failed.");
+      setError(e instanceof ApiError ? extractApiErrorMessage(e.message) || "Refresh failed." : "Refresh failed.");
     } finally {
       setBusy(false);
     }
@@ -49,7 +50,7 @@ function YahooConnectedState({ linked, profileId, onRefresh }: ConnectedStatePro
       await disconnectLink(profileId);
       await onRefresh();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Disconnect failed.");
+      setError(e instanceof ApiError ? extractApiErrorMessage(e.message) || "Disconnect failed." : "Disconnect failed.");
     } finally {
       setBusy(false);
     }
@@ -111,7 +112,13 @@ export function YahooConnectForm({ profile, user, onLinked, onRefresh }: Props) 
         setLeagues(data);
         if (data.length > 0) setChosenKey(data[0].league_key);
       })
-      .catch((e) => setError(e instanceof ApiError ? e.message : "Couldn't reach Yahoo. Please try again."))
+      .catch((e) =>
+        setError(
+          e instanceof ApiError
+            ? extractApiErrorMessage(e.message) || "Couldn't reach Yahoo. Please try again."
+            : "Couldn't reach Yahoo. Please try again.",
+        ),
+      )
       .finally(() => setLoading(false));
   }, [profile.id, showPicker]);
 
@@ -172,7 +179,11 @@ export function YahooConnectForm({ profile, user, onLinked, onRefresh }: Props) 
       });
       onLinked(result);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Connect failed. Please try again.");
+      setError(
+        e instanceof ApiError
+          ? extractApiErrorMessage(e.message) || "Connect failed. Please try again."
+          : "Connect failed. Please try again.",
+      );
     } finally {
       setBusy(false);
     }

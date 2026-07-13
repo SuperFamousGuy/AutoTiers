@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { EspnConnectForm } from "@/components/EspnConnectForm";
+import { ApiError } from "@/api/client";
 import type { Profile } from "@/api/types";
 
 vi.mock("@/api/linkedLeague", () => ({
@@ -116,6 +117,28 @@ describe("EspnConnectForm", () => {
     })));
   });
 
+  it("unwraps a raw JSON detail body from an ApiError instead of showing the blob", async () => {
+    const { connectEspn } = await import("@/api/linkedLeague");
+    // `apiFetch` stores the raw response text as ApiError.message — here the
+    // FastAPI JSON envelope for an EspnAuthRequired failure on a private league.
+    (connectEspn as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ApiError(
+        401,
+        '{"detail":"This ESPN league is private. Add your SWID and espn_s2 cookies."}',
+      ),
+    );
+    render(<EspnConnectForm profile={baseProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    await u.type(screen.getByLabelText(/league id/i), "12345");
+    await u.click(screen.getByRole("button", { name: /^connect$/i }));
+    await waitFor(() =>
+      expect(
+        screen.getByText("This ESPN league is private. Add your SWID and espn_s2 cookies."),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/^\{"detail"/)).not.toBeInTheDocument();
+  });
+
   // --- Enter-to-submit (issue #641) ---
 
   it("submits a public league on Enter from the League ID field", async () => {
@@ -218,6 +241,23 @@ describe("EspnConnectForm", () => {
     await waitFor(() => expect(onRefresh).toHaveBeenCalled());
   });
 
+  it("Refresh unwraps a raw JSON detail body from an ApiError", async () => {
+    const { refreshLink } = await import("@/api/linkedLeague");
+    (refreshLink as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ApiError(401, '{"detail":"Your ESPN cookies expired. Re-enter SWID and espn_s2."}'),
+    );
+    render(
+      <EspnConnectForm profile={espnLinkedProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />,
+    );
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /^refresh$/i }));
+    await waitFor(() =>
+      expect(
+        screen.getByText("Your ESPN cookies expired. Re-enter SWID and espn_s2."),
+      ).toBeInTheDocument(),
+    );
+  });
+
   it("Disconnect calls disconnectLink then onRefresh", async () => {
     const { disconnectLink } = await import("@/api/linkedLeague");
     (disconnectLink as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
@@ -229,5 +269,20 @@ describe("EspnConnectForm", () => {
     await u.click(screen.getByRole("button", { name: /disconnect espn/i }));
     await waitFor(() => expect(disconnectLink).toHaveBeenCalledWith("p1"));
     await waitFor(() => expect(onRefresh).toHaveBeenCalled());
+  });
+
+  it("Disconnect unwraps a raw JSON detail body from an ApiError", async () => {
+    const { disconnectLink } = await import("@/api/linkedLeague");
+    (disconnectLink as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ApiError(409, '{"detail":"Couldn\'t unlink right now. Try again shortly."}'),
+    );
+    render(
+      <EspnConnectForm profile={espnLinkedProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />,
+    );
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /disconnect espn/i }));
+    await waitFor(() =>
+      expect(screen.getByText("Couldn't unlink right now. Try again shortly.")).toBeInTheDocument(),
+    );
   });
 });
