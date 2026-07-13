@@ -381,10 +381,19 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
     current_year = datetime.utcnow().year
     bad_offense_teams = await _compute_bad_offense_teams(db, current_year)
 
+    # Only the last two seasons are ever read downstream: ``current_year - 1``
+    # (via ``_get_stat``, feeding ``prior_actual``/xFP) and ``current_year - 2``
+    # (the ``injured_two_years_ago`` lookup). ``NflDataFetcher`` retains up to
+    # three prior seasons and never deletes rows, so an unfiltered load would
+    # ship the untouched ``current_year - 3`` row into the snapshot + worker
+    # payload for every player on every request. Filter the stats collection at
+    # load time to just the consumed seasons (SQLAlchemy 2.0 relationship loader
+    # criteria) so that dead season never leaves Postgres (#695).
+    stats_cutoff = current_year - 2
     result = await db.execute(
         select(Player)
         .options(
-            selectinload(Player.stats),
+            selectinload(Player.stats.and_(PlayerStat.season >= stats_cutoff)),
             selectinload(Player.projections),
             selectinload(Player.adp_entries),
         )
