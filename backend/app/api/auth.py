@@ -817,9 +817,17 @@ async def unlink_yahoo(
     user: User = require_user,
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    if user.yahoo_subject is None:
-        return
-    if not _has_other_method(user, "yahoo_subject"):
+    has_subject = user.yahoo_subject is not None
+    has_tokens = (
+        user.yahoo_access_token is not None
+        or user.yahoo_refresh_token is not None
+    )
+    if not has_subject and not has_tokens:
+        return  # idempotent — nothing to unlink
+    # A live sign-in subject may only be removed if another method remains.
+    # Legacy null-subject rows (subject already None, tokens still populated
+    # from the old subject-null bug) skip this guard and just get revoked.
+    if has_subject and not _has_other_method(user, "yahoo_subject"):
         raise HTTPException(status_code=400, detail="Cannot unlink last sign-in method")
     user.yahoo_subject = None
     # Revoke the Fantasy OAuth grant too. The linked-league endpoints gate on
