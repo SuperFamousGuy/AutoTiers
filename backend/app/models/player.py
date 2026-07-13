@@ -51,5 +51,8 @@ class PlayerStat(Base):
     red_zone_looks: Mapped[Optional[int]] = mapped_column(Integer)
     actual_tds: Mapped[Optional[int]] = mapped_column(Integer)
     expected_tds: Mapped[Optional[float]] = mapped_column(Float)
+    # Turnovers / 2-point conversions (#663). Nullable; treated as 0 when absent.
+    fumbles_lost: Mapped[Optional[int]] = mapped_column(Integer)
+    two_pt_conversions: Mapped[Optional[int]] = mapped_column(Integer)
 
     player: Mapped["Player"] = relationship(back_populates="stats")

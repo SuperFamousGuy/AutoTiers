@@ -2,6 +2,7 @@ import pytest
 from app.engine.scoring import (
     ScoringFormat, LeagueType, LeagueSettings, PlayerStats,
     calculate_fantasy_points, blend_scores, _games_scale, PriorYearRamp,
+    _score_turnovers_and_conversions,
 )
 
 
@@ -77,6 +78,62 @@ def test_interception_penalty():
     stats = _stats(interceptions=2)
     pts = calculate_fantasy_points(stats, _settings(), position="QB")
     assert pts == pytest.approx(-4.0)
+
+
+# --- Fumbles lost & 2-point conversions (#663) -----------------------------
+
+def test_fumbles_lost_penalized_two_points_each():
+    """ESPN/NFL.com/FantasyPros consensus default: -2 per fumble lost."""
+    stats = _stats(rush_att=20, rush_yards=100.0, rush_tds=1, fumbles_lost=2)
+    pts = calculate_fantasy_points(stats, _settings(scoring_format=ScoringFormat.STANDARD), position="RB")
+    # 100*0.1 + 1*6 + 2*(-2) = 10 + 6 - 4 = 12
+    assert pts == pytest.approx(12.0)
+
+
+def test_two_point_conversions_award_two_points_each():
+    """Consensus default: +2 per 2-pt conversion, any play type, any position."""
+    stats = _stats(receptions=5, rec_yards=40.0, two_pt_conversions=1)
+    pts = calculate_fantasy_points(stats, _settings(scoring_format=ScoringFormat.PPR), position="WR")
+    # 5*1 + 40*0.1 + 1*2 = 5 + 4 + 2 = 11
+    assert pts == pytest.approx(11.0)
+
+
+def test_fumbles_and_two_pt_combined_matches_espn_defaults():
+    """A QB who fumbles once and passes for a 2-pt conversion: -2 + 2 net zero swing."""
+    stats = _stats(pass_yards=300.0, pass_tds=2, fumbles_lost=1, two_pt_conversions=1)
+    pts = calculate_fantasy_points(stats, _settings(qb_td_points=4.0), position="QB")
+    # 300*0.04 + 2*4 + 1*(-2) + 1*2 = 12 + 8 - 2 + 2 = 20
+    assert pts == pytest.approx(20.0)
+
+
+def test_fumbles_and_two_pt_default_to_zero_are_no_op():
+    """Backward-compat: with both counts defaulting to 0, output is unchanged."""
+    stats = _stats(receptions=8, rec_yards=100.0, rec_tds=1)
+    with_defaults = calculate_fantasy_points(stats, _settings(), position="WR")
+    explicit_zero = calculate_fantasy_points(
+        _stats(receptions=8, rec_yards=100.0, rec_tds=1, fumbles_lost=0, two_pt_conversions=0),
+        _settings(), position="WR",
+    )
+    assert with_defaults == pytest.approx(24.0)
+    assert with_defaults == explicit_zero
+
+
+def test_a_fumbler_scores_less_than_an_otherwise_identical_player():
+    """Known-answer contrast: the only difference is the fumble → exactly -2."""
+    clean = _stats(rush_att=15, rush_yards=90.0, rush_tds=1)
+    fumbler = _stats(rush_att=15, rush_yards=90.0, rush_tds=1, fumbles_lost=1)
+    settings = _settings(scoring_format=ScoringFormat.STANDARD)
+    delta = calculate_fantasy_points(fumbler, settings, position="RB") - \
+        calculate_fantasy_points(clean, settings, position="RB")
+    assert delta == pytest.approx(-2.0)
+
+
+def test_turnover_settings_are_configurable():
+    """The -2/+2 defaults are overridable via LeagueSettings, not hardcoded."""
+    stats = _stats(fumbles_lost=1, two_pt_conversions=1)
+    settings = _settings(fumble_lost_points=-1.0, two_pt_points=3.0)
+    assert _score_turnovers_and_conversions(stats, settings) == pytest.approx(2.0)
+    assert calculate_fantasy_points(stats, settings) == pytest.approx(2.0)
 
 
 def test_blend_all_sources():

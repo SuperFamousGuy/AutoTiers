@@ -120,6 +120,20 @@ class NflDataFetcher:
                 stat.interceptions = int(row.get("interceptions") or 0)
                 stat.games_played = int(row.get("games") or 0)
                 stat.actual_tds = stat.rec_tds + stat.rush_tds + stat.pass_tds
+                # Turnovers / 2-pt conversions (#663). nflverse splits each across
+                # play types (rushing/receiving/sack fumbles; passing/rushing/
+                # receiving 2-pt); sum them into the single per-player season count
+                # the scoring engine expects. Missing columns default to 0.
+                stat.fumbles_lost = (
+                    int(row.get("rushing_fumbles_lost") or 0)
+                    + int(row.get("receiving_fumbles_lost") or 0)
+                    + int(row.get("sack_fumbles_lost") or 0)
+                )
+                stat.two_pt_conversions = (
+                    int(row.get("passing_2pt_conversions") or 0)
+                    + int(row.get("rushing_2pt_conversions") or 0)
+                    + int(row.get("receiving_2pt_conversions") or 0)
+                )
 
                 if gsis in snap_by_gsis:
                     if pd.isna(snap_by_gsis[gsis]):
