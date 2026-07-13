@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { YahooConnectForm } from "@/components/YahooConnectForm";
 import * as linkedLeagueApi from "@/api/linkedLeague";
+import { ApiError } from "@/api/client";
 import type { Profile, User } from "@/api/types";
 
 const baseProfile: Profile = {
@@ -333,6 +334,48 @@ describe("YahooConnectForm", () => {
     await waitFor(() =>
       expect(screen.getByText("Connect failed. Please try again.")).toBeInTheDocument(),
     );
+  });
+
+  it("unwraps a raw JSON detail body from a connect ApiError instead of showing the blob", async () => {
+    vi.spyOn(linkedLeagueApi, "listYahooLeagues").mockResolvedValue([
+      { league_key: "423.l.1", name: "My League", season: 2024, num_teams: 12 },
+    ]);
+    // `apiFetch` stores the raw response text as ApiError.message — here the
+    // FastAPI JSON envelope for a YahooReauthRequired failure.
+    vi.spyOn(linkedLeagueApi, "connectYahoo").mockRejectedValue(
+      new ApiError(401, '{"detail":"Your Yahoo authorization expired. Reconnect Yahoo Fantasy."}'),
+    );
+
+    render(
+      <YahooConnectForm profile={baseProfile} user={baseUser} onLinked={vi.fn()} onRefresh={vi.fn()} />,
+    );
+
+    await waitFor(() => screen.getByText("My League (2024)"));
+    await userEvent.click(screen.getByRole("button", { name: /^connect$/i }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Your Yahoo authorization expired. Reconnect Yahoo Fantasy."),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/^\{"detail"/)).not.toBeInTheDocument();
+  });
+
+  it("unwraps a raw JSON detail body from a league-list ApiError instead of showing the blob", async () => {
+    vi.spyOn(linkedLeagueApi, "listYahooLeagues").mockRejectedValue(
+      new ApiError(401, '{"detail":"Your Yahoo authorization expired. Reconnect Yahoo Fantasy."}'),
+    );
+
+    render(
+      <YahooConnectForm profile={baseProfile} user={baseUser} onLinked={vi.fn()} onRefresh={vi.fn()} />,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Your Yahoo authorization expired. Reconnect Yahoo Fantasy."),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/^\{"detail"/)).not.toBeInTheDocument();
   });
 
   it("selecting a different league sends updated league_key on connect", async () => {

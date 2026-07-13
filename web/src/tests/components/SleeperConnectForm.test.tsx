@@ -86,6 +86,31 @@ describe("SleeperConnectForm", () => {
     }));
   });
 
+  it("unwraps a raw JSON detail body from a connect ApiError instead of showing the blob", async () => {
+    const { listSleeperLeagues, connectSleeper } = await import("@/api/linkedLeague");
+    const { ApiError } = await import("@/api/client");
+    (listSleeperLeagues as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([{ id: "L1", name: "Champs", season: 2026 }])
+      .mockResolvedValueOnce([]);
+    // `apiFetch` stores the raw response text as ApiError.message — here the
+    // FastAPI JSON envelope for a Sleeper provider error.
+    (connectSleeper as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ApiError(502, '{"detail":"Sleeper is unavailable right now. Try again shortly."}'),
+    );
+    render(<SleeperConnectForm profile={baseProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    await u.type(screen.getByLabelText(/sleeper username/i), "alice");
+    await u.click(screen.getByRole("button", { name: /^continue$/i }));
+    await waitFor(() => expect(screen.getByText(/champs/i)).toBeInTheDocument());
+    await u.click(screen.getByRole("button", { name: /^connect$/i }));
+    await waitFor(() =>
+      expect(
+        screen.getByText("Sleeper is unavailable right now. Try again shortly."),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/^\{"detail"/)).not.toBeInTheDocument();
+  });
+
   it("shows error when username not found", async () => {
     const { listSleeperLeagues } = await import("@/api/linkedLeague");
     const { ApiError } = await import("@/api/client");
@@ -125,6 +150,31 @@ describe("SleeperConnectForm", () => {
     await u.click(screen.getByRole("button", { name: /link without a league/i }));
     await waitFor(() => expect(connectSleeper).toHaveBeenCalledWith("p1", { username: "leagueless" }));
     await waitFor(() => expect(onLinked).toHaveBeenCalled());
+  });
+
+  it("'Link without a league' unwraps a raw JSON detail body on ApiError", async () => {
+    const { listSleeperLeagues, connectSleeper } = await import("@/api/linkedLeague");
+    const { ApiError } = await import("@/api/client");
+    (listSleeperLeagues as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    (connectSleeper as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ApiError(502, '{"detail":"Sleeper is unavailable right now. Try again shortly."}'),
+    );
+    render(<SleeperConnectForm profile={baseProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    await u.type(screen.getByLabelText(/sleeper username/i), "leagueless");
+    await u.click(screen.getByRole("button", { name: /^continue$/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/no sleeper leagues found/i)).toBeInTheDocument(),
+    );
+    await u.click(screen.getByRole("button", { name: /link without a league/i }));
+    await waitFor(() =>
+      expect(
+        screen.getByText("Sleeper is unavailable right now. Try again shortly."),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/^\{"detail"/)).not.toBeInTheDocument();
   });
 
   // --- Enter-to-submit (issue #641) ---
@@ -200,6 +250,24 @@ describe("SleeperConnectForm", () => {
     await waitFor(() => expect(onRefresh).toHaveBeenCalled());
   });
 
+  it("Refresh unwraps a raw JSON detail body from an ApiError", async () => {
+    const { refreshLink } = await import("@/api/linkedLeague");
+    const { ApiError } = await import("@/api/client");
+    (refreshLink as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ApiError(502, '{"detail":"Sleeper is unavailable right now. Try again shortly."}'),
+    );
+    render(
+      <SleeperConnectForm profile={sleeperLinkedProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />,
+    );
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /^refresh$/i }));
+    await waitFor(() =>
+      expect(
+        screen.getByText("Sleeper is unavailable right now. Try again shortly."),
+      ).toBeInTheDocument(),
+    );
+  });
+
   it("Disconnect calls disconnectLink then onRefresh", async () => {
     const { disconnectLink } = await import("@/api/linkedLeague");
     (disconnectLink as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
@@ -211,5 +279,21 @@ describe("SleeperConnectForm", () => {
     await u.click(screen.getByRole("button", { name: /disconnect sleeper/i }));
     await waitFor(() => expect(disconnectLink).toHaveBeenCalledWith("p1"));
     await waitFor(() => expect(onRefresh).toHaveBeenCalled());
+  });
+
+  it("Disconnect unwraps a raw JSON detail body from an ApiError", async () => {
+    const { disconnectLink } = await import("@/api/linkedLeague");
+    const { ApiError } = await import("@/api/client");
+    (disconnectLink as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ApiError(409, '{"detail":"Couldn\'t unlink right now. Try again shortly."}'),
+    );
+    render(
+      <SleeperConnectForm profile={sleeperLinkedProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />,
+    );
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /disconnect sleeper/i }));
+    await waitFor(() =>
+      expect(screen.getByText("Couldn't unlink right now. Try again shortly.")).toBeInTheDocument(),
+    );
   });
 });

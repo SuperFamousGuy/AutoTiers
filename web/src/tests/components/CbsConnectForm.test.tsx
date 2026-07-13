@@ -114,6 +114,29 @@ describe("CbsConnectForm", () => {
     ).toBeInTheDocument();
   });
 
+  it("unwraps a raw JSON detail body from an ApiError instead of showing the blob", async () => {
+    const { connectCbs } = await import("@/api/linkedLeague");
+    // `apiFetch` stores the raw response text as ApiError.message — here the
+    // FastAPI JSON envelope for a CBS auth failure.
+    (connectCbs as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ApiError(
+        400,
+        '{"detail":"CBS rejected your email or password — check both and try again."}',
+      ),
+    );
+    render(<CbsConnectForm profile={baseProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    await u.type(screen.getByLabelText(/cbs email/i), "fan@example.com");
+    await u.type(screen.getByLabelText(/cbs password/i), "wrong");
+    await u.type(screen.getByLabelText(/league id/i), "999999");
+    await u.click(screen.getByRole("button", { name: /^connect$/i }));
+
+    expect(
+      await screen.findByText("CBS rejected your email or password — check both and try again."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/^\{"detail"/)).not.toBeInTheDocument();
+  });
+
   it("falls back to a generic message when the rejected error is not an ApiError", async () => {
     const { connectCbs } = await import("@/api/linkedLeague");
     (connectCbs as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("network down"));
@@ -187,6 +210,19 @@ describe("CbsConnectForm", () => {
     await waitFor(() => expect(onRefresh).toHaveBeenCalled());
   });
 
+  it("Refresh unwraps a raw JSON detail body from an ApiError", async () => {
+    const { refreshLink } = await import("@/api/linkedLeague");
+    (refreshLink as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ApiError(400, '{"detail":"CBS refused the refresh. Reconnect your account."}'),
+    );
+    render(<CbsConnectForm profile={cbsLinkedProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /^refresh$/i }));
+    await waitFor(() =>
+      expect(screen.getByText("CBS refused the refresh. Reconnect your account.")).toBeInTheDocument(),
+    );
+  });
+
   it("Disconnect calls disconnectLink then onRefresh", async () => {
     const { disconnectLink } = await import("@/api/linkedLeague");
     (disconnectLink as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
@@ -196,6 +232,19 @@ describe("CbsConnectForm", () => {
     await u.click(screen.getByRole("button", { name: /disconnect cbs/i }));
     await waitFor(() => expect(disconnectLink).toHaveBeenCalledWith("p1"));
     await waitFor(() => expect(onRefresh).toHaveBeenCalled());
+  });
+
+  it("Disconnect unwraps a raw JSON detail body from an ApiError", async () => {
+    const { disconnectLink } = await import("@/api/linkedLeague");
+    (disconnectLink as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ApiError(409, '{"detail":"Couldn\'t unlink right now. Try again shortly."}'),
+    );
+    render(<CbsConnectForm profile={cbsLinkedProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /disconnect cbs/i }));
+    await waitFor(() =>
+      expect(screen.getByText("Couldn't unlink right now. Try again shortly.")).toBeInTheDocument(),
+    );
   });
 
   it("Refresh button is hidden when linked.league_id is not set", () => {

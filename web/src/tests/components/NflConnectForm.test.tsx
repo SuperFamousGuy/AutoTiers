@@ -93,6 +93,31 @@ describe("NflConnectForm", () => {
     );
   });
 
+  it("unwraps a raw JSON detail body from an ApiError instead of showing the blob", async () => {
+    const { connectNfl } = await import("@/api/linkedLeague");
+    // `apiFetch` stores the raw response text as ApiError.message — here the
+    // FastAPI JSON envelope for an NflLeagueNotFound 404.
+    (connectNfl as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ApiError(
+        404,
+        '{"detail":"NFL.com couldn\'t find league 12345 for 2026. Check the League ID and season."}',
+      ),
+    );
+    render(<NflConnectForm profile={baseProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    await u.type(screen.getByLabelText("League ID"), "12345");
+    await u.click(screen.getByRole("button", { name: /connect nfl/i }));
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "NFL.com couldn't find league 12345 for 2026. Check the League ID and season.",
+        ),
+      ).toBeInTheDocument(),
+    );
+    // The raw JSON envelope must never reach the user.
+    expect(screen.queryByText(/^\{"detail"/)).not.toBeInTheDocument();
+  });
+
   // --- Enter-to-submit (issue #641) ---
 
   it("submits on Enter from the League ID field (season pre-fills)", async () => {

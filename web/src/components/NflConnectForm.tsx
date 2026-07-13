@@ -7,6 +7,7 @@ import {
   type LinkedLeagueResponse,
 } from "@/api/linkedLeague";
 import { ApiError } from "@/api/client";
+import { extractApiErrorMessage } from "@/lib/errors";
 import { currentSeason } from "@/lib/season";
 import type { Profile } from "@/api/types";
 
@@ -33,7 +34,7 @@ function NflConnectedState({ linked, profileId, onRefresh }: ConnectedStateProps
       await refreshLink(profileId);
       await onRefresh();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Refresh failed.");
+      setError(e instanceof ApiError ? extractApiErrorMessage(e.message) || "Refresh failed." : "Refresh failed.");
     } finally {
       setBusy(false);
     }
@@ -46,7 +47,7 @@ function NflConnectedState({ linked, profileId, onRefresh }: ConnectedStateProps
       await disconnectLink(profileId);
       await onRefresh();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Disconnect failed.");
+      setError(e instanceof ApiError ? extractApiErrorMessage(e.message) || "Disconnect failed." : "Disconnect failed.");
     } finally {
       setBusy(false);
     }
@@ -115,7 +116,11 @@ export function NflConnectForm({ profile, onLinked, onRefresh }: Props) {
       });
       onLinked(result);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Connect failed. Please try again.");
+      setError(
+        e instanceof ApiError
+          ? extractApiErrorMessage(e.message) || "Connect failed. Please try again."
+          : "Connect failed. Please try again.",
+      );
     } finally {
       setBusy(false);
     }
