@@ -40,9 +40,10 @@ async def test_signup_rejects_short_password(async_client):
 # ---------------------------------------------------------------------------
 # Issue #692 — Bound password field lengths (Argon2 amplification guard)
 # ---------------------------------------------------------------------------
-# MAX_PASSWORD_LENGTH is 128. Anything longer must be rejected with 422 BEFORE
-# Starlette buffers/parses a huge body and before Argon2 preprocesses it — on
-# the unauthenticated signup/login paths this is a cheap CPU/memory DoS vector.
+# MAX_PASSWORD_LENGTH is 128. Anything longer must be rejected with 422 before
+# the auth handler runs and Argon2 preprocesses it — on the unauthenticated
+# signup/login paths an over-cap password is a cheap CPU DoS vector. (Starlette
+# still reads/JSON-parses the body; the cap only spares the hasher and handler.)
 
 
 @pytest.mark.asyncio

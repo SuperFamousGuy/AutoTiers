@@ -13,10 +13,11 @@ from app.schemas.profile import ProfileOut
 
 
 # Upper bound on any password field. Well above any real password, but low
-# enough that Starlette never buffers and Argon2 never preprocesses a
-# multi-megabyte string on the unauthenticated signup/login/reset paths — a
-# cheap CPU/memory amplification vector otherwise. Pydantic rejects anything
-# longer with a 422 before the hasher is ever reached.
+# enough that Argon2 never preprocesses a multi-megabyte string on the
+# unauthenticated signup/login/reset paths — a cheap CPU amplification vector
+# otherwise. Starlette still reads and JSON-parses the request body, but
+# Pydantic rejects anything longer with a 422 before the auth handler or the
+# hasher is ever reached.
 MAX_PASSWORD_LENGTH = 128
 
 
