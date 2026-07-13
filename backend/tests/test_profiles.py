@@ -36,6 +36,61 @@ async def test_create_profile_persists_and_returns(async_client):
     assert body["name"] == "PPR 12-team"
 
 
+def _oversized_settings() -> dict:
+    """A settings_json blob that serializes to well over the 64KB cap."""
+    return {"junk": "x" * (128 * 1024)}
+
+
+@pytest.mark.asyncio
+async def test_create_profile_rejects_oversized_settings_json(async_client):
+    await _signup(async_client)
+    r = await async_client.post("/api/profiles", json={
+        "name": "Huge",
+        "settings_json": _oversized_settings(),
+        "rules_json": {},
+    })
+    assert r.status_code == 422
+    assert "too large" in str(r.json()["detail"]).lower()
+    # Nothing was persisted.
+    listing = await async_client.get("/api/profiles")
+    assert listing.json()["profiles"] == []
+
+
+@pytest.mark.asyncio
+async def test_create_profile_rejects_oversized_rules_json(async_client):
+    await _signup(async_client)
+    r = await async_client.post("/api/profiles", json={
+        "name": "Huge rules",
+        "settings_json": {},
+        "rules_json": {"RB": [{"name": "x" * (128 * 1024), "enabled": True}]},
+    })
+    assert r.status_code == 422
+    assert "too large" in str(r.json()["detail"]).lower()
+    listing = await async_client.get("/api/profiles")
+    assert listing.json()["profiles"] == []
+
+
+@pytest.mark.asyncio
+async def test_patch_profile_rejects_oversized_settings_json(async_client):
+    await _signup(async_client)
+    create = await async_client.post("/api/profiles", json={
+        "name": "Original",
+        "settings_json": {"league_size": 10},
+        "rules_json": {},
+    })
+    assert create.status_code == 201
+    pid = create.json()["id"]
+
+    r = await async_client.patch(f"/api/profiles/{pid}", json={
+        "settings_json": _oversized_settings(),
+    })
+    assert r.status_code == 422
+    assert "too large" in str(r.json()["detail"]).lower()
+    # The stored row is unchanged — original settings intact.
+    listing = await async_client.get("/api/profiles")
+    assert listing.json()["profiles"][0]["settings_json"] == {"league_size": 10}
+
+
 @pytest.mark.asyncio
 async def test_create_profile_rejects_whitespace_only_name(async_client):
     await _signup(async_client)
