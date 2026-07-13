@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { LinkedLeagueChip } from "@/components/LinkedLeagueChip";
+import { ApiError } from "@/api/client";
 
 vi.mock("@/api/linkedLeague", () => ({
   refreshLink: vi.fn(),
@@ -44,5 +45,83 @@ describe("LinkedLeagueChip", () => {
   it("renders 'Yahoo' when provider is yahoo", () => {
     render(<LinkedLeagueChip profileId="p1" provider="yahoo" leagueName="Yahoo Champs" onRefreshed={vi.fn()} />);
     expect(screen.getByText(/auto-detected from yahoo/i)).toBeInTheDocument();
+  });
+
+  // --- error handling (issue #691) ---
+
+  it("surfaces the backend's message via a role=alert when refresh fails with an ApiError", async () => {
+    const { refreshLink } = await import("@/api/linkedLeague");
+    (refreshLink as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ApiError(401, "Your Sleeper session expired — reconnect the account."),
+    );
+    const onRefreshed = vi.fn();
+    render(<LinkedLeagueChip profileId="p1" provider="sleeper" leagueName="PPR Champs" onRefreshed={onRefreshed} />);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /refresh/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Your Sleeper session expired — reconnect the account.");
+    // Happy-path callback never fires on failure.
+    expect(onRefreshed).not.toHaveBeenCalled();
+    // Button returns to an enabled, non-busy state so the user can retry.
+    expect(screen.getByRole("button", { name: /refresh/i })).toBeEnabled();
+  });
+
+  it("unwraps FastAPI's JSON detail envelope when the ApiError body is structured", async () => {
+    const { refreshLink } = await import("@/api/linkedLeague");
+    (refreshLink as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ApiError(500, JSON.stringify({ detail: "Upstream provider unavailable." })),
+    );
+    render(<LinkedLeagueChip profileId="p1" provider="espn" leagueName="ESPN Champs" onRefreshed={vi.fn()} />);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /refresh/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Upstream provider unavailable.");
+  });
+
+  it("falls back to a generic message when the rejected error is not an ApiError", async () => {
+    const { refreshLink } = await import("@/api/linkedLeague");
+    (refreshLink as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("network down"));
+    render(<LinkedLeagueChip profileId="p1" provider="yahoo" leagueName="Yahoo Champs" onRefreshed={vi.fn()} />);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /refresh/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/refresh failed\. try again\./i);
+  });
+
+  it("does not emit an unhandled promise rejection when refresh fails", async () => {
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      const { refreshLink } = await import("@/api/linkedLeague");
+      (refreshLink as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new ApiError(500, "boom"));
+      render(<LinkedLeagueChip profileId="p1" provider="sleeper" leagueName="PPR Champs" onRefreshed={vi.fn()} />);
+      const u = userEvent.setup();
+      await u.click(screen.getByRole("button", { name: /refresh/i }));
+      await screen.findByRole("alert");
+      // Give any stray microtask a tick to surface as an unhandled rejection.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
+  });
+
+  it("clears a prior error and calls onRefreshed on a subsequent successful refresh", async () => {
+    const { refreshLink } = await import("@/api/linkedLeague");
+    const mockRefresh = refreshLink as ReturnType<typeof vi.fn>;
+    mockRefresh.mockRejectedValueOnce(new ApiError(500, "boom"));
+    const onRefreshed = vi.fn().mockResolvedValue(undefined);
+    render(<LinkedLeagueChip profileId="p1" provider="sleeper" leagueName="PPR Champs" onRefreshed={onRefreshed} />);
+    const u = userEvent.setup();
+
+    await u.click(screen.getByRole("button", { name: /refresh/i }));
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+
+    mockRefresh.mockResolvedValueOnce({});
+    await u.click(screen.getByRole("button", { name: /refresh/i }));
+
+    await waitFor(() => expect(onRefreshed).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
   });
 });
