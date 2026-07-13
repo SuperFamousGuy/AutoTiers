@@ -1,6 +1,6 @@
 import pytest
 from sqlalchemy import select
-from app.models import User
+from app.models import User, Profile
 from app.auth.hashing import hash_password
 
 
@@ -51,13 +51,19 @@ async def test_unlink_yahoo_success_when_other_provider_remains(async_client, te
 
 @pytest.mark.asyncio
 async def test_unlink_yahoo_clears_fantasy_tokens(async_client, test_db):
-    """Normal state (#507): subject + tokens all cleared in one commit."""
+    """Normal state (#507): subject + tokens all cleared in one commit.
+
+    Disconnect must revoke the Fantasy OAuth grant, not just the identity.
+    The linked-league endpoints gate on yahoo_access_token/yahoo_refresh_token,
+    never on yahoo_subject, so leaving the tokens live would let Fantasy sync
+    survive a "Disconnect" (issue #500).
+    """
     u = User(
         email="u@example.com",
         password_hash=hash_password("password-long-enough"),
         yahoo_subject="y-sub",
-        yahoo_access_token="enc-access",
-        yahoo_refresh_token="enc-refresh",
+        yahoo_access_token="enc-access-token",
+        yahoo_refresh_token="enc-refresh-token",
     )
     test_db.add(u)
     await test_db.commit()
@@ -109,6 +115,34 @@ async def test_unlink_yahoo_noop_when_nothing_linked(async_client, test_db):
 
     r = await async_client.delete("/api/auth/yahoo/link")
     assert r.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_yahoo_leagues_returns_not_connected_after_unlink(async_client, test_db):
+    """After unlink, a Yahoo Fantasy fetch hits the existing 400 'not connected'
+    path rather than succeeding on stale tokens (issue #500)."""
+    u = User(
+        email="u@example.com",
+        password_hash=hash_password("password-long-enough"),
+        yahoo_subject="y-sub",
+        yahoo_access_token="enc-access-token",
+        yahoo_refresh_token="enc-refresh-token",
+    )
+    test_db.add(u)
+    await test_db.commit()
+    await test_db.refresh(u)
+    p = Profile(user_id=u.id, name="My", settings_json={}, rules_json={})
+    test_db.add(p)
+    await test_db.commit()
+    await test_db.refresh(p)
+    await _login(async_client)
+
+    r = await async_client.delete("/api/auth/yahoo/link")
+    assert r.status_code == 204
+
+    r = await async_client.get(f"/api/profiles/{p.id}/link/yahoo/leagues")
+    assert r.status_code == 400
+    assert "not connected" in r.json()["detail"].lower()
 
 
 @pytest.mark.asyncio

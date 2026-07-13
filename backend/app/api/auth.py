@@ -830,6 +830,9 @@ async def unlink_yahoo(
     if has_subject and not _has_other_method(user, "yahoo_subject"):
         raise HTTPException(status_code=400, detail="Cannot unlink last sign-in method")
     user.yahoo_subject = None
+    # Revoke the Fantasy OAuth grant too. The linked-league endpoints gate on
+    # yahoo_access_token/yahoo_refresh_token (not yahoo_subject), so leaving these
+    # live would let Fantasy sync survive a "Disconnect" (issue #500).
     user.yahoo_access_token = None
     user.yahoo_refresh_token = None
     await db.commit()

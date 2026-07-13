@@ -80,7 +80,7 @@ async def _get_players_dict(client: httpx.AsyncClient) -> dict:
 
 
 async def list_user_leagues(username: str, season: int) -> list[LeagueSummary]:
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
         resp = await client.get(f"{BASE_URL}/v1/user/{username}")
         if resp.status_code == 404:
             raise SleeperUserNotFound(f"Sleeper user '{username}' not found")
@@ -96,7 +96,7 @@ async def list_user_leagues(username: str, season: int) -> list[LeagueSummary]:
 
 
 async def fetch_league(league_id: str) -> LeagueData:
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
         league = await _get_json(client, f"/v1/league/{league_id}")
         rosters = await _get_json(client, f"/v1/league/{league_id}/rosters")
         players_dict = await _get_players_dict(client)

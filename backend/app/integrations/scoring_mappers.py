@@ -68,8 +68,38 @@ def yahoo_to_settings(raw_scoring: dict, league_size: int) -> dict:
 
     raw_scoring is the value of fantasy_content.league[1].settings.stat_modifiers.stats
     i.e. a dict with key "stat" containing a list of {"stat_id": str, "value": str}.
+
+    Defensive like cbs_to_settings: Yahoo's XML→JSON conversion collapses a
+    single-stat league's "stat" from a list into a bare dict, and individual
+    entries can omit "stat_id" or carry a non-numeric "value". Any of those
+    shapes degrade to the scoring defaults below instead of raising a raw 500 —
+    a malformed provider payload must never escape as an uncaught error.
     """
-    stats = {item["stat_id"]: float(item.get("value") or 0) for item in raw_scoring.get("stat", [])}
+    # Upstream .get(...) chains can hand us None (or any non-dict) when the
+    # provider payload is malformed — normalize to {} so this never raises.
+    if not isinstance(raw_scoring, dict):
+        raw_scoring = {}
+    raw_stat = raw_scoring.get("stat", [])
+    # A single-stat league arrives as a bare dict, not a list — wrap it so the
+    # loop below sees one item. Anything that isn't a list/dict (e.g. None) has
+    # no stats to read, so treat it as empty.
+    if isinstance(raw_stat, dict):
+        raw_stat = [raw_stat]
+    elif not isinstance(raw_stat, list):
+        raw_stat = []
+
+    stats: dict[str, float] = {}
+    for item in raw_stat:
+        if not isinstance(item, dict):
+            continue
+        stat_id = item.get("stat_id")
+        if stat_id is None:
+            continue
+        try:
+            stats[stat_id] = float(item.get("value") or 0)
+        except (TypeError, ValueError):
+            continue
+
     rec = stats.get(_YAHOO_RECEPTIONS, 0.0)
     pass_td = stats.get(_YAHOO_PASSING_TD, 4.0)
     return {

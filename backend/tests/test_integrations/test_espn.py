@@ -71,15 +71,45 @@ async def test_fetch_private_league_without_cookies_raises_auth_required():
 
 
 @pytest.mark.asyncio
-async def test_fetch_redirect_treated_as_auth_required():
-    """ESPN redirects to a login page (3xx) for private leagues. Treat that the
-    same as 401/403 so the user gets the 'paste your cookies' hint."""
+async def test_fetch_redirect_to_login_treated_as_auth_required():
+    """ESPN bounces private leagues (via a 3xx) to their HTML login page. With
+    follow_redirects=True the client follows that hop, so it surfaces as a
+    non-JSON 200 body — which must still raise EspnAuthRequired (the 'paste
+    your cookies' hint), not an opaque JSONDecodeError."""
     with respx.mock() as router:
         router.get(_espn_base(2026, "12345")).mock(
             return_value=Response(302, headers={"location": "https://www.espn.com/login"}),
         )
+        router.get("https://www.espn.com/login").mock(
+            return_value=Response(200, html="<html><body>Log in to ESPN</body></html>"),
+        )
         with pytest.raises(EspnAuthRequired):
             await fetch_league("12345", 2026, swid=None, espn_s2=None)
+
+
+@pytest.mark.asyncio
+async def test_fetch_follows_benign_redirect_to_success():
+    """A benign redirect (http→https / CDN canonicalization) to a JSON 200 must
+    be followed transparently and parsed, not surfaced as an opaque error.
+    Guards the follow_redirects=True default (httpx defaults it to False)."""
+    canonical = (
+        "https://fantasy.espn.com/apis/v3/games/ffl/seasons/2026"
+        "/segments/0/leagues/12345/canonical"
+    )
+    league_json = {
+        "id": 12345,
+        "settings": {"name": "Redirected League", "size": 8, "scoringSettings": {"scoringItems": []}},
+        "teams": [], "players": [],
+        "draftDetail": {"drafted": False, "picks": []},
+    }
+    with respx.mock() as router:
+        router.get(_espn_base(2026, "12345")).mock(
+            return_value=Response(302, headers={"location": canonical}),
+        )
+        router.get(canonical).mock(return_value=Response(200, json=league_json))
+        league = await fetch_league("12345", 2026, swid=None, espn_s2=None)
+    assert league.league_size == 8
+    assert league.name == "Redirected League"
 
 
 @pytest.mark.asyncio
