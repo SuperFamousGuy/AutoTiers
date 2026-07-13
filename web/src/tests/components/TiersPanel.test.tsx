@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TiersPanel } from "@/components/TiersPanel";
 import { ApiError } from "@/api/client";
@@ -280,6 +280,102 @@ describe("TiersPanel", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /^download excel$/i }));
     expect(onDownload).toHaveBeenCalled();
+  });
+
+  describe("Excel export busy/error state (#647)", () => {
+    // A controllable deferred so the test can hold the export "in flight" and
+    // assert the busy affordances before resolving/rejecting it.
+    function deferred() {
+      let resolve!: () => void;
+      let reject!: (reason?: unknown) => void;
+      const promise = new Promise<void>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      return { promise, resolve, reject };
+    }
+
+    it("disables the button and shows a spinner while the export is pending", async () => {
+      const d = deferred();
+      const onDownload = vi.fn(() => d.promise);
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={onDownload} />);
+      const user = userEvent.setup();
+
+      const button = screen.getByRole("button", { name: /^download excel$/i });
+      await user.click(button);
+
+      // In flight: button disabled, marked busy, and the pending state announced.
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute("aria-busy", "true");
+      expect(screen.getByRole("status")).toHaveTextContent(/building the excel file/i);
+
+      // Resolving the export returns the button to its idle, clickable state.
+      d.resolve();
+      await waitFor(() => expect(button).not.toBeDisabled());
+      expect(button).toHaveAttribute("aria-busy", "false");
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("surfaces a named inline error with a Retry when the export rejects", async () => {
+      const d = deferred();
+      const onDownload = vi.fn(() => d.promise);
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={onDownload} />);
+      const user = userEvent.setup();
+
+      await user.click(screen.getByRole("button", { name: /^download excel$/i }));
+      d.reject(new Error("chunk load failed"));
+
+      const alert = await screen.findByRole("alert");
+      expect(within(alert).getByText(/couldn't build the excel file/i)).toBeInTheDocument();
+      expect(within(alert).getByRole("button", { name: /^retry$/i })).toBeInTheDocument();
+      // The button is no longer busy — the user can act again.
+      expect(screen.getByRole("button", { name: /^download excel$/i })).not.toBeDisabled();
+    });
+
+    it("Retry re-fires the export and clears the error on success", async () => {
+      const first = deferred();
+      const second = deferred();
+      const onDownload = vi
+        .fn()
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise);
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={onDownload} />);
+      const user = userEvent.setup();
+
+      await user.click(screen.getByRole("button", { name: /^download excel$/i }));
+      first.reject(new Error("offline"));
+      const retry = await screen.findByRole("button", { name: /^retry$/i });
+
+      await user.click(retry);
+      second.resolve();
+
+      await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+      expect(onDownload).toHaveBeenCalledTimes(2);
+    });
+
+    it("leaves the synchronous Debug CSV button unaffected while an export is pending", async () => {
+      const d = deferred();
+      const onDownload = vi.fn(() => d.promise);
+      const onDebug = vi.fn();
+      render(
+        <TiersPanel
+          result={response}
+          isPending={false}
+          onDownloadXlsx={onDownload}
+          debugMode={true}
+          onDownloadDebugCsv={onDebug}
+        />,
+      );
+      const user = userEvent.setup();
+
+      await user.click(screen.getByRole("button", { name: /^download excel$/i }));
+
+      // The Excel button is busy, but the CSV button stays enabled and clickable.
+      const csvButton = screen.getByRole("button", { name: /download debug csv/i });
+      expect(csvButton).not.toBeDisabled();
+      await user.click(csvButton);
+      expect(onDebug).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe("empty position filter", () => {

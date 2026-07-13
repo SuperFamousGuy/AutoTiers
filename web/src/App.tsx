@@ -550,8 +550,11 @@ export default function App() {
             onRegenerate={handleGenerate}
             canRegenerate={canGenerate}
             onDownloadXlsx={() => {
+              // Return the promise (don't `void` it) so TiersPanel can await the
+              // lazy chunk load + workbook build, show a busy spinner, and surface
+              // a rejection as an inline error + Retry instead of swallowing it (#647).
               if (generate.data) {
-                void downloadDraftXlsx(
+                return downloadDraftXlsx(
                   generate.data.players,
                   settings.scoring_format,
                   profiles.find((p) => p.id === activeProfileId)?.name ?? null,
