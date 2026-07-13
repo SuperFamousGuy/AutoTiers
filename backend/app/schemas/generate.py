@@ -10,10 +10,20 @@ class GenerateRequest(BaseModel):
     league_type: LeagueType
     league_size: int
     qb_starters: int = 1  # 1 = standard, 2 = superflex / 2-QB
-    qb_td_points: float = 4.0
+    # Points awarded per passing TD (#582). Multiplied against stats.pass_tds in
+    # app/engine/scoring.py with no downstream clamp, so it is bounded here like
+    # every other scoring knob. 0.0 covers leagues that don't reward passing TDs;
+    # standard is 4, TD-heavy formats go up to 6, and 10 caps any realistic
+    # custom league.
+    qb_td_points: float = Field(4.0, ge=0.0, le=10.0)
     bonus_100yd_rushing: bool = False
     bonus_100yd_receiving: bool = False
     bonus_first_downs: bool = False
+    # TE Premium (#525): bonus points per tight-end reception, additive on top of
+    # the base PPR/half-PPR reception value. Applies to TEs only in the engine.
+    # Default 0.0 = off (backward compatible). Bounded to a realistic [0.0, 2.0]
+    # range — Scott Fish Bowl and the common TEP formats sit at 0.5-1.0.
+    te_premium_bonus: float = Field(0.0, ge=0.0, le=2.0)
     weight_prior_year: float = Field(0.30, ge=0.0)
     weight_espn: float = Field(0.0, ge=0.0)
     weight_consensus: float = Field(0.70, ge=0.0)
@@ -115,3 +125,8 @@ class GenerateResponse(BaseModel):
     players: list[TieredPlayerOut]
     total: int
     data_as_of: Optional[str] = None
+    # Sources that have been attempted but have never once succeeded
+    # (last_attempted set, last_updated still NULL). These are silently absent
+    # from data_as_of even though they contribute no data, so they are surfaced
+    # here for the frontend to warn on instead of showing a clean banner (#547).
+    never_succeeded: list[str] = Field(default_factory=list)

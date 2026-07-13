@@ -67,6 +67,26 @@ describe("EspnConnectForm", () => {
     expect(screen.getByRole("button", { name: /^connect$/i })).toBeEnabled();
   });
 
+  it("Connect stays disabled with a League ID + only SWID in private mode", async () => {
+    render(<EspnConnectForm profile={baseProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /^private league$/i }));
+    await u.type(screen.getByLabelText(/league id/i), "12345");
+    await u.type(screen.getByLabelText(/swid/i), "{{abc-123}");
+    // espn_s2 left blank — a half cookie pair must not be submittable.
+    expect(screen.getByRole("button", { name: /^connect$/i })).toBeDisabled();
+  });
+
+  it("Connect stays disabled with a League ID + only espn_s2 in private mode", async () => {
+    render(<EspnConnectForm profile={baseProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /^private league$/i }));
+    await u.type(screen.getByLabelText(/league id/i), "12345");
+    await u.type(screen.getByLabelText(/espn_s2/i), "blob");
+    // SWID left blank.
+    expect(screen.getByRole("button", { name: /^connect$/i })).toBeDisabled();
+  });
+
   it("reveals SWID + espn_s2 fields when Private League button is clicked", async () => {
     render(<EspnConnectForm profile={baseProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
     const u = userEvent.setup();
@@ -94,6 +114,84 @@ describe("EspnConnectForm", () => {
     await waitFor(() => expect(connectEspn).toHaveBeenCalledWith("p1", expect.objectContaining({
       league_id: "12345", swid: "{abc-123}", espn_s2: "blob",
     })));
+  });
+
+  // --- Enter-to-submit (issue #641) ---
+
+  it("submits a public league on Enter from the League ID field", async () => {
+    const { connectEspn } = await import("@/api/linkedLeague");
+    (connectEspn as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      linked_league: { profile_id: "p1", provider: "espn", league_id: "12345",
+        league_metadata_json: { name: "X", season: 2026 },
+        keepers_json: [], adp_json: null, last_synced_at: "x" },
+      profile: baseProfile,
+    });
+    const onLinked = vi.fn();
+    render(<EspnConnectForm profile={baseProfile} onLinked={onLinked} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    await u.type(screen.getByLabelText(/league id/i), "12345{Enter}");
+    await waitFor(() =>
+      expect(connectEspn).toHaveBeenCalledWith("p1", expect.objectContaining({ league_id: "12345" })),
+    );
+    await waitFor(() => expect(onLinked).toHaveBeenCalled());
+  });
+
+  it("does not submit on Enter while the Connect guard is unmet", async () => {
+    const { connectEspn } = await import("@/api/linkedLeague");
+    render(<EspnConnectForm profile={baseProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    // Public mode with empty League ID → Connect disabled → Enter is a no-op.
+    await u.click(screen.getByLabelText(/league id/i));
+    await u.keyboard("{Enter}");
+    expect(connectEspn).not.toHaveBeenCalled();
+  });
+
+  it("Public/Private toggle buttons do not submit the form (type=button)", async () => {
+    const { connectEspn } = await import("@/api/linkedLeague");
+    render(<EspnConnectForm profile={baseProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    await u.type(screen.getByLabelText(/league id/i), "12345");
+    // Clicking a toggle must switch mode, never fire a connect.
+    await u.click(screen.getByRole("button", { name: /^private league$/i }));
+    await u.click(screen.getByRole("button", { name: /^public league$/i }));
+    expect(connectEspn).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /^public league$/i })).toHaveAttribute("type", "button");
+    expect(screen.getByRole("button", { name: /^private league$/i })).toHaveAttribute("type", "button");
+  });
+
+  // --- league visibility toggle accessibility ---
+
+  it("announces the active mode to assistive tech via aria-pressed (Public by default)", () => {
+    render(<EspnConnectForm profile={baseProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    // Exactly one toggle is pressed, and it is the Public option on first render.
+    const pressed = screen.getByRole("button", { pressed: true });
+    expect(pressed).toHaveAccessibleName(/public league/i);
+    expect(screen.getByRole("button", { name: /^private league$/i })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
+  it("groups the toggle under an accessible 'League visibility' label", () => {
+    render(<EspnConnectForm profile={baseProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    expect(screen.getByRole("group", { name: /league visibility/i })).toBeInTheDocument();
+  });
+
+  it("flips the pressed state when Private is chosen with the keyboard (Tab + Space)", async () => {
+    render(<EspnConnectForm profile={baseProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    // Tab to the first toggle (Public), then to the second (Private), and activate with Space.
+    await u.tab();
+    expect(screen.getByRole("button", { name: /^public league$/i })).toHaveFocus();
+    await u.tab();
+    expect(screen.getByRole("button", { name: /^private league$/i })).toHaveFocus();
+    await u.keyboard(" ");
+    // Selection state moved to Private, and only one toggle is pressed.
+    expect(screen.getByRole("button", { pressed: true })).toHaveAccessibleName(/private league/i);
+    expect(screen.getByRole("button", { name: /^public league$/i })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
   });
 
   // --- connected state ---

@@ -1,24 +1,46 @@
 """Calibration script for the opportunity-score regression rule.
 
-Runs against historical NFL seasons via nfl_data_py:
+Two modes:
+
+Default (regression self-check) — runs against historical NFL seasons via
+nfl_data_py:
 1. For each year Y in --years, build pseudo-PlayerStat rows from nfl_data_py.
 2. Compute xFP and z-score per player.
 3. Look at season Y+1: did over-producers (z >= 1.5) actually regress?
    Did under-producers (z <= -1.5) actually rebound?
 4. Report: hit rate, average effect size, distribution percentiles.
 
-Not run in CI. Run by hand:
-
     cd backend && venv/bin/python -m scripts.calibrate_xfp_rule \\
         --years 2022 2023 2024 --output /tmp/xfp_calibration.json
 
-Output JSON gets attached to the implementation PR for review.
+Benchmark validation (`--benchmark ff_opportunity`) — validates the in-house
+xFP regression against an independent ground truth, nflverse's maintained
+expected-fantasy-points dataset (`nflreadpy.load_ff_opportunity()`):
+1. For each year, compute AutoTiers' per-player `opportunity_score_z`.
+2. Load ff_opportunity for the same years; per player-season derive the
+   over/under-production residual (actual − expected fantasy points) and
+   z-score it per position/season — the ff_opportunity analogue of
+   `opportunity_score_z`.
+3. Report Pearson r and MAE between the two z-vectors over the shared
+   player-seasons. If r < 0.6 (or the sample is under 200 player-seasons),
+   emit a clear message telling the operator to file a mathematician
+   follow-up to review the xfp.py regression coefficients.
+
+    cd backend && venv/bin/python -m scripts.calibrate_xfp_rule \\
+        --benchmark ff_opportunity --years 2021 2022 2023 2024 \\
+        --output /tmp/xfp_benchmark.json
+
+This is a validation guardrail, not a runtime dependency — nflreadpy is only
+imported when `--benchmark` is passed, and only by this manual script.
+
+Not run in CI. Output JSON gets attached to the implementation PR for review.
 """
 import argparse
 import json
 import sys
 from dataclasses import dataclass
-from statistics import mean
+from statistics import StatisticsError, correlation, mean
+from typing import Iterable, Optional
 
 # Lazy import — nfl_data_py is heavy.
 def _load_nfl_data_py():
@@ -27,6 +49,20 @@ def _load_nfl_data_py():
         return nfl
     except ImportError:
         print("nfl_data_py not installed in this venv. Install with: pip install nfl_data_py", file=sys.stderr)
+        sys.exit(2)
+
+
+# Lazy import — nflreadpy is only needed for `--benchmark ff_opportunity`.
+def _load_nflreadpy():
+    try:
+        import nflreadpy
+        return nflreadpy
+    except ImportError:
+        print(
+            "nflreadpy not installed in this venv. Install with: pip install nflreadpy\n"
+            "(only required for --benchmark ff_opportunity)",
+            file=sys.stderr,
+        )
         sys.exit(2)
 
 
@@ -149,7 +185,7 @@ def calibrate(years: list[int]) -> dict:
                 rush_att=s.rush_att, rush_yards=s.rush_yards, rush_tds=s.rush_tds,
                 pass_att=0, pass_yards=0.0, pass_tds=0, interceptions=0, games_played=max(s.games_played, 1),
             )
-            fp = _score_receiving(ps, settings) + _score_rushing(ps, settings) + _score_tds_only(ps, settings)
+            fp = _score_receiving(ps, settings, s.position) + _score_rushing(ps, settings) + _score_tds_only(ps, settings)
             gaps_by_pos.setdefault(s.position, []).append(fp - xfp)
             per_player.append((s, fp, xfp))
 
@@ -193,12 +229,324 @@ def calibrate(years: list[int]) -> dict:
     return report
 
 
+# ---------------------------------------------------------------------------
+# Benchmark validation against nflverse ff_opportunity
+# ---------------------------------------------------------------------------
+
+# Fantasy positions we validate. K/DST are absent from the xFP regression.
+_BENCHMARK_POSITIONS = frozenset({"QB", "RB", "WR", "TE"})
+
+
+@dataclass(frozen=True)
+class _BenchmarkRow:
+    """One aggregated ff_opportunity player-season."""
+    year: int
+    player_id: str
+    position: str
+    actual_fp: float
+    expected_fp: float
+
+    @property
+    def residual(self) -> float:
+        """Over/under-production: actual minus opportunity-expected points.
+
+        This is ff_opportunity's analogue of AutoTiers' (FP − xFP) gap.
+        """
+        return self.actual_fp - self.expected_fp
+
+
+def _autotiers_z_by_year(nfl, years: list[int], settings: LeagueSettings) -> dict[int, dict[str, tuple[float, str]]]:
+    """Compute AutoTiers `opportunity_score_z` per eligible player, per year.
+
+    Returns {year: {player_id: (z, position)}}. The position is carried through
+    so the benchmark alignment can match on (year, player_id, position) and
+    never compare z-scores normalised in different position groups. Mirrors the
+    eligibility gates and math the default calibration path uses so the two stay
+    comparable.
+    """
+    from app.engine.scoring import (
+        PlayerStats as _PS,
+        _score_receiving,
+        _score_rushing,
+        _score_tds_only,
+    )
+
+    out: dict[int, dict[str, tuple[float, str]]] = {}
+    for year in years:
+        print(f"Computing AutoTiers opportunity_score_z for {year}...", file=sys.stderr)
+        stats_y = _load_year(nfl, year)
+        avg = compute_league_averages(stats_y, settings)
+
+        gaps_by_pos: dict[str, list[float]] = {}
+        eligible: list[_CalibrationStat] = []
+        for s in stats_y:
+            if (s.games_played or 0) < _MIN_GAMES_PLAYED:
+                continue
+            opportunity = (s.targets or 0) + (s.rush_att or 0) + (s.red_zone_looks or 0)
+            if opportunity < _MIN_OPPORTUNITY_BY_POSITION.get(s.position, 50):
+                continue
+            xfp = compute_xfp(s, avg)
+            if xfp is None:
+                continue
+            ps = _PS(
+                targets=s.targets, receptions=s.receptions, rec_yards=s.rec_yards, rec_tds=s.rec_tds,
+                rush_att=s.rush_att, rush_yards=s.rush_yards, rush_tds=s.rush_tds,
+                pass_att=0, pass_yards=0.0, pass_tds=0, interceptions=0, games_played=max(s.games_played, 1),
+            )
+            fp = _score_receiving(ps, settings, s.position) + _score_rushing(ps, settings) + _score_tds_only(ps, settings)
+            gaps_by_pos.setdefault(s.position, []).append(fp - xfp)
+            eligible.append(s)
+
+        sigmas = compute_per_position_sigmas(gaps_by_pos)
+        z_by_pid: dict[str, tuple[float, str]] = {}
+        for s in eligible:
+            z = compute_opportunity_score_z(s, avg, sigmas, settings)
+            if z is not None and s.player_id:
+                z_by_pid[s.player_id] = (z, s.position)
+        out[year] = z_by_pid
+    return out
+
+
+def _aggregate_ff_opportunity(records: Iterable[dict]) -> list[_BenchmarkRow]:
+    """Aggregate raw ff_opportunity rows into one _BenchmarkRow per player-season.
+
+    ff_opportunity ships weekly rows; we sum expected and actual fantasy points
+    across a player's weeks. Column names are matched against a candidate list
+    because nflverse has renamed fields across releases. Rows missing an id,
+    season, or a modelled position are skipped — as are rows missing either the
+    actual or expected fantasy-point value, so schema drift on those columns
+    fails loudly (empty/insufficient sample) rather than silently emitting
+    zero residuals.
+    """
+    def _pick(r: dict, *candidates, default=None):
+        for c in candidates:
+            if c in r and r.get(c) is not None:
+                return r[c]
+        return default
+
+    accum: dict[tuple[int, str], dict] = {}
+    for r in records:
+        pid = _pick(r, "player_id", "gsis_id")
+        season = _pick(r, "season")
+        position = _pick(r, "position", "pos")
+        if pid is None or season is None or position is None:
+            continue
+        position = str(position)
+        if position not in _BENCHMARK_POSITIONS:
+            continue
+        try:
+            year = int(season)
+        except (TypeError, ValueError):
+            continue
+        expected = _pick(r, "total_fantasy_points_exp", default=None)
+        actual = _pick(r, "total_fantasy_points", default=None)
+        if expected is None or actual is None:
+            # Missing actual/expected FP — either a bye-week null or (if it
+            # holds for every row) schema drift on these columns. Skip rather
+            # than fold in a zero residual that would distort the correlation.
+            continue
+        try:
+            actual_f = float(actual)
+            expected_f = float(expected)
+        except (TypeError, ValueError):
+            continue
+        key = (year, str(pid))
+        cell = accum.setdefault(key, {"position": position, "actual": 0.0, "expected": 0.0})
+        cell["actual"] += actual_f
+        cell["expected"] += expected_f
+        cell["position"] = position  # last non-null wins; positions are stable within a season
+
+    return [
+        _BenchmarkRow(year=year, player_id=pid, position=cell["position"],
+                      actual_fp=cell["actual"], expected_fp=cell["expected"])
+        for (year, pid), cell in accum.items()
+    ]
+
+
+def _zscore(values: list[float]) -> Optional[list[float]]:
+    """Sample z-score (ddof=1) of a list; None if fewer than 2 points or zero σ."""
+    if len(values) < 2:
+        return None
+    mu = mean(values)
+    from statistics import stdev
+    sigma = stdev(values)
+    if sigma == 0:
+        return None
+    return [(v - mu) / sigma for v in values]
+
+
+def compute_benchmark_correlation(
+    autotiers_z_by_year: dict[int, dict[str, tuple[float, str]]],
+    benchmark_rows: list[_BenchmarkRow],
+    min_player_seasons: int = 200,
+    r_threshold: float = 0.6,
+) -> dict:
+    """Correlate AutoTiers `opportunity_score_z` against the ff_opportunity residual.
+
+    ``autotiers_z_by_year`` maps {year: {player_id: (z, position)}}. The
+    ff_opportunity residual (actual − expected FP) is z-scored per
+    (year, position) — matching how `opportunity_score_z` is normalised — then
+    aligned with AutoTiers' z on shared (year, player_id, position) triples.
+    Carrying position through the alignment prevents matching a player-season
+    whose position label disagrees between the two sources, which would compare
+    z-scores drawn from different normalisation groups. Reports Pearson r and
+    MAE over the aligned pairs and flags whether a mathematician follow-up is
+    warranted.
+    """
+    # z-score benchmark residuals within each (year, position) group.
+    groups: dict[tuple[int, str], list[_BenchmarkRow]] = {}
+    for row in benchmark_rows:
+        groups.setdefault((row.year, row.position), []).append(row)
+
+    benchmark_z: dict[tuple[int, str, str], float] = {}  # (year, player_id, position) -> z
+    for rows in groups.values():
+        zs = _zscore([r.residual for r in rows])
+        if zs is None:
+            continue
+        for row, z in zip(rows, zs):
+            benchmark_z[(row.year, row.player_id, row.position)] = z
+
+    # Align on player-seasons present in both, matching on position so the two
+    # z-scores always come from the same normalisation group.
+    autotiers_pairs: list[float] = []
+    benchmark_pairs: list[float] = []
+    for year, z_by_pid in autotiers_z_by_year.items():
+        for pid, (a_z, position) in z_by_pid.items():
+            b_z = benchmark_z.get((year, pid, position))
+            if b_z is None:
+                continue
+            autotiers_pairs.append(a_z)
+            benchmark_pairs.append(b_z)
+
+    n = len(autotiers_pairs)
+    pearson_r: Optional[float] = None
+    mae: Optional[float] = None
+    if n >= 2:
+        try:
+            pearson_r = correlation(autotiers_pairs, benchmark_pairs)
+        except StatisticsError:
+            # One side has zero variance — correlation undefined.
+            pearson_r = None
+        mae = mean(abs(a - b) for a, b in zip(autotiers_pairs, benchmark_pairs))
+
+    sufficient_sample = n >= min_player_seasons
+    # A follow-up is warranted when the sample is too small to trust, when the
+    # correlation can't be computed at all, or when it falls below threshold.
+    follow_up_needed = (not sufficient_sample) or pearson_r is None or pearson_r < r_threshold
+
+    if not sufficient_sample:
+        message = (
+            f"INSUFFICIENT SAMPLE: only {n} aligned player-seasons "
+            f"(need >= {min_player_seasons}). Widen --years before trusting this result, "
+            f"then file a mathematician follow-up to review the xfp.py regression coefficients."
+        )
+    elif pearson_r is None:
+        message = (
+            f"INDETERMINATE: {n} player-seasons but Pearson r is undefined "
+            f"(zero variance in one series). File a mathematician follow-up to review the "
+            f"xfp.py regression coefficients."
+        )
+    elif pearson_r < r_threshold:
+        message = (
+            f"ACTION REQUIRED: Pearson r = {pearson_r:.3f} < {r_threshold} over {n} "
+            f"player-seasons. AutoTiers' opportunity_score_z has drifted from the nflverse "
+            f"ff_opportunity benchmark. File a mathematician follow-up to review the xfp.py "
+            f"regression coefficients."
+        )
+    else:
+        message = (
+            f"OK: Pearson r = {pearson_r:.3f} >= {r_threshold} over {n} player-seasons "
+            f"(MAE = {mae:.3f}). xFP regression tracks the ff_opportunity benchmark."
+        )
+
+    return {
+        "benchmark": "ff_opportunity",
+        "n_player_seasons": n,
+        "min_player_seasons": min_player_seasons,
+        "r_threshold": r_threshold,
+        "pearson_r": pearson_r,
+        "mae": mae,
+        "sufficient_sample": sufficient_sample,
+        "follow_up_needed": follow_up_needed,
+        "message": message,
+    }
+
+
+def calibrate_against_benchmark(
+    years: list[int],
+    min_player_seasons: int = 200,
+    r_threshold: float = 0.6,
+) -> dict:
+    """Run the ff_opportunity benchmark validation for the given seasons."""
+    nfl = _load_nfl_data_py()
+    nflreadpy = _load_nflreadpy()
+    settings = _ppr_settings()
+
+    autotiers_z = _autotiers_z_by_year(nfl, years, settings)
+
+    print(f"Loading ff_opportunity for {years}...", file=sys.stderr)
+    ff_df = nflreadpy.load_ff_opportunity(seasons=list(years), stat_type="weekly")
+    records = _ff_opportunity_records(ff_df)
+    benchmark_rows = _aggregate_ff_opportunity(records)
+
+    report = compute_benchmark_correlation(
+        autotiers_z, benchmark_rows,
+        min_player_seasons=min_player_seasons,
+        r_threshold=r_threshold,
+    )
+    report["years"] = years
+    return report
+
+
+def _ff_opportunity_records(df) -> Iterable[dict]:
+    """Normalise the ff_opportunity dataframe to plain dict records.
+
+    nflreadpy returns a polars DataFrame; older/alternate stacks may hand us a
+    pandas DataFrame. Support both without importing either eagerly.
+    """
+    # polars DataFrame
+    iter_rows = getattr(df, "iter_rows", None)
+    if callable(iter_rows):
+        return list(df.iter_rows(named=True))
+    # pandas DataFrame
+    to_dict = getattr(df, "to_dict", None)
+    if callable(to_dict):
+        return df.to_dict("records")
+    # Already an iterable of mappings.
+    return list(df)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--years", nargs="+", type=int, required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument(
+        "--benchmark",
+        choices=["ff_opportunity"],
+        default=None,
+        help="Validate opportunity_score_z against an independent benchmark "
+             "(nflverse ff_opportunity) instead of the default regression self-check.",
+    )
+    parser.add_argument(
+        "--min-player-seasons", type=int, default=200,
+        help="Minimum aligned player-seasons for the benchmark result to be trusted (default: 200).",
+    )
+    parser.add_argument(
+        "--r-threshold", type=float, default=0.6,
+        help="Pearson r below which a mathematician follow-up is flagged (default: 0.6).",
+    )
     args = parser.parse_args()
-    report = calibrate(args.years)
+
+    if args.benchmark == "ff_opportunity":
+        report = calibrate_against_benchmark(
+            args.years,
+            min_player_seasons=args.min_player_seasons,
+            r_threshold=args.r_threshold,
+        )
+        print(report["message"], file=sys.stderr)
+    else:
+        report = calibrate(args.years)
+
     with open(args.output, "w") as f:
         json.dump(report, f, indent=2)
     print(f"Wrote calibration report to {args.output}", file=sys.stderr)

@@ -50,6 +50,9 @@ export interface GenerateRequest {
   bonus_100yd_rushing: boolean;
   bonus_100yd_receiving: boolean;
   bonus_first_downs: boolean;
+  // TE Premium (#525): bonus points per tight-end reception, additive on top of
+  // the PPR/half-PPR value. Optional — omitted requests use the backend default 0.0.
+  te_premium_bonus?: number;
   weight_prior_year: number;
   weight_espn: number;
   weight_consensus: number;
@@ -104,6 +107,9 @@ export interface GenerateResponse {
   players: TieredPlayer[];
   total: number;
   data_as_of: string | null;
+  // Sources attempted but never once successfully refreshed (#547). Absent from
+  // data_as_of despite contributing no data, so surfaced for a warning.
+  never_succeeded: string[];
 }
 
 export interface DataSourceStatus {

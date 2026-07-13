@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PlayerCard } from "@/components/PlayerCard";
 import type { TieredPlayer } from "@/api/types";
@@ -79,15 +79,19 @@ describe("PlayerCard", () => {
     expect(screen.queryByText("Score breakdown")).not.toBeInTheDocument();
   });
 
-  it("shows gold star when is_favorite_player is true", () => {
+  it("shows gold star with accessible name when is_favorite_player is true", () => {
     render(<PlayerCard player={{ ...basePlayer, is_favorite_player: true }} />);
-    expect(screen.getByText("⭐")).toBeInTheDocument();
+    const star = screen.getByRole("img", { name: "Favorite player" });
+    expect(star).toBeInTheDocument();
+    expect(star).toHaveTextContent("⭐");
   });
 
   it("does not show gold star when is_favorite_player is null or false", () => {
     const { rerender } = render(<PlayerCard player={basePlayer} />);
+    expect(screen.queryByRole("img", { name: "Favorite player" })).not.toBeInTheDocument();
     expect(screen.queryByText("⭐")).not.toBeInTheDocument();
     rerender(<PlayerCard player={{ ...basePlayer, is_favorite_player: false }} />);
+    expect(screen.queryByRole("img", { name: "Favorite player" })).not.toBeInTheDocument();
     expect(screen.queryByText("⭐")).not.toBeInTheDocument();
   });
 
@@ -114,6 +118,32 @@ describe("PlayerCard", () => {
     const vbd = screen.getByText(/Value-Based Drafting/).parentElement!;
     expect(within(vbd).getByText("Replacement (RB)")).toBeInTheDocument();
     expect(within(vbd).getByText(/155\.9/)).toBeInTheDocument();
+  });
+
+  it("lazy-loads the player headshot to avoid eager off-domain image requests", () => {
+    // Guards issue #628: on the default "ALL" filter TiersPanel renders every
+    // PlayerCard with no virtualization, so an eager headshot fires 150-300+
+    // sleepercdn.com requests on mount — costly on live-draft venue wifi.
+    render(<PlayerCard player={basePlayer} />);
+    const headshot = screen.getByAltText(basePlayer.name) as HTMLImageElement;
+    expect(headshot.tagName).toBe("IMG");
+    expect(headshot.getAttribute("loading")).toBe("lazy");
+    expect(headshot.getAttribute("decoding")).toBe("async");
+    // Sanity: it is the sleepercdn headshot, not a team logo.
+    expect(headshot.src).toContain("sleepercdn.com");
+  });
+
+  it("preserves the imgError fallback (position badge) when the headshot fails to load", () => {
+    render(<PlayerCard player={basePlayer} />);
+    const headshot = screen.getByAltText(basePlayer.name) as HTMLImageElement;
+    // Count position-text occurrences up front: the position (e.g. "RB") can
+    // already appear elsewhere in the card, so a bare presence check would pass
+    // even if the fallback badge never rendered. Assert the badge ADDS one.
+    const before = screen.queryAllByText(basePlayer.position).length;
+    fireEvent.error(headshot);
+    // Headshot img is gone; the position-letter fallback renders in its place.
+    expect(screen.queryByAltText(basePlayer.name)).toBeNull();
+    expect(screen.queryAllByText(basePlayer.position).length).toBe(before + 1);
   });
 
   it("renders em-dash for missing team", () => {

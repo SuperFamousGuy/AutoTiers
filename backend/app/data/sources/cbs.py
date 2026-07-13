@@ -16,7 +16,7 @@ from bs4 import BeautifulSoup
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.data.matching import fuzzy_match
+from app.data.matching import PositionMatchIndex, fuzzy_match
 from app.data.sources.base import SourceResult
 from app.models import Player, Projection
 
@@ -39,6 +39,9 @@ class CBSFetcher:
         attempted = datetime.utcnow()
         today = date.today()
         upserted = 0
+        # One cache for the whole run: fuzzy_match reuses a single position query
+        # + normalization pass across every row and scoring format.
+        match_index = PositionMatchIndex()
 
         try:
             async with httpx.AsyncClient(
@@ -54,7 +57,7 @@ class CBSFetcher:
                             )
                             resp.raise_for_status()
                             upserted += await self._parse_projections(
-                                db, resp.text, position, scoring_format, today,
+                                db, resp.text, position, scoring_format, today, match_index,
                             )
                         except Exception as e:
                             logger.warning("[cbs] failed to fetch %s %s: %s", position, scoring_format, e)
@@ -81,6 +84,7 @@ class CBSFetcher:
 
     async def _parse_projections(
         self, db: AsyncSession, html: str, position: str, scoring_format: str, today: date,
+        match_index: PositionMatchIndex | None = None,
     ) -> int:
         soup = BeautifulSoup(html, "lxml")
         table = soup.find("table", class_="TableBase") or soup.find("table")
@@ -120,7 +124,7 @@ class CBSFetcher:
             except (ValueError, IndexError):
                 continue
 
-            player = await fuzzy_match(db, name, team, position)
+            player = await fuzzy_match(db, name, team, position, index=match_index)
             if player is None:
                 logger.warning("[cbs] unmatched %s | %s %s", position, name, team or "?")
                 continue

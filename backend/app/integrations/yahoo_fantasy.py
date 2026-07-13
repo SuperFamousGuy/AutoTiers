@@ -8,13 +8,31 @@ All requests require ?format=json (default response is XML).
 """
 from dataclasses import dataclass
 from typing import Optional
+import logging
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.yahoo import refresh_access_token
 from app.security.fernet import encrypt, decrypt
 
+logger = logging.getLogger(__name__)
+
 _BASE = "https://fantasysports.yahooapis.com/fantasy/v2"
+
+
+class YahooReauthRequired(Exception):
+    """Yahoo rejected the refresh token (revoked/expired) — the access token
+    can't be renewed and the user must reconnect Yahoo. Mirrors the
+    EspnAuthRequired/CbsAuthRequired pattern so callers can surface a
+    reconnect prompt instead of a generic "verify credentials" HTTP error."""
+
+
+class YahooLeaguesParseError(Exception):
+    """Yahoo's leagues response didn't match the expected shape — a schema
+    drift (unexpected nesting, locale/date change, malformed count) we can't
+    navigate. Raised instead of silently returning ``[]`` so the failure
+    surfaces through ``_provider_http_error`` as a provider error rather than a
+    false "no leagues found" empty state. See issue #643."""
 
 
 @dataclass
@@ -38,7 +56,7 @@ class YahooLeagueData:
 
 async def _get(url: str, access_token: str) -> dict:
     """GET with Bearer auth, requesting JSON format. Raises httpx.HTTPStatusError on non-2xx."""
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
         resp = await client.get(
             url,
             params={"format": "json"},
@@ -59,15 +77,33 @@ async def _with_refresh(url: str, user, db: AsyncSession) -> dict:
     except httpx.HTTPStatusError as e:
         if e.response.status_code != 401:
             raise
-    # Token expired — refresh and retry.
-    new_token = await refresh_access_token(decrypt(user.yahoo_refresh_token))
+    # Token expired — refresh and retry. If the refresh token itself is
+    # revoked/expired Yahoo returns 401 (or 400); that is not something the
+    # user can fix by "verifying credentials" — they must reconnect Yahoo.
+    try:
+        new_token = await refresh_access_token(decrypt(user.yahoo_refresh_token))
+    except httpx.HTTPStatusError as e:
+        # Only a revoked/expired refresh token (Yahoo returns 400/401) means the
+        # user must reconnect. Other statuses (429 rate-limit, 5xx) are transient
+        # provider outages — re-raise so they flow through _provider_http_error as
+        # an upstream error rather than a misleading "reconnect Yahoo" prompt.
+        if e.response.status_code in (400, 401):
+            raise YahooReauthRequired from e
+        raise
     user.yahoo_access_token = encrypt(new_token)
     await db.commit()
     return await _get(url, new_token)
 
 
 def _parse_leagues(data: dict) -> list[YahooLeagueSummary]:
-    """Navigate Yahoo's deeply nested users/games/leagues response structure."""
+    """Navigate Yahoo's deeply nested users/games/leagues response structure.
+
+    A genuinely empty account — Yahoo returns the games/leagues envelope with
+    ``count == 0`` — yields ``[]``. A response whose structure we can't navigate
+    (a schema drift) is logged and raised as :class:`YahooLeaguesParseError`
+    rather than swallowed into a misleading empty list, so the caller surfaces a
+    provider error instead of a false "no leagues found". See issue #643.
+    """
     results = []
     try:
         users = data["fantasy_content"]["users"]
@@ -90,8 +126,9 @@ def _parse_leagues(data: dict) -> list[YahooLeagueSummary]:
                     season=season,
                     num_teams=int(league.get("num_teams", 0)),
                 ))
-    except (KeyError, IndexError, TypeError, ValueError):
-        pass
+    except (KeyError, IndexError, TypeError, ValueError) as e:
+        logger.warning("Yahoo leagues parse failed: %s", e, exc_info=True)
+        raise YahooLeaguesParseError("Unexpected Yahoo leagues response shape") from e
     return results
 
 

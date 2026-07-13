@@ -465,3 +465,42 @@ async def test_yahoo_callback_fantasy_stores_tokens(async_client, test_db):
     # Tokens must be encrypted (not the raw values)
     assert decrypt(user.yahoo_access_token) == "acc_tok"
     assert decrypt(user.yahoo_refresh_token) == "ref_tok"
+
+
+@pytest.mark.asyncio
+async def test_callback_seeds_default_profile_on_first_login(async_client, test_db):
+    """A brand-new Yahoo user must land with exactly one profile and a
+    non-null last_active_profile_id, so autosave has somewhere to persist (#606)."""
+    from app.models import User, Profile
+    from app.defaults import DEFAULT_PROFILE_SETTINGS
+    from sqlalchemy import select as sql_select
+
+    state = "seedstate"
+    async_client.cookies.set("autotiers_oauth_state", state)
+    with respx.mock() as router:
+        router.post("https://api.login.yahoo.com/oauth2/get_token").mock(
+            return_value=Response(200, json={"access_token": "tok"}),
+        )
+        router.get("https://api.login.yahoo.com/openid/v1/userinfo").mock(
+            return_value=Response(200, json={
+                "sub": "yahoo-seed", "email": "seed@example.com", "email_verified": True,
+            }),
+        )
+        r = await async_client.get(
+            f"/api/auth/yahoo/callback?code=the-code&state={state}",
+            follow_redirects=False,
+        )
+    assert r.status_code == 302
+
+    users = (await test_db.scalars(sql_select(User))).all()
+    assert len(users) == 1
+    profiles = (await test_db.scalars(sql_select(Profile).where(Profile.user_id == users[0].id))).all()
+    assert len(profiles) == 1
+    assert profiles[0].name == "My setup"
+    assert profiles[0].settings_json == DEFAULT_PROFILE_SETTINGS
+    assert profiles[0].rules_json == {}
+    assert users[0].last_active_profile_id == profiles[0].id
+
+    me = (await async_client.get("/api/auth/me")).json()
+    assert len(me["profiles"]) == 1
+    assert me["user"]["last_active_profile_id"] == str(profiles[0].id)

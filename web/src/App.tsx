@@ -4,16 +4,18 @@ import { useDarkMode } from "@/hooks/useDarkMode";
 import { useOnboarding } from "@/hooks/useOnboarding";
 import { OnboardingTour } from "@/components/OnboardingTour";
 import { ONBOARDING_STEPS } from "@/lib/onboardingSteps";
-import { SettingsPanel, DEFAULT_FULL_SEASON_GAMES, DEFAULT_PRIOR_YEAR_RAMP, type SettingsState } from "@/components/SettingsPanel";
+import { SettingsPanel, DEFAULT_FULL_SEASON_GAMES, DEFAULT_PRIOR_YEAR_RAMP, DEFAULT_TE_PREMIUM, type SettingsState } from "@/components/SettingsPanel";
 import { RulesPanel } from "@/components/RulesPanel";
 import { TiersPanel } from "@/components/TiersPanel";
 import { ProfilePicker } from "@/components/ProfilePicker";
+import { MobileProfileMenuItems } from "@/components/MobileProfileMenuItems";
 import { ManageProfilesDialog } from "@/components/ManageProfilesDialog";
 import { LinkedAccountsDialog } from "@/components/LinkedAccountsDialog";
 import { MobilePanelTabBar, type MobilePanel } from "@/components/MobilePanelTabBar";
 import { AdSlot } from "@/components/AdSlot";
 import { PasswordResetPanel } from "@/components/PasswordResetPanel";
 import { EmailVerificationBanner, shouldShowVerificationBanner, dismissVerificationBanner } from "@/components/EmailVerificationBanner";
+import { NoProfileBanner } from "@/components/NoProfileBanner";
 import { AuthDialog } from "@/components/AuthDialog";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
@@ -22,6 +24,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { verifyEmail } from "@/api/auth";
 import { createProfile, updateProfile, deleteProfile, activateProfile } from "@/api/profiles";
 import { useAutoSave } from "@/hooks/useAutoSave";
+import { describeGenerateError } from "@/lib/errors";
 import { weightsAreValid } from "@/lib/weights";
 import { buildResolvedTierNames, resolveTierLabelOverrides } from "@/lib/tiers";
 import type { Rule, GenerateRequest, PositionRulesState } from "@/api/types";
@@ -35,6 +38,7 @@ const DEFAULT_SETTINGS: SettingsState = {
   bonus_100yd_rushing: false,
   bonus_100yd_receiving: false,
   bonus_first_downs: false,
+  te_premium_bonus: DEFAULT_TE_PREMIUM,
   weights: { prior: 30, consensus: 70 },
   full_season_games: DEFAULT_FULL_SEASON_GAMES,
   prior_year_ramp: DEFAULT_PRIOR_YEAR_RAMP,
@@ -104,6 +108,11 @@ export default function App() {
     refetch: refetchRules,
   } = useRules();
   const generate = useGenerateMutation();
+  // The GenerateRequest that produced the currently-displayed tier list. Set on
+  // every successful generate; diffed against the live request each render to
+  // detect stale results (settings/rules edited after generating). Null before
+  // the first generate and after a profile switch clears the result (#523).
+  const [lastGeneratedRequest, setLastGeneratedRequest] = useState<GenerateRequest | null>(null);
 
   // Smart mobile default: switch to "tiers" tab on the FIRST generate result after
   // app load or profile switch. Subsequent generates leave the user's current tab
@@ -257,6 +266,9 @@ export default function App() {
     // the guard reset above: the next generate is treated as a fresh first
     // result and re-fires the mobile auto-switch.
     generate.reset();
+    // Drop the captured request so the staleness banner can't compare the new
+    // profile's live settings against the previous profile's generate (#523).
+    setLastGeneratedRequest(null);
     await activateProfile(id);
   }, [generate.reset]);
 
@@ -274,6 +286,7 @@ export default function App() {
     setMobilePanel("settings");
     hasAutoSwitchedToTiers.current = false;
     generate.reset();
+    setLastGeneratedRequest(null);
     await activateProfile(created.id);
   }, [profiles, settings, positionRules, setProfiles, generate.reset]);
 
@@ -284,9 +297,21 @@ export default function App() {
 
   const handleDeleteProfile = useCallback(async (id: string) => {
     await deleteProfile(id);
-    setProfiles(profiles.filter((p) => p.id !== id));
-    if (activeProfileId === id) setActiveProfileId(null);
-  }, [profiles, activeProfileId, setProfiles]);
+    setProfiles((prev) => prev.filter((p) => p.id !== id));
+    if (activeProfileId === id) {
+      setActiveProfileId(null);
+      // Deleting the active profile must mirror the select/new-profile reset:
+      // clear the orphaned tier list (computed for a now-deleted profile),
+      // return the mobile view to Settings, re-arm the auto-switch guard, and
+      // drop the captured request so the staleness banner has nothing to
+      // compare against. Without this the Tiers panel keeps rendering stale
+      // tiers and Generate would fire with a silently wrong payload (#626).
+      generate.reset();
+      setLastGeneratedRequest(null);
+      setMobilePanel("settings");
+      hasAutoSwitchedToTiers.current = false;
+    }
+  }, [activeProfileId, setProfiles, generate.reset]);
 
   const handleUndo = useCallback(async () => {
     if (!activeProfileId) return;
@@ -320,6 +345,7 @@ export default function App() {
       bonus_100yd_rushing: settings.bonus_100yd_rushing,
       bonus_100yd_receiving: settings.bonus_100yd_receiving,
       bonus_first_downs: settings.bonus_first_downs,
+      te_premium_bonus: settings.te_premium_bonus,
       weight_prior_year: settings.weights.prior / 100,
       weight_espn: 0,
       weight_consensus: settings.weights.consensus / 100,
@@ -333,7 +359,50 @@ export default function App() {
     };
   };
 
-  const canGenerate = weightsAreValid(settings.weights) && canonicalRules.length > 0;
+  // Generate needs valid weights, loaded rules, and — when profiles exist — an
+  // active profile. Deleting the active profile sets activeProfileId to null;
+  // without this guard Generate would stay enabled and fire buildRequest() with
+  // keepers/league_adp silently undefined (profiles.find returns undefined)
+  // (#626). Logged-out users have no profiles, so they stay able to generate.
+  const canGenerate =
+    weightsAreValid(settings.weights) &&
+    canonicalRules.length > 0 &&
+    (profiles.length === 0 || activeProfileId !== null);
+
+  // The request the current settings/rules would send. Recomputed each render so
+  // the staleness check below reflects edits within a single render (#523).
+  const currentRequest = buildRequest();
+
+  // Fires a generate and, on success, records the exact request that produced
+  // the result — the baseline the staleness banner compares against.
+  const handleGenerate = () => {
+    // Recompute the request at click time (rather than reusing the render-closure
+    // `currentRequest`) and record the exact payload the mutation sent via the
+    // onSuccess `variables` arg, so `lastGeneratedRequest` can't drift from what
+    // was actually generated even if state changed between renders (#523).
+    const request = buildRequest();
+    generate.mutate(request, {
+      onSuccess: (_data, variables) => setLastGeneratedRequest(variables),
+      // Without this, a failed generate lands in the mutation's error state and
+      // stops there — the user is silently shown the pre-generate empty state.
+      // Surface the failure with a toast; TiersPanel renders the in-panel alert
+      // + Retry from generate.isError/error (#607).
+      onError: (err) =>
+        toast({
+          title: "Generate failed",
+          description: describeGenerateError(err),
+          variant: "error",
+        }),
+    });
+  };
+
+  // The displayed tier list is stale when the live request no longer matches the
+  // one that generated it. Requires an existing result: no banner before the
+  // first generate, and none while the empty/loading states are showing (#523).
+  const isStale =
+    generate.data != null &&
+    lastGeneratedRequest != null &&
+    JSON.stringify(currentRequest) !== JSON.stringify(lastGeneratedRequest);
 
   // Tier labels shown/exported for the active scoring format: per-format
   // overrides win over the global tier_labels, which win over static defaults (#164).
@@ -351,13 +420,22 @@ export default function App() {
       <Header
         generateDisabled={!canGenerate}
         generateIsPending={generate.isPending}
-        onGenerate={() => generate.mutate(buildRequest())}
+        onGenerate={handleGenerate}
         currentState={{ settings, rules: positionRules }}
         isDark={isDark}
         onToggleDark={toggleDark}
         onShowOnboarding={startOnboarding}
         onOpenLinkedAccounts={user ? () => { setLinkingError(null); setLinkedOpen(true); } : undefined}
-        activeProfileName={profiles.find((p) => p.id === activeProfileId)?.name ?? null}
+        mobileProfileMenu={user ? (
+          <MobileProfileMenuItems
+            profiles={profiles}
+            activeId={activeProfileId}
+            onSelect={handleSelectProfile}
+            onNew={handleNewProfile}
+            onManage={() => setManageOpen(true)}
+            canCreate={profiles.length < 5}
+          />
+        ) : null}
         profilePicker={user ? (
           <div className="flex items-center gap-2">
             <ProfilePicker
@@ -376,6 +454,11 @@ export default function App() {
           </div>
         ) : null}
       />
+      {/* Zero-profile banner — a logged-in user with no profile has autosave
+          silently disabled, so warn them and offer a one-click fix (#606). */}
+      {user && profiles.length === 0 && (
+        <NoProfileBanner onCreateProfile={handleNewProfile} />
+      )}
       {/* Email verification banner — shown below header when email is unverified */}
       {showVerifyBanner && user?.email && (
         <EmailVerificationBanner
@@ -409,7 +492,11 @@ export default function App() {
           />
         )
       )}
-      <MobilePanelTabBar active={mobilePanel} onChange={setMobilePanel} />
+      <MobilePanelTabBar
+        active={mobilePanel}
+        onChange={setMobilePanel}
+        generateIsPending={generate.isPending}
+      />
       <main className="flex-1 grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_minmax(0,1.5fr)] lg:grid-rows-1 overflow-hidden">
         <div
           id="panel-settings"
@@ -457,11 +544,17 @@ export default function App() {
           <TiersPanel
             result={generate.data ?? null}
             isPending={generate.isPending}
+            isError={generate.isError}
+            error={generate.error}
+            isStale={isStale}
+            onRegenerate={handleGenerate}
+            canRegenerate={canGenerate}
             onDownloadXlsx={() => {
               if (generate.data) {
                 void downloadDraftXlsx(
                   generate.data.players,
                   settings.scoring_format,
+                  profiles.find((p) => p.id === activeProfileId)?.name ?? null,
                   resolvedTierNames,
                 );
               }
@@ -499,6 +592,7 @@ export default function App() {
         open={manageOpen}
         onOpenChange={setManageOpen}
         profiles={profiles}
+        activeProfileId={activeProfileId}
         onRename={handleRenameProfile}
         onDelete={handleDeleteProfile}
       />
@@ -510,6 +604,9 @@ export default function App() {
           onRefresh={refresh}
           initialError={linkingError}
           activeProfile={profiles.find((p) => p.id === activeProfileId) ?? null}
+          profiles={profiles}
+          onSelectProfile={handleSelectProfile}
+          onCreateProfile={handleNewProfile}
         />
       )}
       {/* Standalone forgot-password dialog — opened from the reset panel's "Request new link" */}

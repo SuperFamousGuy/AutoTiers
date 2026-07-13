@@ -382,3 +382,20 @@ def test_current_season_rolls_over_in_march():
         assert cbs_module._current_season() == 2027
     finally:
         cbs_module.date = date
+
+
+@pytest.mark.asyncio
+async def test_get_access_token_follows_redirect():
+    """The CBS auth client must follow redirects (httpx defaults
+    follow_redirects to False). A 307 preserves the POST method+body, so the
+    canonical auth URL must still yield the access token."""
+    canonical = "https://api.cbssports.com/general/oauth/mobile/login/v2?response_format=json"
+    with respx.mock() as router:
+        router.post(_AUTH_URL).mock(
+            return_value=Response(307, headers={"location": canonical}),
+        )
+        router.post(canonical).mock(
+            return_value=Response(200, json={"body": {"access_token": "redir-tok"}}),
+        )
+        token = await get_access_token("user@example.com", "correct-password")
+    assert token == "redir-tok"

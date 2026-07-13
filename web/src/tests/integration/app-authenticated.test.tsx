@@ -218,6 +218,27 @@ describe("App (authenticated integration)", () => {
     });
   });
 
+  it("opens Manage profiles from the mobile hamburger menu (#499)", async () => {
+    // The desktop ProfilePicker lives in a `hidden lg:flex` container, so on
+    // narrow viewports profile management is only reachable via the always-present
+    // hamburger menu's MobileProfileMenuItems. Clicking its "Manage Profiles…"
+    // entry must open the same ManageProfilesDialog the desktop picker opens.
+    mockAuthenticated();
+    renderApp();
+    const user = userEvent.setup();
+
+    await waitFor(() => expect(screen.getByLabelText(/menu/i)).toBeInTheDocument());
+    await user.click(screen.getByLabelText(/menu/i));
+
+    // The mobile menu item (distinct from the desktop ProfilePicker's item) fires
+    // the onManage handler App wires straight to setManageOpen.
+    await user.click(screen.getByRole("menuitem", { name: /Manage Profiles/i }));
+
+    // The dialog opened — its rename controls are present.
+    const renameButtons = await screen.findAllByRole("button", { name: /^rename$/i });
+    expect(renameButtons.length).toBeGreaterThan(0);
+  });
+
   it("delete via Manage profiles calls DELETE on the profile", async () => {
     mockAuthenticated();
     let deletedId: string | null = null;
@@ -237,9 +258,54 @@ describe("App (authenticated integration)", () => {
     // Two-click delete
     const deleteIcons = await screen.findAllByRole("button", { name: /delete PPR 12-team/i });
     await user.click(deleteIcons[0]);
-    await user.click(screen.getByRole("button", { name: /confirm delete/i }));
+    // p1 is the active profile here, so the confirm copy names that consequence.
+    await user.click(screen.getByRole("button", { name: /delete active profile/i }));
 
     await waitFor(() => expect(deletedId).toBe("p1"));
+  });
+
+  it("deleting the active profile clears the tier list and disables Generate (#626)", async () => {
+    mockAuthenticated();
+    server.use(
+      http.delete(`${API_URL}/api/profiles/:id`, () => new HttpResponse(null, { status: 204 })),
+      http.post(`${API_URL}/api/profiles/:id/activate`, () => new HttpResponse(null, { status: 204 })),
+    );
+
+    renderApp();
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument());
+    await screen.findByText("Target Share Premium");
+
+    // Generate a tier list for the active profile.
+    await user.click(screen.getByRole("button", { name: /^generate$/i }));
+    const tiersPanel = screen.getByRole("tabpanel", { name: "Tiers" });
+    await waitFor(() => expect(within(tiersPanel).getByText("Ja'Marr Chase")).toBeInTheDocument());
+
+    // Delete the active profile via Manage profiles (two-click delete + confirm).
+    await user.click(screen.getByRole("button", { name: /PPR 12-team/i }));
+    await user.click(screen.getByRole("menuitem", { name: /Manage profiles/i }));
+    const deleteIcons = await screen.findAllByRole("button", { name: /delete PPR 12-team/i });
+    await user.click(deleteIcons[0]);
+    // For the active profile, ManageProfilesDialog labels the confirm button
+    // "Delete active profile" (not the generic "Confirm Delete").
+    await user.click(await screen.findByRole("button", { name: /delete active profile/i }));
+
+    // Close the modal so the (previously aria-hidden) main panels are queryable.
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByText("Manage Profiles")).not.toBeInTheDocument());
+
+    // The picker now shows no active profile.
+    expect(screen.getByRole("button", { name: /No profile/i })).toBeInTheDocument();
+
+    // The orphaned tiers must be cleared — the Tiers panel returns to its empty state.
+    await waitFor(() => {
+      const panel = screen.getByRole("tabpanel", { name: "Tiers" });
+      expect(within(panel).getByText(/Click Generate to build your tier list\./i)).toBeInTheDocument();
+    });
+    expect(within(screen.getByRole("tabpanel", { name: "Tiers" })).queryByText("Ja'Marr Chase")).not.toBeInTheDocument();
+
+    // Generate is disabled: profiles still exist (p2) but none is active.
+    expect(screen.getByRole("button", { name: /^generate$/i })).toBeDisabled();
   });
 
   it("Undo button appears after a save lands and rewinds to the prior save point", async () => {

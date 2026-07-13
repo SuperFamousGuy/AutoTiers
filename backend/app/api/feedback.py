@@ -102,15 +102,34 @@ def _client_ip(request: Request) -> str:
 
     Behind a reverse proxy / load balancer (ECS Fargate sits behind an ALB),
     request.client.host is the proxy's IP, which would collapse every caller
-    into one rate-limit bucket. Prefer the left-most entry of X-Forwarded-For
-    (the originating client the proxy appends), falling back to the socket peer.
-    XFF is client-spoofable, but this is best-effort throttling, not auth.
+    into one rate-limit bucket, so we read X-Forwarded-For instead.
+
+    The ALB appends the real peer IP to the RIGHT of whatever the client sent —
+    it does not strip a client-supplied XFF. Taking the left-most entry (the old
+    behaviour) let a client forge `X-Forwarded-For: <random>` and mint a fresh
+    rate-limit bucket per request (#519). Instead take the entry
+    `settings.trusted_proxy_count` hops from the right: with one trusted ALB hop
+    that is the right-most entry (the IP the ALB appended), which the client
+    cannot control. Chains shorter than the trusted-hop count fall back to the
+    left-most entry. Falls back to the socket peer, then to 'unknown'.
+
+    XFF is still not authentication — a misconfigured trusted-proxy count or an
+    extra untrusted hop can shift the read — but with the hop count correct a
+    client can no longer trivially rotate its own key. This is best-effort
+    throttling, not auth.
     """
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
-        first = forwarded.split(",")[0].strip()
-        if first:
-            return first
+        parts = [p.strip() for p in forwarded.split(",") if p.strip()]
+        if parts:
+            # Clamp to >=1: a 0 trusted-hop count means XFF is untrusted, so
+            # skip it entirely and use the socket peer below.
+            hops = settings.trusted_proxy_count
+            if hops >= 1:
+                # N-from-the-right, clamped so a chain shorter than the trusted
+                # hop count yields the left-most (oldest) entry, not an error.
+                idx = max(0, len(parts) - hops)
+                return parts[idx]
     if request.client and request.client.host:
         return request.client.host
     return "unknown"

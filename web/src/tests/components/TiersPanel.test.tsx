@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TiersPanel } from "@/components/TiersPanel";
+import { ApiError } from "@/api/client";
 import generateResponse from "../fixtures/generate-response.json";
 import type { GenerateResponse } from "@/api/types";
 
@@ -10,6 +11,7 @@ const response = generateResponse as GenerateResponse;
 const tier7Response: GenerateResponse = {
   total: 1,
   data_as_of: null,
+  never_succeeded: [],
   players: [
     {
       overall_rank: 1,
@@ -41,6 +43,46 @@ const tier7Response: GenerateResponse = {
   ],
 };
 
+const qbOnlyResponse: GenerateResponse = {
+  total: 1,
+  data_as_of: null,
+  players: [
+    {
+      overall_rank: 1,
+      player_id: "1001",
+      name: "Solo Quarterback",
+      position: "QB",
+      team: "KC",
+      age: null,
+      overall_tier: 1,
+      positional_tier: "QB1",
+      adjusted_score: 90.0,
+      projected_score_raw: 90.0,
+      prior_year_actual: null,
+      espn_projection: null,
+      fantasypros_projection: null,
+      avg_projection: null,
+      adp_standard: null,
+      adp_ppr: null,
+      adp_dynasty: null,
+      league_adp: null,
+      vbd_score: 0.0,
+      position_replacement: 90.0,
+      flags: [],
+      rules_applied: [],
+      rule_applications: [],
+      is_favorite_player: null,
+      is_favorite_team: null,
+    },
+  ],
+};
+
+const emptyResponse: GenerateResponse = {
+  total: 0,
+  data_as_of: null,
+  players: [],
+};
+
 describe("TiersPanel", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -54,6 +96,97 @@ describe("TiersPanel", () => {
   it("shows skeleton when pending", () => {
     render(<TiersPanel result={null} isPending={true} onDownloadXlsx={() => {}} />);
     expect(screen.getByText(/generating/i)).toBeInTheDocument();
+  });
+
+  describe("generate error state (#607)", () => {
+    it("renders a role=alert error affordance — distinct from the empty state — when isError is true", () => {
+      render(
+        <TiersPanel
+          result={null}
+          isPending={false}
+          isError={true}
+          error={new ApiError(500, "boom")}
+          onDownloadXlsx={() => {}}
+        />,
+      );
+
+      // Announced as an alert, names the failure, and does NOT masquerade as the
+      // pre-generate empty state.
+      const alert = screen.getByRole("alert");
+      expect(within(alert).getByText(/couldn't generate your tier list/i)).toBeInTheDocument();
+      expect(screen.queryByText(/click generate to build/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/generating tier list/i)).not.toBeInTheDocument();
+    });
+
+    it("describes the specific failure (a 5xx) rather than showing a bare error", () => {
+      render(
+        <TiersPanel
+          result={null}
+          isPending={false}
+          isError={true}
+          error={new ApiError(503, "upstream timeout")}
+          onDownloadXlsx={() => {}}
+        />,
+      );
+      expect(screen.getByText(/the server ran into a problem/i)).toBeInTheDocument();
+    });
+
+    it("takes precedence over the empty state even when result is null", () => {
+      render(
+        <TiersPanel result={null} isPending={false} isError={true} onDownloadXlsx={() => {}} />,
+      );
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+      expect(screen.queryByText(/click generate to build/i)).not.toBeInTheDocument();
+    });
+
+    it("Retry re-fires the same request via onRegenerate", async () => {
+      const onRegenerate = vi.fn();
+      render(
+        <TiersPanel
+          result={null}
+          isPending={false}
+          isError={true}
+          error={new ApiError(500, "boom")}
+          onRegenerate={onRegenerate}
+          canRegenerate={true}
+          onDownloadXlsx={() => {}}
+        />,
+      );
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /^retry$/i }));
+      expect(onRegenerate).toHaveBeenCalledTimes(1);
+    });
+
+    it("disables Retry when canRegenerate is false (e.g. weights became invalid)", () => {
+      render(
+        <TiersPanel
+          result={null}
+          isPending={false}
+          isError={true}
+          error={new ApiError(500, "boom")}
+          onRegenerate={() => {}}
+          canRegenerate={false}
+          onDownloadXlsx={() => {}}
+        />,
+      );
+      expect(screen.getByRole("button", { name: /^retry$/i })).toBeDisabled();
+    });
+
+    it("a pending retry shows the spinner, not the error state", () => {
+      // isPending wins over isError so the in-flight retry reads as 'working',
+      // not 'still broken'.
+      render(
+        <TiersPanel
+          result={null}
+          isPending={true}
+          isError={true}
+          error={new ApiError(500, "boom")}
+          onDownloadXlsx={() => {}}
+        />,
+      );
+      expect(screen.getByText(/generating tier list/i)).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
   });
 
   it("renders all players grouped by tier", () => {
@@ -149,6 +282,47 @@ describe("TiersPanel", () => {
     expect(onDownload).toHaveBeenCalled();
   });
 
+  describe("empty position filter", () => {
+    it("shows an empty-state message and reset button when the selected position has no players", async () => {
+      render(<TiersPanel result={qbOnlyResponse} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+
+      // Filtering to DST — a position absent from this QB-only list — must not
+      // leave a blank scroll area behind the filter row.
+      await user.click(screen.getByRole("button", { name: /^dst$/i }));
+
+      expect(screen.getByText(/no dst players in this tier list/i)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /show all positions/i })).toBeInTheDocument();
+      // The QB tier group must be gone while DST is selected.
+      expect(screen.queryByText("Solo Quarterback")).not.toBeInTheDocument();
+    });
+
+    it("clicking 'Show all positions' resets to ALL and repopulates the list", async () => {
+      render(<TiersPanel result={qbOnlyResponse} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /^dst$/i }));
+      expect(screen.getByText(/no dst players in this tier list/i)).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: /show all positions/i }));
+
+      // Back to the ALL view: the QB player and its overall tier group reappear,
+      // and the empty-state message is gone.
+      expect(screen.queryByText(/no dst players in this tier list/i)).not.toBeInTheDocument();
+      expect(screen.getByText("Solo Quarterback")).toBeInTheDocument();
+      expect(screen.getByText(/^Tier 1$/)).toBeInTheDocument();
+    });
+
+    it("does not show the empty-state message in the ALL view even when a list is empty", () => {
+      // The guard only fires for a position filter, never for ALL — an empty ALL
+      // list is a different (upstream) condition and keeps the existing render path.
+      // Render a genuinely empty players list under the default ALL filter so the
+      // assertion actually exercises the `filter === "ALL"` branch of the guard:
+      // groupedByTier is empty here, yet the empty-state message must stay hidden.
+      render(<TiersPanel result={emptyResponse} isPending={false} onDownloadXlsx={() => {}} />);
+      expect(screen.queryByText(/players in this tier list/i)).not.toBeInTheDocument();
+    });
+  });
+
   describe("debug CSV button", () => {
     it("is hidden when debugMode is falsy", () => {
       render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
@@ -239,6 +413,73 @@ describe("TiersPanel", () => {
     });
   });
 
+  describe("staleness banner", () => {
+    const STALE_TEXT = /settings changed since this list was generated/i;
+
+    it("does not show the banner when isStale is falsy (default)", () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      expect(screen.queryByText(STALE_TEXT)).not.toBeInTheDocument();
+    });
+
+    it("does not show the banner before the first generate (empty state)", () => {
+      render(<TiersPanel result={null} isPending={false} onDownloadXlsx={() => {}} isStale={true} />);
+      expect(screen.queryByText(STALE_TEXT)).not.toBeInTheDocument();
+      // Empty-state copy still shows.
+      expect(screen.getByText(/click generate/i)).toBeInTheDocument();
+    });
+
+    it("does not show the banner while a (re)generate is pending", () => {
+      render(<TiersPanel result={null} isPending={true} onDownloadXlsx={() => {}} isStale={true} />);
+      expect(screen.queryByText(STALE_TEXT)).not.toBeInTheDocument();
+      expect(screen.getByText(/generating/i)).toBeInTheDocument();
+    });
+
+    it("shows the banner when isStale is true and a result exists", () => {
+      render(
+        <TiersPanel
+          result={response}
+          isPending={false}
+          onDownloadXlsx={() => {}}
+          isStale={true}
+          canRegenerate={true}
+        />,
+      );
+      expect(screen.getByText(STALE_TEXT)).toBeInTheDocument();
+    });
+
+    it("calls onRegenerate when the banner's Generate button is clicked", async () => {
+      const onRegenerate = vi.fn();
+      render(
+        <TiersPanel
+          result={response}
+          isPending={false}
+          onDownloadXlsx={() => {}}
+          isStale={true}
+          canRegenerate={true}
+          onRegenerate={onRegenerate}
+        />,
+      );
+      const banner = screen.getByRole("status");
+      const user = userEvent.setup();
+      await user.click(within(banner).getByRole("button", { name: /^generate$/i }));
+      expect(onRegenerate).toHaveBeenCalledTimes(1);
+    });
+
+    it("disables the banner's Generate button when canRegenerate is false", () => {
+      render(
+        <TiersPanel
+          result={response}
+          isPending={false}
+          onDownloadXlsx={() => {}}
+          isStale={true}
+          canRegenerate={false}
+        />,
+      );
+      const banner = screen.getByRole("status");
+      expect(within(banner).getByRole("button", { name: /^generate$/i })).toBeDisabled();
+    });
+  });
+
   describe("draft mode", () => {
     it("does not show the draft toggle button on player rows until Draft Mode is on", () => {
       render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
@@ -294,20 +535,92 @@ describe("TiersPanel", () => {
       expect(nameEl.className).not.toContain("line-through");
     });
 
-    it("Reset Draft clears all drafted players", async () => {
-      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
-      const user = userEvent.setup();
-      await user.click(screen.getByRole("switch", { name: /draft mode/i }));
-      await user.click(screen.getByRole("button", { name: /mark ja'marr chase as drafted/i }));
-      await user.click(screen.getByRole("button", { name: /mark bijan robinson as drafted/i }));
-      expect(screen.getByText(/2 drafted/i)).toBeInTheDocument();
+    it("Reset Draft clears all drafted players once the confirmation is accepted", async () => {
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+      try {
+        render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+        const user = userEvent.setup();
+        await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+        await user.click(screen.getByRole("button", { name: /mark ja'marr chase as drafted/i }));
+        await user.click(screen.getByRole("button", { name: /mark bijan robinson as drafted/i }));
+        expect(screen.getByText(/2 drafted/i)).toBeInTheDocument();
 
-      await user.click(screen.getByRole("button", { name: /^reset draft$/i }));
-      // Header suffix now reads "0 drafted" (still in Draft Mode), not "2 drafted".
-      expect(screen.getByText(/0 drafted/i)).toBeInTheDocument();
-      expect(screen.queryByText(/2 drafted/i)).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /mark ja'marr chase as drafted/i })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /mark bijan robinson as drafted/i })).toBeInTheDocument();
+        await user.click(screen.getByRole("button", { name: /^reset draft$/i }));
+
+        // The confirmation names the count of players about to be wiped.
+        expect(confirmSpy).toHaveBeenCalledWith(
+          expect.stringMatching(/clear all 2 drafted players for this board\? this can't be undone\./i),
+        );
+        // Header suffix now reads "0 drafted" (still in Draft Mode), not "2 drafted".
+        expect(screen.getByText(/0 drafted/i)).toBeInTheDocument();
+        expect(screen.queryByText(/2 drafted/i)).not.toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /mark ja'marr chase as drafted/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /mark bijan robinson as drafted/i })).toBeInTheDocument();
+      } finally {
+        confirmSpy.mockRestore();
+      }
+    });
+
+    it("Reset Draft keeps the drafted players when the confirmation is cancelled", async () => {
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+      try {
+        render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+        const user = userEvent.setup();
+        await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+        await user.click(screen.getByRole("button", { name: /mark ja'marr chase as drafted/i }));
+        await user.click(screen.getByRole("button", { name: /mark bijan robinson as drafted/i }));
+        expect(screen.getByText(/2 drafted/i)).toBeInTheDocument();
+
+        await user.click(screen.getByRole("button", { name: /^reset draft$/i }));
+
+        expect(confirmSpy).toHaveBeenCalledTimes(1);
+        // Cancelling leaves the board untouched — the picks survive. Drafting
+        // both of Tier 1's players auto-collapses that tier (#666), so confirm
+        // the picks persisted via the count and the Drafted section rather than
+        // the now-hidden player rows.
+        expect(screen.getByText(/2 drafted/i)).toBeInTheDocument();
+        const draftedSection = screen.getByText("Drafted (2)").closest("details")!;
+        expect(within(draftedSection).getByText("Ja'Marr Chase")).toBeInTheDocument();
+        expect(within(draftedSection).getByText("Bijan Robinson")).toBeInTheDocument();
+      } finally {
+        confirmSpy.mockRestore();
+      }
+    });
+
+    it("Reset Draft with nothing drafted no-ops without prompting for confirmation", async () => {
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+      try {
+        render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+        const user = userEvent.setup();
+        await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+        expect(screen.getByText(/0 drafted/i)).toBeInTheDocument();
+
+        await user.click(screen.getByRole("button", { name: /^reset draft$/i }));
+
+        // Nothing to lose → no confirmation dialog, no state change.
+        expect(confirmSpy).not.toHaveBeenCalled();
+        expect(screen.getByText(/0 drafted/i)).toBeInTheDocument();
+      } finally {
+        confirmSpy.mockRestore();
+      }
+    });
+
+    it("the Reset Draft confirmation copy is singular when exactly one player is drafted", async () => {
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+      try {
+        render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+        const user = userEvent.setup();
+        await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+        await user.click(screen.getByRole("button", { name: /mark ja'marr chase as drafted/i }));
+
+        await user.click(screen.getByRole("button", { name: /^reset draft$/i }));
+
+        expect(confirmSpy).toHaveBeenCalledWith(
+          expect.stringMatching(/clear all 1 drafted player for this board\?/i),
+        );
+      } finally {
+        confirmSpy.mockRestore();
+      }
     });
 
     it("the available-count badge for Tier 1 drops from 2 to 1 after drafting one of its players", async () => {
@@ -366,6 +679,149 @@ describe("TiersPanel", () => {
       expect(
         screen.getByRole("button", { name: /mark ja'marr chase as available/i }),
       ).toBeInTheDocument();
+    });
+  });
+
+  describe("auto-collapse fully-drafted tiers (#666)", () => {
+    const draftTier1 = async (user: ReturnType<typeof userEvent.setup>) => {
+      // Tier 1 in the fixture is Ja'Marr Chase + Bijan Robinson — draft both to
+      // empty the tier of available players.
+      await user.click(screen.getByRole("button", { name: /mark ja'marr chase as drafted/i }));
+      await user.click(screen.getByRole("button", { name: /mark bijan robinson as drafted/i }));
+    };
+
+    it("shows no tier collapse affordance when Draft Mode is off", () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      // The tier header is plain, non-interactive text with no expand/collapse control.
+      expect(
+        screen.queryByRole("button", { name: /(collapse|expand) tier 1/i }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("makes each tier header a collapse toggle exposing aria-expanded once Draft Mode is on", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+
+      const header = screen.getByRole("button", { name: /collapse tier 1/i });
+      // Tiers with available players start expanded.
+      expect(header).toHaveAttribute("aria-expanded", "true");
+    });
+
+    it("auto-collapses a tier once its last available player is drafted", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+      await draftTier1(user);
+
+      // Header now advertises the collapsed state...
+      const header = screen.getByRole("button", { name: /expand tier 1/i });
+      expect(header).toHaveAttribute("aria-expanded", "false");
+      // ...and the dead drafted rows are removed from the tier so they stop
+      // pushing the next available tier off-screen.
+      expect(
+        screen.queryByRole("button", { name: /mark ja'marr chase as available/i }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /mark bijan robinson as available/i }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("keeps a tier with remaining available players expanded", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+
+      // Draft only one of Tier 1's two players — one is still available.
+      await user.click(screen.getByRole("button", { name: /mark ja'marr chase as drafted/i }));
+
+      expect(screen.getByRole("button", { name: /collapse tier 1/i })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+      expect(
+        screen.getByRole("button", { name: /mark bijan robinson as drafted/i }),
+      ).toBeInTheDocument();
+    });
+
+    it("auto-expands a collapsed tier when a player is undrafted back into it", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+      await draftTier1(user);
+      expect(screen.getByRole("button", { name: /expand tier 1/i })).toBeInTheDocument();
+
+      // The rows are hidden, so undraft via the collapsible Drafted section.
+      const draftedSection = screen.getByText(/^Drafted \(/).closest("details")!;
+      await user.click(within(draftedSection).getByText("Ja'Marr Chase"));
+
+      // Tier re-expands and the reinstated player's row is visible again.
+      expect(screen.getByRole("button", { name: /collapse tier 1/i })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+      expect(
+        screen.getByRole("button", { name: /mark ja'marr chase as drafted/i }),
+      ).toBeInTheDocument();
+    });
+
+    it("lets the user manually expand an auto-collapsed tier via the header toggle", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+      await draftTier1(user);
+
+      await user.click(screen.getByRole("button", { name: /expand tier 1/i }));
+
+      // Manual expand reveals the (drafted) rows without changing draft state.
+      expect(screen.getByRole("button", { name: /collapse tier 1/i })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+      expect(
+        screen.getByRole("button", { name: /mark ja'marr chase as available/i }),
+      ).toBeInTheDocument();
+    });
+
+    it("resets collapse state when Draft Mode is turned off and on again", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      const toggle = screen.getByRole("switch", { name: /draft mode/i });
+      await user.click(toggle);
+      await draftTier1(user);
+
+      // Manually override the auto-collapse to expanded...
+      await user.click(screen.getByRole("button", { name: /expand tier 1/i }));
+      expect(screen.getByRole("button", { name: /collapse tier 1/i })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+
+      // ...then leave and re-enter Draft Mode. The manual override is forgotten
+      // and the still-fully-drafted tier auto-collapses again.
+      await user.click(toggle); // off
+      await user.click(toggle); // on
+      expect(screen.getByRole("button", { name: /expand tier 1/i })).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
+    });
+
+    it("auto-collapses an already-fully-drafted tier the moment Draft Mode is switched on", async () => {
+      // Seed a persisted board where all of Tier 1 is already drafted, then
+      // enter Draft Mode — the tier should come up collapsed with no toggling.
+      localStorage.setItem(
+        "autotiers_draft:default:standard",
+        JSON.stringify(["6794", "8112"]),
+      );
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("switch", { name: /draft mode/i }));
+
+      expect(screen.getByRole("button", { name: /expand tier 1/i })).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
     });
   });
 });

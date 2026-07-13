@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { YahooConnectForm } from "@/components/YahooConnectForm";
@@ -104,6 +104,52 @@ describe("YahooConnectForm", () => {
       });
       expect(mockLinked).toHaveBeenCalledWith(fakeResult);
     });
+  });
+
+  it("Connect is a submit button inside a form so it participates in form submission (issue #641)", async () => {
+    vi.spyOn(linkedLeagueApi, "listYahooLeagues").mockResolvedValue([
+      { league_key: "423.l.1", name: "My League", season: 2024, num_teams: 12 },
+    ]);
+
+    render(
+      <YahooConnectForm profile={baseProfile} user={baseUser} onLinked={vi.fn()} onRefresh={vi.fn()} />,
+    );
+
+    await waitFor(() => screen.getByText("My League (2024)"));
+    const connect = screen.getByRole("button", { name: /^connect$/i });
+    expect(connect).toHaveAttribute("type", "submit");
+    expect(connect.closest("form")).not.toBeNull();
+  });
+
+  it("submitting the picker form calls connectYahoo for the chosen league", async () => {
+    const fakeResult = {
+      linked_league: {
+        profile_id: "prof-1",
+        provider: "yahoo" as const,
+        league_id: "423.l.1",
+        league_metadata_json: { name: "My League", season: 2024 },
+        keepers_json: null,
+        adp_json: null,
+        last_synced_at: "",
+      },
+      profile: baseProfile,
+    };
+    vi.spyOn(linkedLeagueApi, "listYahooLeagues").mockResolvedValue([
+      { league_key: "423.l.1", name: "My League", season: 2024, num_teams: 12 },
+    ]);
+    const connectSpy = vi.spyOn(linkedLeagueApi, "connectYahoo").mockResolvedValue(fakeResult);
+
+    render(
+      <YahooConnectForm profile={baseProfile} user={baseUser} onLinked={vi.fn()} onRefresh={vi.fn()} />,
+    );
+
+    await waitFor(() => screen.getByText("My League (2024)"));
+    const form = screen.getByRole("button", { name: /^connect$/i }).closest("form")!;
+    fireEvent.submit(form);
+
+    await waitFor(() =>
+      expect(connectSpy).toHaveBeenCalledWith("prof-1", { league_key: "423.l.1", season: 2024 }),
+    );
   });
 
   it("shows connected state when league is linked", async () => {
@@ -320,5 +366,63 @@ describe("YahooConnectForm", () => {
     await waitFor(() =>
       expect(screen.getByText(/no yahoo fantasy nfl leagues found/i)).toBeInTheDocument(),
     );
+  });
+
+  // --- Account-link status stated independently of league link (issue #522) ---
+
+  it("states the OAuth account-link status in the picker, separate from any league link", async () => {
+    vi.spyOn(linkedLeagueApi, "listYahooLeagues").mockResolvedValue([
+      { league_key: "423.l.1", name: "My League", season: 2024, num_teams: 12 },
+    ]);
+
+    render(
+      <YahooConnectForm profile={baseProfile} user={baseUser} onLinked={vi.fn()} onRefresh={vi.fn()} />,
+    );
+
+    await waitFor(() => screen.getByText("My League (2024)"));
+    expect(
+      screen.getByText(/yahoo account linked as test@example\.com — choose a league below/i),
+    ).toBeInTheDocument();
+  });
+
+  it("states account-link status even when no leagues are found", async () => {
+    vi.spyOn(linkedLeagueApi, "listYahooLeagues").mockResolvedValue([]);
+
+    render(
+      <YahooConnectForm profile={baseProfile} user={baseUser} onLinked={vi.fn()} onRefresh={vi.fn()} />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText(/no yahoo fantasy nfl leagues found/i)).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/yahoo account linked as test@example\.com/i)).toBeInTheDocument();
+  });
+
+  it("falls back to a generic account-link note when the email is unknown", async () => {
+    vi.spyOn(linkedLeagueApi, "listYahooLeagues").mockResolvedValue([
+      { league_key: "423.l.1", name: "My League", season: 2024, num_teams: 12 },
+    ]);
+
+    render(
+      <YahooConnectForm
+        profile={baseProfile}
+        user={{ ...baseUser, email: null }}
+        onLinked={vi.fn()}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => screen.getByText("My League (2024)"));
+    expect(screen.getByText(/yahoo account linked — choose a league below/i)).toBeInTheDocument();
+  });
+
+  it("names the linked Yahoo account in the fantasy-authorize prompt", () => {
+    const user: User = { ...baseUser, yahoo_fantasy_connected: false };
+
+    render(
+      <YahooConnectForm profile={baseProfile} user={user} onLinked={vi.fn()} onRefresh={vi.fn()} />,
+    );
+
+    expect(screen.getByText(/linked for sign-in as test@example\.com/i)).toBeInTheDocument();
   });
 });

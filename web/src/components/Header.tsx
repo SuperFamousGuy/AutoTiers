@@ -15,13 +15,13 @@ import type { PositionRulesState } from "@/api/types";
 interface HamburgerProps {
   currentState: { settings: SettingsState; rules: PositionRulesState } | null;
   onOpenLinkedAccounts?: () => void;
-  activeProfileName?: string | null;
+  mobileProfileMenu?: React.ReactNode;
   isDark?: boolean;
   onToggleDark?: () => void;
   onShowOnboarding?: () => void;
 }
 
-function HamburgerMenu({ currentState, onOpenLinkedAccounts, activeProfileName, isDark, onToggleDark, onShowOnboarding }: HamburgerProps) {
+function HamburgerMenu({ currentState, onOpenLinkedAccounts, mobileProfileMenu, isDark, onToggleDark, onShowOnboarding }: HamburgerProps) {
   const { user, logout } = useAuth();
   const [authOpen, setAuthOpen] = useState(false);
   const [favoritesOpen, setFavoritesOpen] = useState(false);
@@ -41,12 +41,9 @@ function HamburgerMenu({ currentState, onOpenLinkedAccounts, activeProfileName, 
               <DropdownMenuItem disabled>
                 {user.email ?? (user.google_subject ? "Google account" : "Yahoo account")}
               </DropdownMenuItem>
-              {activeProfileName && (
-                <DropdownMenuItem disabled className="lg:hidden">
-                  Profile: {activeProfileName}
-                </DropdownMenuItem>
-              )}
               <DropdownMenuSeparator />
+              {/* Profile switch/create/manage — mobile only; desktop uses ProfilePicker (#499). */}
+              {mobileProfileMenu}
               <DropdownMenuItem onSelect={() => onOpenLinkedAccounts?.()}>
                 Connect Your League
               </DropdownMenuItem>
@@ -100,21 +97,21 @@ interface HeaderProps {
   isDark: boolean;
   onToggleDark: () => void;
   onShowOnboarding?: () => void;
-  activeProfileName?: string | null;
+  mobileProfileMenu?: React.ReactNode;
 }
 
 export function Header({
-  generateDisabled, generateIsPending, onGenerate, currentState, profilePicker, onOpenLinkedAccounts, isDark, onToggleDark, onShowOnboarding, activeProfileName,
+  generateDisabled, generateIsPending, onGenerate, currentState, profilePicker, onOpenLinkedAccounts, isDark, onToggleDark, onShowOnboarding, mobileProfileMenu,
 }: HeaderProps) {
   return (
     <header className="flex items-center justify-between border-b bg-card px-4 py-3 lg:px-6 lg:py-4">
-      <div className="flex items-center gap-6">
+      <div className="flex items-center gap-3 lg:gap-6">
         <h1 className="flex h-8 items-center text-2xl text-foreground">
           <Logo className="h-full" />
         </h1>
-        <span className="hidden lg:inline">
-          <DataFreshness />
-        </span>
+        {/* Visible at every width — compact on mobile, full-text on desktop — so
+            draft-day users on a phone can still see whether projections are current. */}
+        <DataFreshness />
       </div>
       <div className="flex items-center gap-3">
         <div className="hidden lg:flex lg:items-center lg:gap-2">
@@ -136,7 +133,7 @@ export function Header({
         <HamburgerMenu
           currentState={currentState}
           onOpenLinkedAccounts={onOpenLinkedAccounts}
-          activeProfileName={activeProfileName}
+          mobileProfileMenu={mobileProfileMenu}
           isDark={isDark}
           onToggleDark={onToggleDark}
           onShowOnboarding={onShowOnboarding}

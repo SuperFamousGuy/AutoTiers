@@ -50,10 +50,33 @@ describe("positionRulesMap", () => {
     }
   });
 
-  it("370 Touches does not appear in any position tab (hidden by design)", () => {
+  it("370 Touches age bands do not appear in any position tab (hidden by design)", () => {
+    const hidden = [
+      "370 Touches",
+      "370 Touches (Young RB)",
+      "370 Touches (Veteran RB)",
+    ];
     for (const pos of POSITIONS) {
-      expect(POSITION_RULES_MAP[pos]).not.toContain("370 Touches");
+      for (const name of hidden) {
+        expect(POSITION_RULES_MAP[pos]).not.toContain(name);
+      }
     }
+  });
+
+  it("TE Year-3 Leap appears only in the TE tab (issue #575)", () => {
+    expect(POSITION_RULES_MAP["TE"]).toContain("TE Year-3 Leap");
+    expect(POSITION_RULES_MAP["QB"]).not.toContain("TE Year-3 Leap");
+    expect(POSITION_RULES_MAP["RB"]).not.toContain("TE Year-3 Leap");
+    expect(POSITION_RULES_MAP["WR"]).not.toContain("TE Year-3 Leap");
+    expect(POSITION_RULES_MAP["K"]).not.toContain("TE Year-3 Leap");
+    expect(POSITION_RULES_MAP["DST"]).not.toContain("TE Year-3 Leap");
+  });
+
+  it("Sophomore Leap no longer appears in the TE tab (moved to TE Year-3 Leap)", () => {
+    expect(POSITION_RULES_MAP["TE"]).not.toContain("Sophomore Leap");
+    // WR/QB still carry the Year-2 Sophomore Leap.
+    expect(POSITION_RULES_MAP["WR"]).toContain("Sophomore Leap");
+    expect(POSITION_RULES_MAP["QB"]).toContain("Sophomore Leap");
   });
 
   it("Declining Snap% appears in RB, WR, TE but not QB, K, DST", () => {

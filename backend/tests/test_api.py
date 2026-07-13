@@ -69,6 +69,35 @@ async def test_health(async_client):
     assert resp.json() == {"status": "ok"}
 
 
+def test_app_uses_orjson_default_response_class():
+    """#581: the app is wired to serialize responses via ORJSONResponse.
+
+    This locks in the response-boundary serialization win — if someone drops the
+    default_response_class back to the stdlib-json default, this fails.
+    """
+    from fastapi.responses import ORJSONResponse
+    from app.main import app
+
+    assert app.router.default_response_class is ORJSONResponse
+
+
+async def test_generate_response_is_json_content_type(async_client, test_db):
+    """#581: switching to ORJSONResponse must not change the content-type or body.
+
+    ORJSONResponse advertises the same application/json media type, so existing
+    clients see an identical contract; the body must still parse to the expected
+    payload.
+    """
+    await _seed(test_db)
+    resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
+    assert resp.status_code == 200
+    # Assert the media type only; frameworks may append parameters such as
+    # "; charset=utf-8", so exact string equality would be brittle across versions.
+    assert resp.headers["content-type"].split(";")[0].strip() == "application/json"
+    # Body is still valid JSON with the unchanged shape.
+    assert resp.json()["total"] == 3
+
+
 async def test_generate_returns_all_players(async_client, test_db):
     await _seed(test_db)
     resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
@@ -108,9 +137,10 @@ async def test_generate_negative_weight_returns_422(async_client):
     assert resp.status_code == 422
 
 
-def test_370_touches_categorized_as_regression():
+def test_370_touches_bands_categorized_as_regression():
     from app.api.rules import _categorize
-    assert _categorize("370 Touches") == "Regression"
+    assert _categorize("370 Touches (Young RB)") == "Regression"
+    assert _categorize("370 Touches (Veteran RB)") == "Regression"
 
 
 def test_year_after_categorized_as_regression():
@@ -147,12 +177,14 @@ async def test_generate_computes_prior_touches_for_rbs(async_client, test_db):
                            scoring_format="ppr", projected_points=290.0, last_updated=date.today()))
     await test_db.commit()
 
-    body = {**_GENERATE_BODY, "rules": {"RB": [{"name": "370 Touches", "enabled": True, "weight": 1.0}]}}
+    # The seeded RB is age 26 (rush_att 300 + receptions 80 = 380 touches),
+    # so the young age band should fire.
+    body = {**_GENERATE_BODY, "rules": {"RB": [{"name": "370 Touches (Young RB)", "enabled": True, "weight": 1.0}]}}
     resp = await async_client.post("/api/generate", json=body)
     assert resp.status_code == 200
     players = resp.json()["players"]
     workhorse = next(p for p in players if p["player_id"] == "test-workhorse")
-    assert "370 Touches" in workhorse["rules_applied"]
+    assert "370 Touches (Young RB)" in workhorse["rules_applied"]
 
 
 async def test_generate_computes_injured_two_years_ago_for_rb(async_client, test_db):
@@ -369,6 +401,132 @@ async def test_generate_data_as_of_uses_minimum_last_updated(async_client, test_
     assert resp.status_code == 200
     body = resp.json()
     assert body["data_as_of"].startswith("2026-05-15")  # the espn last_updated
+    # All sources succeeded -> nothing flagged as never-succeeded (#547).
+    assert body["never_succeeded"] == []
+
+
+@pytest.mark.asyncio
+async def test_generate_surfaces_never_succeeded_source(async_client, test_db):
+    """A source attempted but never once successful is surfaced distinctly (#547).
+
+    data_as_of still reflects only the healthy sources; the dead source is not
+    silently dropped but reported in never_succeeded so the frontend can warn.
+    """
+    test_db.add(DataSourceStatus(
+        source="sleeper",
+        last_updated=datetime(2026, 5, 20, 3, 0, 0),
+        last_attempted=datetime(2026, 5, 20, 3, 0, 0),
+        last_error=None, rows_upserted=1500,
+    ))
+    # Attempted every night but has NEVER succeeded: last_updated stays NULL.
+    test_db.add(DataSourceStatus(
+        source="cbs",
+        last_updated=None,
+        last_attempted=datetime(2026, 5, 20, 3, 0, 0),
+        last_error="HTTP 401", rows_upserted=0,
+    ))
+    await _seed(test_db)
+
+    resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
+    assert resp.status_code == 200
+    body = resp.json()
+    # data_as_of semantics unchanged: only the healthy source counts.
+    assert body["data_as_of"].startswith("2026-05-20")
+    assert body["never_succeeded"] == ["cbs"]
+
+
+@pytest.mark.asyncio
+async def test_compute_never_succeeded_flags_only_never_updated(test_db):
+    """Unit: helper reports the never-succeeded source, ignoring healthy ones."""
+    from app.api.generate import _compute_never_succeeded
+
+    test_db.add(DataSourceStatus(
+        source="espn",
+        last_updated=datetime(2026, 5, 20, 3, 0, 0),
+        last_attempted=datetime(2026, 5, 20, 3, 0, 0),
+        last_error=None, rows_upserted=600,
+    ))
+    test_db.add(DataSourceStatus(
+        source="cbs",
+        last_updated=None,
+        last_attempted=datetime(2026, 5, 20, 3, 0, 0),
+        last_error="boom", rows_upserted=0,
+    ))
+    await test_db.commit()
+
+    assert await _compute_never_succeeded(test_db) == ["cbs"]
+
+
+@pytest.mark.asyncio
+async def test_compute_never_succeeded_ignores_retired_sources(test_db):
+    """Retired sources (#402) are not surfaced as live failures (#547)."""
+    from app.api.generate import _compute_never_succeeded
+    from app.data.status import RETIRED_SOURCES
+
+    retired = RETIRED_SOURCES[0]
+    test_db.add(DataSourceStatus(
+        source=retired,
+        last_updated=None,
+        last_attempted=datetime(2026, 5, 20, 3, 0, 0),
+        last_error="gone", rows_upserted=0,
+    ))
+    await test_db.commit()
+
+    assert await _compute_never_succeeded(test_db) == []
+
+
+@pytest.mark.asyncio
+async def test_compute_data_as_of_ignores_retired_sources(test_db):
+    """A retired source's stale row must not win the data_as_of min() (#579).
+
+    Mirrors ``test_compute_never_succeeded_ignores_retired_sources``: a retired
+    source can linger with an old ``last_updated`` if a scheduler outage spans
+    its retirement (``purge_retired_status`` never got to delete it). That old
+    date must not surface in the banner over the live sources' fresher data.
+    """
+    from app.api.generate import _compute_data_as_of
+    from app.data.status import RETIRED_SOURCES
+
+    retired = RETIRED_SOURCES[0]
+    # Retired source has the OLDEST last_updated — it would win a naive min().
+    test_db.add(DataSourceStatus(
+        source=retired,
+        last_updated=datetime(2026, 1, 1, 3, 0, 0),
+        last_attempted=datetime(2026, 1, 1, 3, 0, 0),
+        last_error=None, rows_upserted=100,
+    ))
+    test_db.add(DataSourceStatus(
+        source="sleeper",
+        last_updated=datetime(2026, 5, 20, 3, 0, 0),
+        last_attempted=datetime(2026, 5, 20, 3, 0, 0),
+        last_error=None, rows_upserted=1500,
+    ))
+    await test_db.commit()
+
+    # The live source wins; the retired source's older date is excluded.
+    assert await _compute_data_as_of(test_db) == "2026-05-20"
+
+
+@pytest.mark.asyncio
+async def test_compute_data_as_of_min_across_non_retired(test_db):
+    """Non-retired behavior unchanged: the oldest live source still wins (#579)."""
+    from app.api.generate import _compute_data_as_of
+
+    test_db.add(DataSourceStatus(
+        source="sleeper",
+        last_updated=datetime(2026, 5, 20, 3, 0, 0),
+        last_attempted=datetime(2026, 5, 20, 3, 0, 0),
+        last_error=None, rows_upserted=1500,
+    ))
+    test_db.add(DataSourceStatus(
+        source="fantasypros",
+        last_updated=datetime(2026, 5, 12, 3, 0, 0),  # oldest live source
+        last_attempted=datetime(2026, 5, 12, 3, 0, 0),
+        last_error=None, rows_upserted=580,
+    ))
+    await test_db.commit()
+
+    assert await _compute_data_as_of(test_db) == "2026-05-12"
 
 
 @pytest.mark.asyncio
@@ -454,6 +612,62 @@ async def test_generate_guarantees_position_coverage(async_client, test_db):
 
 
 @pytest.mark.asyncio
+async def test_generate_cap_fill_ranks_remaining_budget_by_vbd_not_raw(async_client, test_db):
+    """#557: the cross-position "remaining budget" fill must rank on VBD, not raw score.
+
+    Synthetic pool: 30 QBs with structurally higher raw scores but *lower* VBD, and
+    30 RBs with lower raw scores but *higher* VBD. Per-position floor takes the top 20
+    of each (40 total); the remaining 10 cap slots are contested by QB21-30 vs RB21-30.
+
+    On raw score the QBs win every remaining slot (they out-score every RB), so a
+    raw-ranked fill would return 30 QB / 20 RB. On VBD the RBs win, because QB totals
+    run structurally higher than replacement while these marginal RBs still sit near/above
+    their replacement rank. The fix must therefore preferentially fill with the RBs.
+    """
+    from app.models import Player, Projection
+    from datetime import date
+
+    # QBs: raw 380 -> 351 (flat, high). QB replacement ~ QB7 (round(10*0.67)) => VBD < 0 for the tail.
+    # RBs: raw 300 -> 242 (steeper). RB replacement ~ RB25 (round(10*2.5)) => tail VBD near 0, above the QBs'.
+    seed_data = (
+        [(f"qb_{i}", "QB", 380.0 - i) for i in range(30)]
+        + [(f"rb_{i}", "RB", 300.0 - i * 2) for i in range(30)]
+    )
+    for pid, pos, _ in seed_data:
+        test_db.add(Player(id=pid, name=pid, position=pos, team="DAL"))
+    await test_db.commit()
+    for pid, _, pts in seed_data:
+        # weight_consensus=1.0 drives the scores below, so seed a consensus
+        # source. "espn" is intentionally excluded from the consensus average
+        # (it blends via its own weight_espn term — see _CONSENSUS_EXCLUDED_SOURCES
+        # / #549), so an espn-only seed would score to nothing here and collapse
+        # the VBD ordering this test exercises.
+        test_db.add(Projection(
+            player_id=pid, source="fantasypros", scoring_format="ppr",
+            projected_points=pts, last_updated=date.today(),
+        ))
+    await test_db.commit()
+
+    payload = {
+        "scoring_format": "ppr", "league_type": "standard", "league_size": 10,
+        "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
+        "bonus_first_downs": False, "weight_prior_year": 0.0, "weight_espn": 0.0,
+        "weight_consensus": 1.0, "draft_rounds": 5, "rules": {},
+    }
+    resp = await async_client.post("/api/generate", json=payload)
+    assert resp.status_code == 200
+    body = resp.json()
+
+    # Floor = 10*2 = 20 per position => 20 QB + 20 RB = 40. Cap = 10*5 = 50 => 10 remaining slots.
+    assert body["total"] == 50
+    positions = [p["position"] for p in body["players"]]
+    # Every raw QB out-scores every RB, so a raw-ranked fill would give the 10 slots to QBs
+    # (30 QB / 20 RB). VBD gives them to the RBs instead.
+    assert positions.count("RB") == 30, f"Expected 30 RBs (higher VBD), got {positions.count('RB')}"
+    assert positions.count("QB") == 20, f"Expected 20 QBs (lower VBD), got {positions.count('QB')}"
+
+
+@pytest.mark.asyncio
 async def test_generate_validates_draft_rounds_range(async_client):
     """draft_rounds must be 1-30; values outside that range return 422."""
     base_payload = {
@@ -498,6 +712,53 @@ async def test_generate_validates_prior_year_games_knobs(async_client):
     assert resp.status_code == 200
     # Defaults (omit both) still work -> behaviour unchanged when unset
     resp = await async_client.post("/api/generate", json=base_payload)
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_generate_validates_te_premium_bonus(async_client):
+    """#525: te_premium_bonus must be within [0.0, 2.0]; omitting it defaults to off."""
+    base_payload = {
+        "scoring_format": "ppr", "league_type": "standard", "league_size": 12,
+        "qb_td_points": 4.0, "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
+        "bonus_first_downs": False, "weight_prior_year": 0.40, "weight_espn": 0.30,
+        "weight_consensus": 0.30, "rules": {},
+    }
+    # Below range -> 422
+    resp = await async_client.post("/api/generate", json={**base_payload, "te_premium_bonus": -0.5})
+    assert resp.status_code == 422
+    # Above range -> 422
+    resp = await async_client.post("/api/generate", json={**base_payload, "te_premium_bonus": 2.5})
+    assert resp.status_code == 422
+    # In-range value accepted
+    resp = await async_client.post("/api/generate", json={**base_payload, "te_premium_bonus": 1.0})
+    assert resp.status_code == 200
+    # Omitting it (default 0.0) still works
+    resp = await async_client.post("/api/generate", json=base_payload)
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_generate_rejects_out_of_range_qb_td_points(async_client):
+    """#582: qb_td_points must be within [0.0, 10.0]; boundaries accepted, else 422."""
+    base_payload = {
+        "scoring_format": "ppr", "league_type": "standard", "league_size": 12,
+        "bonus_100yd_rushing": False, "bonus_100yd_receiving": False,
+        "bonus_first_downs": False, "weight_prior_year": 0.40, "weight_espn": 0.30,
+        "weight_consensus": 0.30, "rules": {},
+    }
+    # Below range -> 422 naming qb_td_points
+    resp = await async_client.post("/api/generate", json={**base_payload, "qb_td_points": -1})
+    assert resp.status_code == 422
+    assert any("qb_td_points" in err["loc"] for err in resp.json()["detail"])
+    # Above range -> 422
+    resp = await async_client.post("/api/generate", json={**base_payload, "qb_td_points": 11})
+    assert resp.status_code == 422
+    assert any("qb_td_points" in err["loc"] for err in resp.json()["detail"])
+    # Boundary values accepted and produce output
+    resp = await async_client.post("/api/generate", json={**base_payload, "qb_td_points": 0})
+    assert resp.status_code == 200
+    resp = await async_client.post("/api/generate", json={**base_payload, "qb_td_points": 10})
     assert resp.status_code == 200
 
 
@@ -564,33 +825,44 @@ async def test_generate_validates_qb_starters(async_client):
 
 @pytest.mark.asyncio
 async def test_over_the_hill_position_aware_thresholds(async_client, test_db):
-    """is_over_the_hill should be position-aware: 28 for RB, 31 for WR, 31 for TE, 36 for QB, 40 for K."""
-    from app.models import Player, Projection
+    """is_over_the_hill is position-aware (RB 28, WR 31, TE 31, K 40) and, for QB,
+    rushing-volume-conditioned: mobile QBs (60+ prior rush att) at 31, pocket at 38 (#576)."""
+    from app.models import Player, Projection, PlayerStat
     from datetime import date
 
     cases = [
-        # (id, position, age, expect_over_the_hill_applied)
-        ("rb_27", "RB", 27, False),  # under threshold
-        ("rb_28", "RB", 28, True),   # at threshold
-        ("wr_29", "WR", 29, False),
-        ("wr_30", "WR", 30, False),  # 30-yo WR no longer over the hill (threshold raised to 31)
-        ("wr_31", "WR", 31, True),   # 31-yo WR is at the new threshold
-        ("te_30", "TE", 30, False),
-        ("te_31", "TE", 31, True),
-        ("qb_35", "QB", 35, False),
-        ("qb_36", "QB", 36, True),
-        ("k_39",  "K",  39, False),  # K under threshold (threshold is 40)
-        ("k_40",  "K",  40, True),   # K at threshold
-        ("rb_no_age", "RB", None, False),  # missing age
+        # (id, position, age, prior_rush_att, expect_over_the_hill_applied)
+        ("rb_27", "RB", 27, None, False),  # under threshold
+        ("rb_28", "RB", 28, None, True),   # at threshold
+        ("wr_29", "WR", 29, None, False),
+        ("wr_30", "WR", 30, None, False),  # 30-yo WR no longer over the hill (threshold raised to 31)
+        ("wr_31", "WR", 31, None, True),   # 31-yo WR is at the new threshold
+        ("te_30", "TE", 30, None, False),
+        ("te_31", "TE", 31, None, True),
+        # QB pocket passers (low / no rushing volume) — cliff is now 38.
+        ("qb_pocket_37", "QB", 37, 10, False),  # 37-yo pocket QB no longer triggers (was 36)
+        ("qb_pocket_38", "QB", 38, 10, True),   # pocket QB at the new cliff
+        ("qb_no_stat_36", "QB", 36, None, False),  # no prior stat row -> pocket -> 36 < 38
+        # QB dual-threats (60+ prior rush att) — cliff drops to 31.
+        ("qb_mobile_30", "QB", 30, 120, False),  # mobile just under cliff
+        ("qb_mobile_32", "QB", 32, 120, True),   # 32-yo mobile QB NOW triggers (was 36)
+        ("k_39",  "K",  39, None, False),  # K under threshold (threshold is 40)
+        ("k_40",  "K",  40, None, True),   # K at threshold
+        ("rb_no_age", "RB", None, None, False),  # missing age
     ]
-    for pid, pos, age, _ in cases:
+    for pid, pos, age, _rush, _ in cases:
         test_db.add(Player(id=pid, name=pid, position=pos, team="DAL", age=age))
     await test_db.commit()
-    for pid, _, _, _ in cases:
+    for pid, _, _, rush, _ in cases:
         test_db.add(Projection(
             player_id=pid, source="fantasypros", scoring_format="ppr",
             projected_points=100.0, last_updated=date.today(),
         ))
+        if rush is not None:
+            test_db.add(PlayerStat(
+                player_id=pid, season=date.today().year - 1, rush_att=rush,
+                games_played=17,
+            ))
     await test_db.commit()
 
     payload = {
@@ -611,7 +883,7 @@ async def test_over_the_hill_position_aware_thresholds(async_client, test_db):
     body = resp.json()
     by_id = {p["player_id"]: p for p in body["players"]}
 
-    for pid, _, _, expected in cases:
+    for pid, _, _, _, expected in cases:
         if pid not in by_id:
             continue  # player may have been capped out — acceptable
         applied = "Over the Hill" in by_id[pid]["rules_applied"]
