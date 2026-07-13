@@ -432,9 +432,16 @@ async def post_cbs(
     db: AsyncSession = Depends(get_db),
 ) -> LinkedLeagueResponse:
     email = body.email.strip()
-    password = body.password.strip()
+    # Do NOT strip the password: a leading/trailing space can be a genuine part
+    # of the secret (copy-paste from a password manager, or a deliberately
+    # whitespace-containing password). Trimming it would submit a DIFFERENT
+    # password than the one on file and get legitimately rejected by CBS —
+    # blaming the user's credentials for a bug in our request construction.
+    # Use .strip() only for the blank check so an all-whitespace password is
+    # still rejected as blank.
+    password = body.password
     league_id = body.league_id.strip()
-    if not email or not password or not league_id:
+    if not email or not password.strip() or not league_id:
         raise HTTPException(
             status_code=400,
             detail="Provide your CBS email, password, and league ID. Nothing to link without all three.",

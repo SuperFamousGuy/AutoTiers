@@ -1,3 +1,5 @@
+import json
+
 import pytest
 import respx
 from httpx import Response
@@ -696,6 +698,34 @@ async def test_post_cbs_succeeds_and_persists_encrypted_token_not_password(async
     assert row.credentials_encrypted != "cbs-access-token"
     from app.security.fernet import decrypt
     assert decrypt(row.credentials_encrypted) == "cbs-access-token"
+
+
+@pytest.mark.asyncio
+async def test_post_cbs_forwards_password_untrimmed(async_client, test_db):
+    """A CBS password with leading/trailing whitespace must reach CBS auth
+    exactly as typed — trimming it (issue #697) would submit a DIFFERENT
+    secret than the one on file and get legitimately rejected, blaming the
+    user's credentials for a bug in our own request construction."""
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    with respx.mock() as router:
+        auth_route = router.post(_CBS_AUTH_URL).mock(
+            return_value=Response(200, json={"body": {"access_token": "cbs-access-token"}}),
+        )
+        _mock_cbs_league_success(router)
+        r = await async_client.post(
+            f"/api/profiles/{p.id}/link/cbs",
+            json={"email": "  fan@example.com  ", "password": "hunter2 ", "league_id": "  999999  "},
+        )
+    assert r.status_code == 200, r.text
+
+    # The password sent to CBS must be the raw value, including the trailing
+    # space — not "hunter2".
+    assert auth_route.called
+    sent = json.loads(auth_route.calls.last.request.content)
+    assert sent["password"] == "hunter2 "
+    # email (the CBS user_id) is still trimmed — only the secret is preserved.
+    assert sent["user_id"] == "fan@example.com"
 
 
 @pytest.mark.asyncio
