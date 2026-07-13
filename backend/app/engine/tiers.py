@@ -1,4 +1,5 @@
 import logging
+import math
 from dataclasses import dataclass, field
 from typing import Optional
 import jenkspy
@@ -118,7 +119,10 @@ def _jenks_interior_breaks(
         # fallback. Non-ValueError failures (TypeError from None, MemoryError,
         # a future jenkspy API break) are deliberately NOT caught — they
         # propagate loudly rather than degrading tier quality in silence.
-        finite = [s for s in scores if s == s]  # drop NaN for min/max reporting
+        # Report min/max over only the finite scores. `math.isfinite` excludes
+        # both NaN and ±inf; the older `s == s` self-equality trick dropped NaN
+        # but let ±inf through, which would skew the reported min/max (#680).
+        finite = [s for s in scores if math.isfinite(s)]
         logger.warning(
             "jenks_breaks failed (%s): %d scores (%d unique), "
             "n_classes=%d, min=%s max=%s — falling back to quantile tiers: %s",

@@ -716,6 +716,51 @@ class TestJenksInteriorBreaksFailureHandling:
         assert "WR positional" in msg  # context is named
         assert "5 scores" in msg       # score count reported
 
+    def test_inf_score_excluded_from_reported_finite_stats(self, caplog):
+        """A +inf score (like NaN) makes jenkspy raise ValueError. The warning's
+        min/max are reported over *finite* scores only, so ±inf must not leak
+        into the reported range (#680). The old `s == s` filter dropped NaN but
+        let ±inf through and skewed the max."""
+        scores = [10.0, 8.0, float("inf"), 4.0, 2.0]
+        with caplog.at_level(logging.WARNING, logger="app.engine.tiers"):
+            breaks = _jenks_interior_breaks(scores, max_classes=3, context="RB positional")
+        assert breaks == []
+        warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warnings) == 1
+        msg = warnings[0].getMessage()
+        # Finite stats: min over the finite subset (2.0), max over it (10.0).
+        assert "min=2.0" in msg
+        assert "max=10.0" in msg
+        # The infinity must never appear in the reported range.
+        assert "inf" not in msg
+
+    def test_neg_inf_score_excluded_from_reported_finite_stats(self, caplog):
+        """Symmetric to +inf: a -inf score is dropped from the finite min/max so
+        it can't drag the reported minimum to -inf (#680)."""
+        scores = [10.0, 8.0, float("-inf"), 4.0, 2.0]
+        with caplog.at_level(logging.WARNING, logger="app.engine.tiers"):
+            breaks = _jenks_interior_breaks(scores, max_classes=3, context="RB positional")
+        assert breaks == []
+        warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warnings) == 1
+        msg = warnings[0].getMessage()
+        assert "min=2.0" in msg
+        assert "max=10.0" in msg
+        assert "inf" not in msg
+
+    def test_all_non_finite_scores_report_na(self, caplog):
+        """When every non-identical score is non-finite there is nothing finite
+        to report, so min/max fall back to "n/a" rather than raising on an empty
+        sequence (#680)."""
+        scores = [float("inf"), float("nan"), float("-inf")]
+        with caplog.at_level(logging.WARNING, logger="app.engine.tiers"):
+            breaks = _jenks_interior_breaks(scores, max_classes=3, context="overall")
+        assert breaks == []
+        warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warnings) == 1
+        msg = warnings[0].getMessage()
+        assert "min=n/a max=n/a" in msg
+
     def test_non_valueerror_propagates(self, monkeypatch):
         """A TypeError (e.g. a None score, or a future jenkspy API break) must NOT
         be silently absorbed — it propagates so a genuine bug is loud."""
