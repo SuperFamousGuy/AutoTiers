@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState, ReactNode, Dispatch, SetStateAction } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode, Dispatch, SetStateAction } from "react";
 import { getMe, login as apiLogin, logout as apiLogout, signup as apiSignup } from "@/api/auth";
 import type { User, Profile } from "@/api/types";
 
@@ -20,16 +20,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
 
+  // Monotonic sequence guard. Every refresh() captures the id it was issued
+  // with; only the response of the latest-issued call is allowed to mutate
+  // state. Without this, two concurrent refresh() calls race — the mount call
+  // and the post-email-verification call fire back-to-back, and if the older
+  // (pre-verification) /api/auth/me response resolves last it would silently
+  // overwrite the just-verified state with stale "unverified" data (#713).
+  const refreshSeq = useRef(0);
+
   const refresh = useCallback(async () => {
+    const seq = ++refreshSeq.current;
     setLoading(true);
     try {
       const me = await getMe();
+      if (seq !== refreshSeq.current) return; // a newer refresh() superseded us
       setUser(me?.user ?? null);
       setProfiles(me?.profiles ?? []);
     } finally {
       // Always clear loading — getMe swallows 401 but a network/5xx
       // error would otherwise leave the app stuck in the loading state.
-      setLoading(false);
+      // Only the latest call clears loading, so an early-resolving stale
+      // call can't drop the spinner while the newest call is still in flight.
+      if (seq === refreshSeq.current) setLoading(false);
     }
   }, []);
 
