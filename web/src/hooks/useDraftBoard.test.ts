@@ -172,4 +172,102 @@ describe("useDraftBoard", () => {
     expect(result.current.isDrafted("123")).toBe(true);
     expect(result.current.isDrafted("789")).toBe(true);
   });
+
+  describe("draftMode persistence (#707)", () => {
+    it("defaults Draft Mode off when storage is empty", () => {
+      const { result } = renderHook(() => useDraftBoard(KEY));
+      expect(result.current.draftMode).toBe(false);
+    });
+
+    it("persists the Draft Mode flag to localStorage under the mode-prefixed key", () => {
+      const { result } = renderHook(() => useDraftBoard(KEY));
+      act(() => result.current.setDraftMode(true));
+      expect(localStorage.getItem("autotiers_draft_mode:" + KEY)).toBe("true");
+    });
+
+    it("restores Draft Mode on across a remount with the same key (reload mid-draft)", () => {
+      const { result, unmount } = renderHook(() => useDraftBoard(KEY));
+      act(() => result.current.setDraftMode(true));
+      act(() => result.current.toggleDrafted("123"));
+      unmount();
+
+      const { result: result2 } = renderHook(() => useDraftBoard(KEY));
+      expect(result2.current.draftMode).toBe(true);
+      expect(result2.current.isDrafted("123")).toBe(true);
+    });
+
+    it("keeps an explicit Draft Mode off sticky across a remount even with drafted players", () => {
+      // Drafted players exist, but the user explicitly turned Draft Mode off.
+      localStorage.setItem("autotiers_draft:" + KEY, JSON.stringify(["123"]));
+      localStorage.setItem("autotiers_draft_mode:" + KEY, "false");
+
+      const { result } = renderHook(() => useDraftBoard(KEY));
+      expect(result.current.draftMode).toBe(false);
+      expect(result.current.isDrafted("123")).toBe(true);
+    });
+
+    it("defaults Draft Mode ON for a legacy board (drafted players, no persisted flag)", () => {
+      // Board created before the flag was persisted: picks exist, no mode key.
+      localStorage.setItem("autotiers_draft:" + KEY, JSON.stringify(["123", "456"]));
+
+      const { result } = renderHook(() => useDraftBoard(KEY));
+      expect(result.current.draftMode).toBe(true);
+    });
+
+    it("does not default Draft Mode on for a legacy board with no drafted players", () => {
+      const { result } = renderHook(() => useDraftBoard(KEY));
+      expect(result.current.draftMode).toBe(false);
+    });
+
+    it("restores each context's own Draft Mode flag when storageKey changes", () => {
+      localStorage.setItem("autotiers_draft_mode:league-1:standard", "true");
+      // league-1:ppr has no flag and no drafted players -> defaults off.
+
+      const { result, rerender } = renderHook(
+        ({ key }: { key: string }) => useDraftBoard(key),
+        { initialProps: { key: "league-1:standard" } },
+      );
+      expect(result.current.draftMode).toBe(true);
+
+      rerender({ key: "league-1:ppr" });
+      expect(result.current.draftMode).toBe(false);
+
+      rerender({ key: "league-1:standard" });
+      expect(result.current.draftMode).toBe(true);
+    });
+
+    it("never writes the previous key's mode flag under the new key on a context switch", () => {
+      localStorage.setItem("autotiers_draft_mode:league-1:standard", "true");
+      localStorage.setItem("autotiers_draft_mode:league-1:ppr", "false");
+
+      const setItemSpy = vi.spyOn(Storage.prototype, "setItem");
+
+      const { rerender } = renderHook(
+        ({ key }: { key: string }) => useDraftBoard(key),
+        { initialProps: { key: "league-1:standard" } },
+      );
+
+      setItemSpy.mockClear(); // ignore the initial-mount persist for "standard"
+      rerender({ key: "league-1:ppr" });
+
+      const newKeyModeWrites = setItemSpy.mock.calls.filter(
+        ([k]) => k === "autotiers_draft_mode:league-1:ppr",
+      );
+      for (const [, value] of newKeyModeWrites) {
+        expect(value).toBe("false");
+      }
+      expect(localStorage.getItem("autotiers_draft_mode:league-1:ppr")).toBe("false");
+
+      setItemSpy.mockRestore();
+    });
+
+    it("does not crash when reading the mode flag throws (storage-blocked fallback)", () => {
+      const spy = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+        throw new DOMException("SecurityError");
+      });
+      const { result } = renderHook(() => useDraftBoard(KEY));
+      expect(result.current.draftMode).toBe(false);
+      spy.mockRestore();
+    });
+  });
 });

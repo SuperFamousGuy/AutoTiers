@@ -906,10 +906,14 @@ describe("TiersPanel", () => {
     it("auto-collapses an already-fully-drafted tier the moment Draft Mode is switched on", async () => {
       // Seed a persisted board where all of Tier 1 is already drafted, then
       // enter Draft Mode — the tier should come up collapsed with no toggling.
+      // Persist Draft Mode explicitly off so the board starts off (drafted
+      // picks with no flag would otherwise default on via the legacy path, #707)
+      // and the click below is what switches it on.
       localStorage.setItem(
         "autotiers_draft:default:standard",
         JSON.stringify(["6794", "8112"]),
       );
+      localStorage.setItem("autotiers_draft_mode:default:standard", "false");
       render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
       const user = userEvent.setup();
       await user.click(screen.getByRole("switch", { name: /draft mode/i }));
