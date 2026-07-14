@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { describeGenerateError } from "@/lib/errors";
+import { describeGenerateError, describeSaveError } from "@/lib/errors";
 import { ApiError, TimeoutError } from "@/api/client";
 
 describe("describeGenerateError", () => {
@@ -67,5 +67,36 @@ describe("describeGenerateError", () => {
 
   it("has a generic fallback for a non-Error throw", () => {
     expect(describeGenerateError("boom")).toMatch(/something went wrong/i);
+  });
+});
+
+describe("describeSaveError", () => {
+  it("names the client timeout", () => {
+    expect(describeSaveError(new TimeoutError(30_000))).toMatch(/timed out/i);
+  });
+
+  it("gives a save-flavoured, blame-free line for a 5xx (hides the raw body)", () => {
+    const msg = describeSaveError(new ApiError(500, "<html>Internal Server Error</html>"));
+    expect(msg).toMatch(/couldn't save|could not save/i);
+    // Unlike describeGenerateError, the copy must not mention building tiers.
+    expect(msg).not.toMatch(/tiers/i);
+    expect(msg).not.toMatch(/<html>/);
+  });
+
+  it("unwraps a string HTTPException detail for a 4xx", () => {
+    const body = JSON.stringify({ detail: "Payload too large." });
+    expect(describeSaveError(new ApiError(413, body))).toBe("Payload too large.");
+  });
+
+  it("falls back to the status when a 4xx has an empty body", () => {
+    expect(describeSaveError(new ApiError(400, ""))).toMatch(/failed \(400\)/i);
+  });
+
+  it("surfaces a raw network TypeError's message", () => {
+    expect(describeSaveError(new TypeError("Failed to fetch"))).toBe("Failed to fetch");
+  });
+
+  it("has a generic fallback for a non-Error throw", () => {
+    expect(describeSaveError(null)).toMatch(/something went wrong/i);
   });
 });

@@ -328,7 +328,7 @@ describe("App (authenticated integration)", () => {
     const initialState = screen.getAllByRole("switch").map((s) => s.getAttribute("data-state"));
 
     // No save has landed yet → only 1 entry in history → Undo not shown.
-    expect(screen.queryByRole("button", { name: /^undo$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /undo last change/i })).not.toBeInTheDocument();
 
     // Toggle the first switch and wait for the autosave PATCH to land.
     await user.click(screen.getAllByRole("switch")[0]);
@@ -337,22 +337,74 @@ describe("App (authenticated integration)", () => {
       { timeout: 3000 },
     );
 
-    // Now history has 2 entries → Undo button appears.
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /^undo$/i })).toBeInTheDocument();
-    });
+    // Now history has 2 entries → Undo button appears, with an explicit
+    // accessible name + tooltip describing its scope (#694).
+    const undoButton = await screen.findByRole("button", { name: /undo last change/i });
+    expect(undoButton).toHaveAttribute(
+      "title",
+      "Revert settings and rules to the previous saved version",
+    );
 
     // Click Undo — rewinds to the initial save point.
-    await user.click(screen.getByRole("button", { name: /^undo$/i }));
+    await user.click(undoButton);
     await waitFor(() => {
       const restored = screen.getAllByRole("switch").map((s) => s.getAttribute("data-state"));
       expect(restored).toEqual(initialState);
     });
 
+    // A success toast confirms the (otherwise silent) revert (#694).
+    expect(await screen.findByText(/reverted to previous settings/i)).toBeInTheDocument();
+
     // After Undo, history is back to 1 entry → button disappears.
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: /^undo$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /undo last change/i })).not.toBeInTheDocument();
     });
+  });
+
+  it("Undo shows an error toast and does not diverge from server state when the PATCH fails", async () => {
+    mockAuthenticated();
+    // First PATCH (the autosave that creates the 2nd history entry) succeeds;
+    // the second PATCH (the undo) fails, so the server keeps the edited tip.
+    let patchCount = 0;
+    let lastPatchPayload: { rules_json?: Record<string, Array<{ name: string; enabled: boolean; weight: number }>> } = {};
+    server.use(
+      http.patch(`${API_URL}/api/profiles/:id`, async ({ request }) => {
+        patchCount += 1;
+        if (patchCount >= 2) {
+          return HttpResponse.json({ detail: "boom" }, { status: 500 });
+        }
+        lastPatchPayload = (await request.json()) as typeof lastPatchPayload;
+        return HttpResponse.json({ ...PROFILE_ONE, ...lastPatchPayload });
+      }),
+    );
+
+    renderApp();
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Target Share Premium")).toBeInTheDocument());
+
+    // Toggle the first switch and wait for the autosave PATCH to land, so the
+    // Undo button appears. Capture the post-edit switch state — the state the
+    // failed undo must NOT drift away from.
+    await user.click(screen.getAllByRole("switch")[0]);
+    await waitFor(() => expect(lastPatchPayload.rules_json).toBeDefined(), { timeout: 3000 });
+    const undoButton = await screen.findByRole("button", { name: /undo last change/i });
+    const editedState = screen.getAllByRole("switch").map((s) => s.getAttribute("data-state"));
+
+    // Click Undo — the PATCH fails.
+    await user.click(undoButton);
+
+    // An error toast names the failure...
+    expect(await screen.findByText(/couldn't undo/i)).toBeInTheDocument();
+
+    // ...and local state is rolled back to the server-truth (post-edit) snapshot,
+    // not left showing the un-persisted revert (#694).
+    await waitFor(() => {
+      const current = screen.getAllByRole("switch").map((s) => s.getAttribute("data-state"));
+      expect(current).toEqual(editedState);
+    });
+    // History was restored, so the Undo button is still available to retry.
+    expect(screen.getByRole("button", { name: /undo last change/i })).toBeInTheDocument();
   });
 
   it("opens Linked accounts dialog from the hamburger menu", async () => {
@@ -645,7 +697,7 @@ describe("App (authenticated integration)", () => {
 
     // Wait for autosave (800ms debounce) — Undo only appears after the save lands.
     await waitFor(
-      () => expect(screen.getByRole("button", { name: /^undo$/i })).toBeInTheDocument(),
+      () => expect(screen.getByRole("button", { name: /undo last change/i })).toBeInTheDocument(),
       { timeout: 3000 },
     );
 
