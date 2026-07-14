@@ -30,7 +30,7 @@ import { buildResolvedTierNames, resolveTierLabelOverrides } from "@/lib/tiers";
 import type { Rule, GenerateRequest, PositionRulesState } from "@/api/types";
 
 const DEFAULT_SETTINGS: SettingsState = {
-  scoring_format: "standard",
+  scoring_format: "half_ppr",
   league_size: 12,
   draft_rounds: 15,
   tier_count: 12,

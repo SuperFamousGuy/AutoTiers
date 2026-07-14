@@ -359,6 +359,8 @@ async def test_callback_seeds_default_profile_on_first_login(async_client, test_
     assert len(profiles) == 1
     assert profiles[0].name == "My setup"
     assert profiles[0].settings_json == DEFAULT_PROFILE_SETTINGS
+    # Half-PPR is the shipped default for new profiles (#688), not standard.
+    assert profiles[0].settings_json["scoring_format"] == "half_ppr"
     assert profiles[0].rules_json == {}
     assert users[0].last_active_profile_id == profiles[0].id
 

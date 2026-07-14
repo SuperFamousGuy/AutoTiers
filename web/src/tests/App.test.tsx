@@ -49,6 +49,21 @@ describe("App (integration)", () => {
     expect(screen.getByText("Bijan Robinson")).toBeInTheDocument();
   });
 
+  it("defaults a first-run session to Half PPR scoring (#688)", async () => {
+    // First-run means no persisted state — clear anything (onboarding, theme)
+    // that other tests may have left in localStorage.
+    localStorage.clear();
+    renderApp();
+
+    // Wait directly on the scoring-format radios rather than an unrelated rule
+    // label, so the assertion isn't order-dependent or brittle to fixture changes.
+    await waitFor(() => {
+      // Half PPR is the shipped first-run default, not Standard.
+      expect(screen.getByRole("radio", { name: /Half PPR/i })).toBeChecked();
+    });
+    expect(screen.getByRole("radio", { name: /^Standard$/i })).not.toBeChecked();
+  });
+
   it("shows a staleness banner after a settings change and clears it on regenerate", async () => {
     renderApp();
 
