@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Download, ListChecks, Loader2 } from "lucide-react";
+import { Download, ListChecks, Loader2, X } from "lucide-react";
 import { PositionFilter, type PositionFilterValue } from "./PositionFilter";
 import { TierGroup } from "./TierGroup";
 import { getCustomTierLabel, getPositionalTierLabel } from "@/lib/tiers";
@@ -259,13 +259,35 @@ export function TiersPanel({ result, isPending, isError, error, onDownloadXlsx, 
           </div>
         </div>
         <div className="space-y-2">
-          <Input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Find a player…"
-            aria-label="Find a player"
-          />
+          <div className="relative">
+            <Input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Find a player…"
+              aria-label="Find a player"
+              // Hide the browser-native type="search" clear (×) — it's absent in
+              // Firefox and inconsistently placed elsewhere, so we render our own
+              // keyboard-operable Clear search button below instead (#720).
+              className="pr-9 [&::-webkit-search-cancel-button]:appearance-none"
+            />
+            {/* Explicit, always-visible clear control whenever a non-empty query
+                still has matches. In the zero-match case the dashed empty-state
+                card renders its own "Clear search" button, so the two never
+                coexist (keeps a single accessible "clear search" affordance). */}
+            {trimmedSearch !== "" && groupedByTier.length > 0 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setSearch("")}
+                aria-label="Clear search"
+                className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
           <PositionFilter value={filter} onChange={setFilter} />
         </div>
         {draftMode && draftedCount > 0 && (

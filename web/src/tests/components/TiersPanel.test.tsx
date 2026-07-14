@@ -922,12 +922,18 @@ describe("TiersPanel", () => {
   });
 
   describe("player-name search (#708)", () => {
-    it("exposes a Tab-reachable searchbox with an accessible label", () => {
+    it("exposes a Tab-reachable searchbox with an accessible label", async () => {
       render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
       const box = screen.getByRole("searchbox", { name: /find a player/i });
       expect(box).toBeInTheDocument();
-      // Not tabindex=-1 — reachable by keyboard.
-      expect(box).not.toHaveAttribute("tabindex", "-1");
+      // Actually Tab through the panel until focus lands on the searchbox —
+      // proves genuine keyboard reachability rather than just the absence of
+      // tabindex="-1" (which misses disabled/otherwise-non-focusable cases).
+      for (let i = 0; i < 10 && document.activeElement !== box; i++) {
+        await user.tab();
+      }
+      expect(box).toHaveFocus();
     });
 
     it("filters visible players by name substring, live, with no regenerate", async () => {
@@ -956,6 +962,24 @@ describe("TiersPanel", () => {
       await user.type(screen.getByRole("searchbox", { name: /find a player/i }), "JEFFERSON");
       expect(screen.getByText("Justin Jefferson")).toBeInTheDocument();
       expect(screen.queryByText("Ja'Marr Chase")).not.toBeInTheDocument();
+    });
+
+    it("renders an explicit Clear search button in a non-empty, matching state that clears the query", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      // With matches on screen the clear affordance must be explicit, not the
+      // browser-native type="search" × (absent in Firefox) (#720).
+      await user.type(screen.getByRole("searchbox", { name: /find a player/i }), "chase");
+      expect(screen.getByText("Ja'Marr Chase")).toBeInTheDocument();
+
+      const clear = screen.getByRole("button", { name: /clear search/i });
+      expect(clear).toBeInTheDocument();
+      await user.click(clear);
+
+      // Query is wiped and the full list is restored.
+      expect(screen.getByRole("searchbox", { name: /find a player/i })).toHaveValue("");
+      expect(screen.getByText("Ja'Marr Chase")).toBeInTheDocument();
+      expect(screen.getByText("Josh Allen")).toBeInTheDocument();
     });
 
     it("composes with the position filter (both must match)", async () => {
