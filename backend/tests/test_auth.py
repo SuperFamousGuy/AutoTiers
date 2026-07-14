@@ -37,6 +37,62 @@ async def test_signup_rejects_short_password(async_client):
     assert r.status_code == 422
 
 
+# ---------------------------------------------------------------------------
+# Issue #692 — Bound password field lengths (Argon2 amplification guard)
+# ---------------------------------------------------------------------------
+# MAX_PASSWORD_LENGTH is 128. Anything longer must be rejected with 422 before
+# the auth handler runs and Argon2 preprocesses it — on the unauthenticated
+# signup/login paths an over-cap password is a cheap CPU DoS vector. (Starlette
+# still reads/JSON-parses the body; the cap only spares the hasher and handler.)
+
+
+@pytest.mark.asyncio
+async def test_signup_rejects_password_over_max_length(async_client):
+    r = await async_client.post("/api/auth/signup", json={
+        "email": "alice@example.com",
+        "password": "a" * 129,  # one over the 128 cap
+    })
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_signup_accepts_password_at_max_length(async_client):
+    """A password at exactly the cap length still signs up successfully."""
+    r = await async_client.post("/api/auth/signup", json={
+        "email": "alice@example.com",
+        "password": "a" * 128,  # exactly the cap
+    })
+    assert r.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_login_rejects_password_over_max_length(async_client):
+    """Over-cap password is rejected at validation (422) before any hashing,
+    regardless of whether the account exists."""
+    r = await async_client.post("/api/auth/login", json={
+        "email": "ghost@example.com",
+        "password": "a" * 129,
+    })
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_login_accepts_password_at_max_length(async_client):
+    """A password at exactly the cap length still logs in successfully."""
+    max_password = "a" * 128
+    await async_client.post("/api/auth/signup", json={
+        "email": "alice@example.com",
+        "password": max_password,
+    })
+    async_client.cookies.clear()
+    r = await async_client.post("/api/auth/login", json={
+        "email": "alice@example.com",
+        "password": max_password,
+    })
+    assert r.status_code == 200
+    assert "autotiers_session" in r.cookies
+
+
 @pytest.mark.asyncio
 async def test_signup_with_anonymous_state_creates_first_profile(async_client, test_db):
     r = await async_client.post("/api/auth/signup", json={

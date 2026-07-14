@@ -12,16 +12,25 @@ from pydantic import BaseModel, EmailStr, Field, model_validator
 from app.schemas.profile import ProfileOut
 
 
+# Upper bound on any password field. Well above any real password, but low
+# enough that Argon2 never preprocesses a multi-megabyte string on the
+# unauthenticated signup/login/reset paths — a cheap CPU amplification vector
+# otherwise. Starlette still reads and JSON-parses the request body, but
+# Pydantic rejects anything longer with a 422 before the auth handler or the
+# hasher is ever reached.
+MAX_PASSWORD_LENGTH = 128
+
+
 class SignupRequest(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=10)
+    password: str = Field(min_length=10, max_length=MAX_PASSWORD_LENGTH)
     initial_settings: Optional[dict[str, Any]] = None
     initial_rules: Optional[dict[str, list[dict[str, Any]]]] = None
 
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(max_length=MAX_PASSWORD_LENGTH)
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -30,16 +39,16 @@ class ForgotPasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     token: str
-    new_password: str = Field(min_length=10)
+    new_password: str = Field(min_length=10, max_length=MAX_PASSWORD_LENGTH)
 
 
 class ChangePasswordRequest(BaseModel):
-    current_password: str
-    new_password: str = Field(min_length=10)
+    current_password: str = Field(max_length=MAX_PASSWORD_LENGTH)
+    new_password: str = Field(min_length=10, max_length=MAX_PASSWORD_LENGTH)
 
 
 class SetPasswordRequest(BaseModel):
-    new_password: str = Field(min_length=10)
+    new_password: str = Field(min_length=10, max_length=MAX_PASSWORD_LENGTH)
 
 
 class UserOut(BaseModel):
