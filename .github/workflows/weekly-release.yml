@@ -24,12 +24,12 @@ name: weekly-release
 #      baseline that would deploy a wrong first release. Both guards live in the
 #      unit-tested core (backend/scripts/weekly_release_version.py), not here.
 #
-# SHIPS DRY_RUN (DRY_RUN: "true"): this run COMPUTES the next version and LOGS
-# what it WOULD create, but creates NO release and triggers NO deploy. To ARM,
-# flip DRY_RUN to "false" in a one-line commit (or pass dry_run=false to a
-# single workflow_dispatch run). Arming makes the Monday cut create a REAL
-# release, which triggers deploy.yml -> prod ECS + frontend deploy. Re-safe by
-# flipping DRY_RUN back to "true".
+# ARMED (DRY_RUN: "false"): the Monday cut creates a REAL release, which
+# triggers deploy.yml -> prod ECS + frontend deploy. The dry-run validation
+# against a real Monday passed (2026-07-14), so this was flipped from "true".
+# To re-safe, flip DRY_RUN back to "true" in a one-line commit; a single manual
+# run can be forced dry by passing dry_run=true to workflow_dispatch. The armed
+# real-release path is additionally branch-guarded to refs/heads/main below.
 #
 # Version core is unit-tested: backend/tests/test_weekly_release_version.py.
 
@@ -58,10 +58,9 @@ permissions:
   contents: write # create the tag + GitHub release (dry-run creates neither)
 
 env:
-  # Ship SAFE: compute-and-log only until a human confirms the next version and
-  # the deploy coupling against a real Monday, then flip to "false" in a
-  # one-line commit to arm the real release (which triggers deploy.yml).
-  DRY_RUN: "true"
+  # ARMED: real release + prod deploy on the scheduled Monday tick. Flip back to
+  # "true" to re-safe (compute-and-log only). Validated dry-run 2026-07-14.
+  DRY_RUN: "false"
 
 jobs:
   cut:
