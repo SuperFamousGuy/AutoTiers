@@ -24,9 +24,9 @@ name: weekly-release
 #      baseline that would deploy a wrong first release. Both guards live in the
 #      unit-tested core (backend/scripts/weekly_release_version.py), not here.
 #
-# ARMED (DRY_RUN: "false"): the Monday cut creates a REAL release, which
-# triggers deploy.yml -> prod ECS + frontend deploy. The dry-run validation
-# against a real Monday passed (2026-07-14), so this was flipped from "true".
+# ARMED (DRY_RUN: "false"): the scheduled Monday cut creates a REAL release,
+# which triggers deploy.yml -> prod ECS + frontend deploy. The dry-run was
+# validated and this was flipped from "true" on 2026-07-14.
 # To re-safe, flip DRY_RUN back to "true" in a one-line commit; a single manual
 # run can be forced dry by passing dry_run=true to workflow_dispatch. The armed
 # real-release path is additionally branch-guarded to refs/heads/main below.
