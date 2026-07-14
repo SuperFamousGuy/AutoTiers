@@ -115,6 +115,66 @@ async def test_signup_with_anonymous_state_creates_first_profile(async_client, t
     assert user.last_active_profile_id == profiles[0].id
 
 
+# ---------------------------------------------------------------------------
+# Issue #709 — Bound initial_settings/initial_rules size on /api/auth/signup
+# ---------------------------------------------------------------------------
+# /api/auth/signup is unauthenticated and persists initial_settings/initial_rules
+# straight into a new Profile row. Without the 64KB cap ProfileCreate applies, an
+# anonymous caller could POST a multi-megabyte JSON blob per signup attempt. The
+# validator rejects those with a 422 naming the oversized field before anything
+# is written.
+
+
+def _oversized_json() -> dict:
+    """A JSON blob that serializes to well over the 64KB cap."""
+    return {"junk": "x" * (128 * 1024)}
+
+
+@pytest.mark.asyncio
+async def test_signup_rejects_oversized_initial_settings(async_client, test_db):
+    r = await async_client.post("/api/auth/signup", json={
+        "email": "alice@example.com",
+        "password": "correct horse battery",
+        "initial_settings": _oversized_json(),
+        "initial_rules": {},
+    })
+    assert r.status_code == 422
+    detail = str(r.json()["detail"]).lower()
+    assert "too large" in detail
+    assert "initial_settings" in detail
+    # Nothing was persisted — no user and no profile.
+    assert (await test_db.scalars(select(User))).all() == []
+    assert (await test_db.scalars(select(Profile))).all() == []
+
+
+@pytest.mark.asyncio
+async def test_signup_rejects_oversized_initial_rules(async_client, test_db):
+    r = await async_client.post("/api/auth/signup", json={
+        "email": "alice@example.com",
+        "password": "correct horse battery",
+        "initial_settings": {},
+        "initial_rules": {"RB": [{"name": "x" * (128 * 1024), "enabled": True}]},
+    })
+    assert r.status_code == 422
+    detail = str(r.json()["detail"]).lower()
+    assert "too large" in detail
+    assert "initial_rules" in detail
+    assert (await test_db.scalars(select(User))).all() == []
+    assert (await test_db.scalars(select(Profile))).all() == []
+
+
+@pytest.mark.asyncio
+async def test_signup_accepts_normal_size_initial_state(async_client):
+    """A normal-size initial payload still signs up successfully."""
+    r = await async_client.post("/api/auth/signup", json={
+        "email": "alice@example.com",
+        "password": "correct horse battery",
+        "initial_settings": {"scoring_format": "ppr", "league_size": 12},
+        "initial_rules": {"RB": [{"name": "RB Committee Penalty", "enabled": True, "weight": 1.0}]},
+    })
+    assert r.status_code == 201
+
+
 @pytest.mark.asyncio
 async def test_login_succeeds_with_correct_password(async_client):
     await async_client.post("/api/auth/signup", json={
