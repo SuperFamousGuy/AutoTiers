@@ -24,7 +24,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     id: "welcome",
     anchor: null,
     title: "Welcome to AutoTiers",
-    body: "Let's build your first draft tier list. This quick tour walks through the four steps — about 30 seconds.",
+    body: "Let's build your first draft tier list. This quick tour walks through each step — about 30 seconds.",
   },
   {
     id: "settings",
@@ -39,6 +39,15 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     title: "2. Weight what you value",
     body: "Rules nudge players up or down — boost rushing QBs, reward target share, and so on. Tiers group players of similar value, and your rules shape that value.",
     mobilePanel: "rules",
+  },
+  {
+    id: "link-league",
+    // The hamburger menu lives in the header (visible at every width), so no
+    // mobilePanel switch is needed — the anchor is always on screen. Reuses the
+    // existing "Connect Your League" entry point rather than adding new nav.
+    anchor: '[data-tour="menu"]',
+    title: "Optional: sync your real league",
+    body: "Connect your Sleeper, ESPN, Yahoo, NFL, or CBS league from the menu to auto-exclude keepers and match your league's settings.",
   },
   {
     id: "generate",

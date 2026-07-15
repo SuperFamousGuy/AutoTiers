@@ -31,7 +31,7 @@ function HamburgerMenu({ currentState, onOpenLinkedAccounts, mobileProfileMenu, 
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" aria-label="Menu">
+          <Button variant="ghost" size="icon" aria-label="Menu" data-tour="menu">
             <Menu className="h-5 w-5" />
           </Button>
         </DropdownMenuTrigger>
