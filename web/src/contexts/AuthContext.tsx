@@ -20,52 +20,90 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
 
-  // Monotonic sequence guard. Every refresh() captures the id it was issued
-  // with; only the response of the latest-issued call is allowed to mutate
-  // state. Without this, two concurrent refresh() calls race — the mount call
-  // and the post-email-verification call fire back-to-back, and if the older
+  // Monotonic sequence guard. Every state-mutating auth call captures the id it
+  // was issued with; only the response of the latest-issued call is allowed to
+  // mutate state. Without this, concurrent calls race — the mount refresh() and
+  // a post-email-verification refresh() fire back-to-back, and if the older
   // (pre-verification) /api/auth/me response resolves last it would silently
   // overwrite the just-verified state with stale "unverified" data (#713).
+  //
+  // login()/signup()/logout() must share the same counter: the mount refresh()
+  // can still be in flight when the user logs in, and its stale (anonymous)
+  // payload would otherwise clobber the just-logged-in state on resolution
+  // (#725). Bumping the seq before the network call invalidates any in-flight
+  // refresh(), and applyIfCurrent() drops a stale refresh() that resolves late.
   const refreshSeq = useRef(0);
+
+  // Run `apply` only if `seq` is still the latest-issued sequence — i.e. no
+  // newer refresh()/login()/signup()/logout() has been issued since. A stale
+  // in-flight call that resolves after a newer one is silently discarded.
+  const applyIfCurrent = useCallback((seq: number, apply: () => void) => {
+    if (seq === refreshSeq.current) apply();
+  }, []);
 
   const refresh = useCallback(async () => {
     const seq = ++refreshSeq.current;
     setLoading(true);
     try {
       const me = await getMe();
-      if (seq !== refreshSeq.current) return; // a newer refresh() superseded us
-      setUser(me?.user ?? null);
-      setProfiles(me?.profiles ?? []);
+      applyIfCurrent(seq, () => {
+        setUser(me?.user ?? null);
+        setProfiles(me?.profiles ?? []);
+      });
     } finally {
       // Always clear loading — getMe swallows 401 but a network/5xx
       // error would otherwise leave the app stuck in the loading state.
       // Only the latest call clears loading, so an early-resolving stale
       // call can't drop the spinner while the newest call is still in flight.
-      if (seq === refreshSeq.current) setLoading(false);
+      applyIfCurrent(seq, () => setLoading(false));
     }
-  }, []);
+  }, [applyIfCurrent]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
 
   const signup = useCallback(async (body: Parameters<AuthContextValue["signup"]>[0]) => {
-    const me = await apiSignup(body);
-    setUser(me.user);
-    setProfiles(me.profiles);
-  }, []);
+    const seq = ++refreshSeq.current;
+    try {
+      const me = await apiSignup(body);
+      applyIfCurrent(seq, () => {
+        setUser(me.user);
+        setProfiles(me.profiles);
+      });
+    } finally {
+      // Bumping the seq above invalidated any in-flight mount refresh(), so its
+      // loading-clear is now suppressed — clear loading here (if still current)
+      // to avoid leaving the app stuck in the spinner (#725).
+      applyIfCurrent(seq, () => setLoading(false));
+    }
+  }, [applyIfCurrent]);
 
   const login = useCallback(async (body: { email: string; password: string }) => {
-    const me = await apiLogin(body);
-    setUser(me.user);
-    setProfiles(me.profiles);
-  }, []);
+    const seq = ++refreshSeq.current;
+    try {
+      const me = await apiLogin(body);
+      applyIfCurrent(seq, () => {
+        setUser(me.user);
+        setProfiles(me.profiles);
+      });
+    } finally {
+      applyIfCurrent(seq, () => setLoading(false));
+    }
+  }, [applyIfCurrent]);
 
   const logout = useCallback(async () => {
-    await apiLogout();
-    setUser(null);
-    setProfiles([]);
-  }, []);
+    const seq = ++refreshSeq.current;
+    try {
+      await apiLogout();
+      applyIfCurrent(seq, () => {
+        setUser(null);
+        setProfiles([]);
+      });
+    } finally {
+      applyIfCurrent(seq, () => setLoading(false));
+    }
+  }, [applyIfCurrent]);
 
   return (
     <AuthContext.Provider value={{ loading, user, profiles, signup, login, logout, refresh, setProfiles }}>
