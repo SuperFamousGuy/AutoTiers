@@ -56,8 +56,9 @@ describe("OnboardingTour", () => {
     const downloadIndex = ONBOARDING_STEPS.findIndex((s) => s.id === "download");
     setup(downloadIndex);
     // The export control in TiersPanel is labeled "Download Excel" and produces
-    // an .xlsx; the tour must not tell users to look for a CSV button.
-    expect(screen.getByText(/download the excel file/i)).toBeInTheDocument();
+    // an .xlsx; the tour copy must name that literal button label (not "the
+    // Excel file") and must not tell users to look for a CSV button.
+    expect(screen.getByText(/click download excel/i)).toBeInTheDocument();
     expect(screen.queryByText(/csv/i)).not.toBeInTheDocument();
   });
 
