@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Download, ListChecks, Loader2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Download, ListChecks, Loader2, X } from "lucide-react";
 import { PositionFilter, type PositionFilterValue } from "./PositionFilter";
 import { TierGroup } from "./TierGroup";
 import { getCustomTierLabel, getPositionalTierLabel } from "@/lib/tiers";
@@ -46,6 +47,11 @@ interface TiersPanelProps {
 
 export function TiersPanel({ result, isPending, isError, error, onDownloadXlsx, keepers, scoringFormat, tierLabelOverrides, debugMode, onDownloadDebugCsv, leagueKey, isStale, onRegenerate, canRegenerate }: TiersPanelProps) {
   const [filter, setFilter] = useState<PositionFilterValue>("ALL");
+  // Live player-name lookup. With 150-200+ ranked players the position chips
+  // alone don't answer "is Player X still on the board / what tier are they in"
+  // without scrolling — this composes a case-insensitive substring match on top
+  // of the position filter, entirely client-side (no regenerate round-trip) (#708).
+  const [search, setSearch] = useState("");
   // Excel export lifecycle. `downloadDraftXlsx` lazy-loads a code-split chunk and
   // then builds the workbook async — either step can reject (offline, a stale
   // chunk hash after a redeploy, a future throw). Track it so the button shows a
@@ -114,11 +120,20 @@ export function TiersPanel({ result, isPending, isError, error, onDownloadXlsx, 
     setConfirmingReset(false);
   }, [draftStorageKey]);
 
+  const trimmedSearch = search.trim();
+
   const groupedByTier = useMemo(() => {
     if (!result) return [] as { label: string; descriptiveLabel?: string; players: GenerateResponse["players"] }[];
-    const filtered = filter === "ALL"
-      ? result.players
-      : result.players.filter((p) => p.position === filter);
+    // Position filter and name search compose: a player must satisfy both. The
+    // grouping (overall vs positional tier) is still driven solely by the
+    // position filter, so a name search never changes how the surviving players
+    // are bucketed.
+    const query = search.trim().toLowerCase();
+    const filtered = result.players.filter((p) => {
+      const matchesPosition = filter === "ALL" || p.position === filter;
+      const matchesSearch = query === "" || p.name.toLowerCase().includes(query);
+      return matchesPosition && matchesSearch;
+    });
 
     if (filter === "ALL") {
       // Group by overall_tier
@@ -153,7 +168,7 @@ export function TiersPanel({ result, isPending, isError, error, onDownloadXlsx, 
           players,
         }));
     }
-  }, [result, filter, tierLabelOverrides]);
+  }, [result, filter, search, tierLabelOverrides]);
 
   // For the collapsible "Drafted" list — every drafted player (regardless of
   // the active position filter), in their overall-rank order, so the list is
@@ -296,7 +311,38 @@ export function TiersPanel({ result, isPending, isError, error, onDownloadXlsx, 
             </Button>
           </div>
         </div>
-        <PositionFilter value={filter} onChange={setFilter} />
+        <div className="space-y-2">
+          <div className="relative">
+            <Input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Find a player…"
+              aria-label="Find a player"
+              // Hide the browser-native type="search" clear (×) — it's absent in
+              // Firefox and inconsistently placed elsewhere, so we render our own
+              // keyboard-operable Clear search button below instead (#720).
+              className="pr-9 [&::-webkit-search-cancel-button]:appearance-none"
+            />
+            {/* Explicit, always-visible clear control whenever a non-empty query
+                still has matches. In the zero-match case the dashed empty-state
+                card renders its own "Clear search" button, so the two never
+                coexist (keeps a single accessible "clear search" affordance). */}
+            {trimmedSearch !== "" && groupedByTier.length > 0 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setSearch("")}
+                aria-label="Clear search"
+                className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+          <PositionFilter value={filter} onChange={setFilter} />
+        </div>
         {draftMode && draftedCount > 0 && (
           <details className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
             <summary className="cursor-pointer font-semibold text-foreground">
@@ -317,7 +363,25 @@ export function TiersPanel({ result, isPending, isError, error, onDownloadXlsx, 
             </ul>
           </details>
         )}
-        {groupedByTier.length === 0 && filter !== "ALL" ? (
+        {groupedByTier.length === 0 && trimmedSearch !== "" ? (
+          // A name search that matches nothing takes precedence over the
+          // position empty-state — clearing the search restores the prior view
+          // (which may still be position-filtered), mirroring the position
+          // filter's "Show all positions" affordance.
+          <div className="rounded-md border border-dashed py-8 px-4 text-center">
+            <p className="text-sm text-muted-foreground">
+              No players match “{trimmedSearch}”.
+            </p>
+            <Button
+              onClick={() => setSearch("")}
+              variant="outline"
+              size="sm"
+              className="mt-3"
+            >
+              Clear search
+            </Button>
+          </div>
+        ) : groupedByTier.length === 0 && filter !== "ALL" ? (
           <div className="rounded-md border border-dashed py-8 px-4 text-center">
             <p className="text-sm text-muted-foreground">
               No {filter} players in this tier list.

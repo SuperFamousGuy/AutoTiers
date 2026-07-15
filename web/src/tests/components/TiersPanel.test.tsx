@@ -951,4 +951,119 @@ describe("TiersPanel", () => {
       );
     });
   });
+
+  describe("player-name search (#708)", () => {
+    it("exposes a Tab-reachable searchbox with an accessible label", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      const box = screen.getByRole("searchbox", { name: /find a player/i });
+      expect(box).toBeInTheDocument();
+      // Actually Tab through the panel until focus lands on the searchbox —
+      // proves genuine keyboard reachability rather than just the absence of
+      // tabindex="-1" (which misses disabled/otherwise-non-focusable cases).
+      for (let i = 0; i < 10 && document.activeElement !== box; i++) {
+        await user.tab();
+      }
+      expect(box).toHaveFocus();
+    });
+
+    it("filters visible players by name substring, live, with no regenerate", async () => {
+      const onRegenerate = vi.fn();
+      render(
+        <TiersPanel
+          result={response}
+          isPending={false}
+          onDownloadXlsx={() => {}}
+          onRegenerate={onRegenerate}
+        />,
+      );
+      const user = userEvent.setup();
+      await user.type(screen.getByRole("searchbox", { name: /find a player/i }), "chase");
+
+      expect(screen.getByText("Ja'Marr Chase")).toBeInTheDocument();
+      expect(screen.queryByText("Bijan Robinson")).not.toBeInTheDocument();
+      expect(screen.queryByText("Josh Allen")).not.toBeInTheDocument();
+      // Purely client-side — the search must never trigger a regenerate.
+      expect(onRegenerate).not.toHaveBeenCalled();
+    });
+
+    it("matches case-insensitively", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      await user.type(screen.getByRole("searchbox", { name: /find a player/i }), "JEFFERSON");
+      expect(screen.getByText("Justin Jefferson")).toBeInTheDocument();
+      expect(screen.queryByText("Ja'Marr Chase")).not.toBeInTheDocument();
+    });
+
+    it("renders an explicit Clear search button in a non-empty, matching state that clears the query", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      // With matches on screen the clear affordance must be explicit, not the
+      // browser-native type="search" × (absent in Firefox) (#720).
+      await user.type(screen.getByRole("searchbox", { name: /find a player/i }), "chase");
+      expect(screen.getByText("Ja'Marr Chase")).toBeInTheDocument();
+
+      const clear = screen.getByRole("button", { name: /clear search/i });
+      expect(clear).toBeInTheDocument();
+      await user.click(clear);
+
+      // Query is wiped and the full list is restored.
+      expect(screen.getByRole("searchbox", { name: /find a player/i })).toHaveValue("");
+      expect(screen.getByText("Ja'Marr Chase")).toBeInTheDocument();
+      expect(screen.getByText("Josh Allen")).toBeInTheDocument();
+    });
+
+    it("composes with the position filter (both must match)", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      // WR filter narrows to WRs; the search further narrows to Jefferson only.
+      await user.click(screen.getByRole("button", { name: /^wr$/i }));
+      await user.type(screen.getByRole("searchbox", { name: /find a player/i }), "jeff");
+
+      expect(screen.getByText("Justin Jefferson")).toBeInTheDocument();
+      // Chase is a WR (survives the position filter) but not the name search.
+      expect(screen.queryByText("Ja'Marr Chase")).not.toBeInTheDocument();
+      // Barkley matches nothing here — different position and name.
+      expect(screen.queryByText("Saquon Barkley")).not.toBeInTheDocument();
+    });
+
+    it("shows the zero-match dashed card, and Clear search restores the prior view", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      await user.type(
+        screen.getByRole("searchbox", { name: /find a player/i }),
+        "zzznobody",
+      );
+
+      expect(screen.getByText(/no players match/i)).toBeInTheDocument();
+      expect(screen.queryByText("Ja'Marr Chase")).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: /clear search/i }));
+
+      // The full list is back and the empty-state card is gone.
+      expect(screen.queryByText(/no players match/i)).not.toBeInTheDocument();
+      expect(screen.getByText("Ja'Marr Chase")).toBeInTheDocument();
+      expect(screen.getByText("Josh Allen")).toBeInTheDocument();
+    });
+
+    it("the search zero-match card wins over the position empty-state, and clearing it keeps the active position filter", async () => {
+      render(<TiersPanel result={response} isPending={false} onDownloadXlsx={() => {}} />);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /^wr$/i }));
+      await user.type(
+        screen.getByRole("searchbox", { name: /find a player/i }),
+        "zzznobody",
+      );
+
+      // Search-driven empty-state, not the "No WR players" position empty-state.
+      expect(screen.getByText(/no players match/i)).toBeInTheDocument();
+      expect(screen.queryByText(/no wr players in this tier list/i)).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: /clear search/i }));
+
+      // Clearing the search returns to the WR-filtered view (Chase back, Josh Allen still filtered out).
+      expect(screen.getByText("Ja'Marr Chase")).toBeInTheDocument();
+      expect(screen.queryByText("Josh Allen")).not.toBeInTheDocument();
+    });
+  });
 });
