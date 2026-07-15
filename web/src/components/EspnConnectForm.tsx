@@ -6,8 +6,7 @@ import {
   disconnectLink,
   type LinkedLeagueResponse,
 } from "@/api/linkedLeague";
-import { ApiError } from "@/api/client";
-import { extractApiErrorMessage } from "@/lib/errors";
+import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { currentSeason } from "@/lib/season";
 import type { Profile } from "@/api/types";
 
@@ -24,33 +23,26 @@ interface ConnectedStateProps {
 }
 
 function EspnConnectedState({ linked, profileId, onRefresh }: ConnectedStateProps) {
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { pending: busy, error, run } = useAsyncAction();
 
   async function handleRefresh() {
-    setError(null);
-    setBusy(true);
-    try {
-      await refreshLink(profileId);
-      await onRefresh();
-    } catch (e) {
-      setError(e instanceof ApiError ? extractApiErrorMessage(e.message) || "Refresh failed." : "Refresh failed.");
-    } finally {
-      setBusy(false);
-    }
+    await run(
+      async () => {
+        await refreshLink(profileId);
+        await onRefresh();
+      },
+      { fallback: "Refresh failed." },
+    );
   }
 
   async function handleDisconnect() {
-    setError(null);
-    setBusy(true);
-    try {
-      await disconnectLink(profileId);
-      await onRefresh();
-    } catch (e) {
-      setError(e instanceof ApiError ? extractApiErrorMessage(e.message) || "Disconnect failed." : "Disconnect failed.");
-    } finally {
-      setBusy(false);
-    }
+    await run(
+      async () => {
+        await disconnectLink(profileId);
+        await onRefresh();
+      },
+      { fallback: "Disconnect failed." },
+    );
   }
 
   return (
@@ -95,8 +87,7 @@ export function EspnConnectForm({ profile, onLinked, onRefresh }: Props) {
   const [isPrivate, setIsPrivate] = useState(false);
   const [swid, setSwid] = useState("");
   const [espnS2, setEspnS2] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { pending: busy, error, run } = useAsyncAction();
 
   const linked = profile.linked_league;
   if (linked?.provider === "espn") {
@@ -106,26 +97,19 @@ export function EspnConnectForm({ profile, onLinked, onRefresh }: Props) {
   }
 
   async function handleConnect() {
-    setError(null);
-    setBusy(true);
-    try {
-      const trimmedLeague = leagueId.trim();
-      const result = await connectEspn(profile.id, {
-        league_id: trimmedLeague || undefined,
-        season: trimmedLeague ? currentSeason() : undefined,
-        swid: isPrivate ? swid.trim() : undefined,
-        espn_s2: isPrivate ? espnS2.trim() : undefined,
-      });
-      onLinked(result);
-    } catch (e) {
-      setError(
-        e instanceof ApiError
-          ? extractApiErrorMessage(e.message) || "Connect failed. Please try again."
-          : "Connect failed. Please try again.",
-      );
-    } finally {
-      setBusy(false);
-    }
+    await run(
+      async () => {
+        const trimmedLeague = leagueId.trim();
+        const result = await connectEspn(profile.id, {
+          league_id: trimmedLeague || undefined,
+          season: trimmedLeague ? currentSeason() : undefined,
+          swid: isPrivate ? swid.trim() : undefined,
+          espn_s2: isPrivate ? espnS2.trim() : undefined,
+        });
+        onLinked(result);
+      },
+      { fallback: "Connect failed. Please try again." },
+    );
   }
 
   // Public: must have leagueId.

@@ -9,8 +9,7 @@ import {
   type YahooLeagueSummary,
 } from "@/api/linkedLeague";
 import { yahooAuthorizeUrl } from "@/api/auth";
-import { ApiError } from "@/api/client";
-import { extractApiErrorMessage } from "@/lib/errors";
+import { useAsyncAction, toActionErrorMessage } from "@/hooks/useAsyncAction";
 import type { Profile, User } from "@/api/types";
 
 interface Props {
@@ -27,33 +26,26 @@ interface ConnectedStateProps {
 }
 
 function YahooConnectedState({ linked, profileId, onRefresh }: ConnectedStateProps) {
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { pending: busy, error, run } = useAsyncAction();
 
   async function handleRefresh() {
-    setError(null);
-    setBusy(true);
-    try {
-      await refreshLink(profileId);
-      await onRefresh();
-    } catch (e) {
-      setError(e instanceof ApiError ? extractApiErrorMessage(e.message) || "Refresh failed." : "Refresh failed.");
-    } finally {
-      setBusy(false);
-    }
+    await run(
+      async () => {
+        await refreshLink(profileId);
+        await onRefresh();
+      },
+      { fallback: "Refresh failed." },
+    );
   }
 
   async function handleDisconnect() {
-    setError(null);
-    setBusy(true);
-    try {
-      await disconnectLink(profileId);
-      await onRefresh();
-    } catch (e) {
-      setError(e instanceof ApiError ? extractApiErrorMessage(e.message) || "Disconnect failed." : "Disconnect failed.");
-    } finally {
-      setBusy(false);
-    }
+    await run(
+      async () => {
+        await disconnectLink(profileId);
+        await onRefresh();
+      },
+      { fallback: "Disconnect failed." },
+    );
   }
 
   return (
@@ -100,9 +92,8 @@ export function YahooConnectForm({ profile, user, onLinked, onRefresh }: Props) 
   // All hooks unconditionally before any early return.
   const [leagues, setLeagues] = useState<YahooLeagueSummary[]>([]);
   const [chosenKey, setChosenKey] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const { pending: busy, error, run, setError } = useAsyncAction();
 
   useEffect(() => {
     if (!showPicker) return;
@@ -112,15 +103,9 @@ export function YahooConnectForm({ profile, user, onLinked, onRefresh }: Props) 
         setLeagues(data);
         if (data.length > 0) setChosenKey(data[0].league_key);
       })
-      .catch((e) =>
-        setError(
-          e instanceof ApiError
-            ? extractApiErrorMessage(e.message) || "Couldn't reach Yahoo. Please try again."
-            : "Couldn't reach Yahoo. Please try again.",
-        ),
-      )
+      .catch((e) => setError(toActionErrorMessage(e, "Couldn't reach Yahoo. Please try again.")))
       .finally(() => setLoading(false));
-  }, [profile.id, showPicker]);
+  }, [profile.id, showPicker, setError]);
 
   if (linked?.provider === "yahoo") {
     return <YahooConnectedState linked={linked} profileId={profile.id} onRefresh={onRefresh} />;
@@ -169,24 +154,17 @@ export function YahooConnectForm({ profile, user, onLinked, onRefresh }: Props) 
   }
 
   async function handleConnect() {
-    setError(null);
-    setBusy(true);
-    try {
-      const chosen = leagues.find((l) => l.league_key === chosenKey);
-      const result = await connectYahoo(profile.id, {
-        league_key: chosenKey,
-        season: chosen?.season ?? new Date().getFullYear(),
-      });
-      onLinked(result);
-    } catch (e) {
-      setError(
-        e instanceof ApiError
-          ? extractApiErrorMessage(e.message) || "Connect failed. Please try again."
-          : "Connect failed. Please try again.",
-      );
-    } finally {
-      setBusy(false);
-    }
+    await run(
+      async () => {
+        const chosen = leagues.find((l) => l.league_key === chosenKey);
+        const result = await connectYahoo(profile.id, {
+          league_key: chosenKey,
+          season: chosen?.season ?? new Date().getFullYear(),
+        });
+        onLinked(result);
+      },
+      { fallback: "Connect failed. Please try again." },
+    );
   }
 
   if (loading) {

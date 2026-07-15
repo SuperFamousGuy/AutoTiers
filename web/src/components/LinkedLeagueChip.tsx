@@ -1,8 +1,8 @@
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { refreshLink } from "@/api/linkedLeague";
 import { ApiError } from "@/api/client";
 import { extractApiErrorMessage } from "@/lib/errors";
+import { useAsyncAction } from "@/hooks/useAsyncAction";
 
 interface Props {
   profileId: string;
@@ -20,21 +20,19 @@ const PROVIDER_LABELS: Record<Props["provider"], string> = {
 };
 
 export function LinkedLeagueChip({ profileId, provider, leagueName, onRefreshed }: Props) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { pending: busy, error, run, setError } = useAsyncAction();
   const label = PROVIDER_LABELS[provider];
 
   async function handleRefresh() {
-    setError(null);
-    setBusy(true);
-    try {
+    // `run` owns the busy flag and clears the prior error; the two phases below
+    // set their own messages and never throw out of it, so its extract-or-
+    // fallback mapping stays out of the way.
+    await run(async () => {
       try {
         await refreshLink(profileId);
       } catch (e) {
         setError(
-          e instanceof ApiError
-            ? extractApiErrorMessage(e.message)
-            : "Refresh failed. Try again.",
+          e instanceof ApiError ? extractApiErrorMessage(e.message) : "Refresh failed. Try again.",
         );
         return;
       }
@@ -45,9 +43,7 @@ export function LinkedLeagueChip({ profileId, provider, leagueName, onRefreshed 
       } catch {
         setError("Refreshed, but the view couldn't update. Reload to see the latest.");
       }
-    } finally {
-      setBusy(false);
-    }
+    });
   }
 
   return (
