@@ -106,4 +106,20 @@ describe("MobileProfileMenuItems", () => {
     // Absent, not merely disabled.
     expect(screen.queryByRole("menuitem", { name: /Undo last change/i })).toBeNull();
   });
+
+  it("omits Undo last change when canUndo is true but onUndo is missing (#735)", () => {
+    renderInMenu(
+      <MobileProfileMenuItems
+        profiles={profiles}
+        activeId="p1"
+        onSelect={() => {}}
+        onNew={() => {}}
+        onManage={() => {}}
+        canCreate
+        canUndo
+      />,
+    );
+    // No clickable entry that would no-op without a handler.
+    expect(screen.queryByRole("menuitem", { name: /Undo last change/i })).toBeNull();
+  });
 });

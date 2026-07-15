@@ -24,7 +24,8 @@ interface MobileProfileMenuItemsProps {
  * The "Undo last change" item mirrors the desktop Undo button that sits beside
  * `ProfilePicker`; both call the SAME `handleUndo`/`canUndo` App computes, so a
  * phone user who fat-fingers a settings/rules edit mid-draft can still revert
- * (#726). It renders only when `canUndo` — omitted, not shown disabled.
+ * (#726). It renders only when `canUndo` AND `onUndo` are both provided —
+ * omitted, not shown disabled, and never a clickable entry that no-ops.
  */
 export function MobileProfileMenuItems({ profiles, activeId, onSelect, onNew, onManage, canCreate, onUndo, canUndo }: MobileProfileMenuItemsProps) {
   return (
@@ -40,8 +41,8 @@ export function MobileProfileMenuItems({ profiles, activeId, onSelect, onNew, on
       <DropdownMenuItem className="lg:hidden" onSelect={onManage}>
         Manage Profiles…
       </DropdownMenuItem>
-      {canUndo && (
-        <DropdownMenuItem className="lg:hidden" onSelect={() => onUndo?.()}>
+      {canUndo && onUndo && (
+        <DropdownMenuItem className="lg:hidden" onSelect={onUndo}>
           Undo last change
         </DropdownMenuItem>
       )}
