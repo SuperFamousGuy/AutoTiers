@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Download, ListChecks, Loader2 } from "lucide-react";
 import { PositionFilter, type PositionFilterValue } from "./PositionFilter";
@@ -96,6 +96,23 @@ export function TiersPanel({ result, isPending, isError, error, onDownloadXlsx, 
     setConfirmingReset(false);
     setDraftMode((d) => !d);
   };
+
+  // Clear a pending Reset Draft confirmation whenever the drafted set empties
+  // out from under the confirm UI — e.g. the user un-drafts the last player via
+  // the "Drafted" list while the Confirm/Cancel pair is showing. Otherwise the
+  // pair lingers as a stale "Confirm Reset (0)" with nothing left to wipe (#737
+  // review).
+  useEffect(() => {
+    if (draftedCount === 0) setConfirmingReset(false);
+  }, [draftedCount]);
+
+  // A draft-context switch (different league or scoring format) loads a
+  // different board, so drop any confirmation pending on the previous one —
+  // otherwise the Confirm/Cancel pair would resurface over a board the user
+  // never asked to reset (#737 review).
+  useEffect(() => {
+    setConfirmingReset(false);
+  }, [draftStorageKey]);
 
   const groupedByTier = useMemo(() => {
     if (!result) return [] as { label: string; descriptiveLabel?: string; players: GenerateResponse["players"] }[];
