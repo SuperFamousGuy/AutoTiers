@@ -543,7 +543,7 @@ describe("App (authenticated integration)", () => {
   it("omits/defaults qb_starters to single-QB when the Superflex toggle is off (#724)", async () => {
     mockAuthenticated([PROFILE_ONE]);
 
-    let generateBody: Record<string, unknown> = {};
+    let generateBody: Record<string, unknown> | undefined;
     server.use(
       http.post(`${API_URL}/api/generate`, async ({ request }) => {
         generateBody = (await request.json()) as Record<string, unknown>;
@@ -561,7 +561,13 @@ describe("App (authenticated integration)", () => {
 
     await userEvent.setup().click(screen.getByRole("button", { name: /^generate$/i }));
 
-    await waitFor(() => expect(generateBody.qb_starters).not.toBe(2));
+    // The generate request must actually fire (generateBody stays undefined until
+    // the handler runs), and with the toggle off qb_starters is omitted entirely —
+    // App.buildRequest leaves it undefined so it drops from the JSON body and the
+    // backend applies its single-QB default. Asserting "not 2" alone would pass
+    // even if the request never fired.
+    await waitFor(() => expect(generateBody).toBeDefined());
+    expect(generateBody).not.toHaveProperty("qb_starters");
   });
 
   it("persists the Superflex toggle into the profile settings autosave (#724)", async () => {
