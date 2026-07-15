@@ -52,6 +52,10 @@ export function TiersPanel({ result, isPending, isError, error, onDownloadXlsx, 
   // spinner while pending and an inline error + Retry on failure, instead of the
   // old fire-and-forget rejection that gave the user no feedback at all (#647).
   const [xlsxState, setXlsxState] = useState<"idle" | "pending" | "error">("idle");
+  // Whether the inline Reset Draft confirm/cancel affordance is showing. Mirrors
+  // ManageProfilesDialog's delete flow: the first click swaps the button for a
+  // Confirm/Cancel pair rather than firing a native window.confirm (#731).
+  const [confirmingReset, setConfirmingReset] = useState(false);
 
   const handleDownloadXlsx = async () => {
     setXlsxState("pending");
@@ -71,14 +75,26 @@ export function TiersPanel({ result, isPending, isError, error, onDownloadXlsx, 
   // Reset Draft wipes the live drafted-players board (per-league, per-format,
   // persisted to localStorage) with no undo. On a phone during a live draft
   // this button sits next to the frequently-tapped Draft Mode toggle, so gate
-  // the wipe behind a confirmation that names the count. When nothing is
-  // drafted there is nothing to lose, so skip the prompt and no-op.
+  // the wipe behind an inline confirm/cancel that names the count (matching the
+  // app's ManageProfilesDialog delete flow rather than a native window.confirm
+  // that ignores dark mode + app styling and blocks the JS thread — #731). When
+  // nothing is drafted there is nothing to lose, so skip the prompt and no-op.
   const handleResetDraft = () => {
     if (draftedCount === 0) return;
-    const noun = draftedCount === 1 ? "player" : "players";
-    if (window.confirm(`Clear all ${draftedCount} drafted ${noun} for this board? This can't be undone.`)) {
-      resetDraft();
-    }
+    setConfirmingReset(true);
+  };
+
+  const handleConfirmReset = () => {
+    resetDraft();
+    setConfirmingReset(false);
+  };
+
+  // Leaving Draft Mode hides the Reset controls entirely, so clear any pending
+  // confirm too — otherwise re-enabling Draft Mode would resurface the mid-reset
+  // Confirm/Cancel state instead of a fresh "Reset Draft" button.
+  const toggleDraftMode = () => {
+    setConfirmingReset(false);
+    setDraftMode((d) => !d);
   };
 
   const groupedByTier = useMemo(() => {
@@ -223,16 +239,35 @@ export function TiersPanel({ result, isPending, isError, error, onDownloadXlsx, 
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {draftMode && (
-              <Button
-                onClick={handleResetDraft}
-                variant="outline"
-                size="sm"
-              >
-                Reset Draft
-              </Button>
+              confirmingReset ? (
+                <>
+                  <Button
+                    onClick={handleConfirmReset}
+                    variant="destructive"
+                    size="sm"
+                  >
+                    Confirm Reset ({draftedCount})
+                  </Button>
+                  <Button
+                    onClick={() => setConfirmingReset(false)}
+                    variant="ghost"
+                    size="sm"
+                  >
+                    Cancel
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  onClick={handleResetDraft}
+                  variant="outline"
+                  size="sm"
+                >
+                  Reset Draft
+                </Button>
+              )
             )}
             <Button
-              onClick={() => setDraftMode((d) => !d)}
+              onClick={toggleDraftMode}
               variant={draftMode ? "default" : "outline"}
               size="sm"
               role="switch"
