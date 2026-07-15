@@ -40,6 +40,12 @@ export function useFavorites(authenticated: boolean): UseFavoritesResult {
       setFavorites(EMPTY);
       serverState.current = EMPTY;
       desired.current = null;
+      // Clear any in-flight load state; otherwise an auth true→false flip while
+      // getFavorites() is pending leaves `loading` stuck true (the cancelled
+      // fetch never runs its finally in a way that reflects here) and the UI
+      // shows a spinner with no fetch running.
+      setLoading(false);
+      setError(null);
       return;
     }
     let cancelled = false;
@@ -72,6 +78,11 @@ export function useFavorites(authenticated: boolean): UseFavoritesResult {
   if (!runSave.current) {
     runSave.current = createSingleFlight<FavoritesUpdate>(async (_id, next) => {
       const persisted = await putFavorites(next);
+      // If logout cleared `desired` while this write was in flight, drop the
+      // response. serverState was reset to EMPTY on logout; repopulating it with
+      // the prior user's persisted favorites would make it a stale rollback
+      // source of truth that a later save error could briefly reveal.
+      if (desired.current === null) return;
       serverState.current = persisted;
       // Only adopt the normalized response when nothing newer is queued; a later
       // edit's optimistic state is the current truth otherwise.

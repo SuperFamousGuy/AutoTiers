@@ -53,5 +53,9 @@ export function useAutoSave<T>({ activeId, payload, save, debounceMs = 800 }: Us
       });
     }, debounceMs);
     return () => clearTimeout(handle);
-  }, [activeId, payload, save, debounceMs]);
+    // `save` is intentionally omitted: the effect calls it via `saveRef.current`,
+    // and App recreates `save` every render. Including it would re-run this effect
+    // (resetting the debounce timer) on unrelated re-renders and could delay
+    // autosave indefinitely.
+  }, [activeId, payload, debounceMs]);
 }
