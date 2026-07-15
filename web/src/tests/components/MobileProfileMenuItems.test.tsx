@@ -69,4 +69,41 @@ describe("MobileProfileMenuItems", () => {
     expect(screen.getByRole("menuitem", { name: /\+ New Profile/i })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /Manage Profiles/i })).toBeInTheDocument();
   });
+
+  it("shows Undo last change and calls onUndo when canUndo is true (#726)", async () => {
+    const onUndo = vi.fn();
+    renderInMenu(
+      <MobileProfileMenuItems
+        profiles={profiles}
+        activeId="p1"
+        onSelect={() => {}}
+        onNew={() => {}}
+        onManage={() => {}}
+        canCreate
+        onUndo={onUndo}
+        canUndo
+      />,
+    );
+    const undo = screen.getByRole("menuitem", { name: /Undo last change/i });
+    expect(undo).toBeInTheDocument();
+    await userEvent.setup().click(undo);
+    expect(onUndo).toHaveBeenCalledTimes(1);
+  });
+
+  it("omits Undo last change entirely when canUndo is false (#726)", () => {
+    renderInMenu(
+      <MobileProfileMenuItems
+        profiles={profiles}
+        activeId="p1"
+        onSelect={() => {}}
+        onNew={() => {}}
+        onManage={() => {}}
+        canCreate
+        onUndo={() => {}}
+        canUndo={false}
+      />,
+    );
+    // Absent, not merely disabled.
+    expect(screen.queryByRole("menuitem", { name: /Undo last change/i })).toBeNull();
+  });
 });
