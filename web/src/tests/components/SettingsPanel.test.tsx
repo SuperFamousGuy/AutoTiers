@@ -272,6 +272,41 @@ describe("SettingsPanel — per-format tier labels (#164)", () => {
   });
 });
 
+describe("SettingsPanel — Superflex / 2-QB toggle (#724)", () => {
+  it("defaults to off (unchecked) when qb_starters is unset", () => {
+    render(<StatefulFullPanel />);
+    expect(screen.getByRole("switch", { name: "Superflex / 2-QB league" })).not.toBeChecked();
+  });
+
+  it("reflects a stored qb_starters of 2 as checked", () => {
+    render(<StatefulFullPanel initial={{ qb_starters: 2 }} />);
+    expect(screen.getByRole("switch", { name: "Superflex / 2-QB league" })).toBeChecked();
+  });
+
+  it("reflects a stored qb_starters of 1 as unchecked", () => {
+    render(<StatefulFullPanel initial={{ qb_starters: 1 }} />);
+    expect(screen.getByRole("switch", { name: "Superflex / 2-QB league" })).not.toBeChecked();
+  });
+
+  it("enabling the toggle sets qb_starters to 2", async () => {
+    const spy = vi.fn();
+    render(<StatefulFullPanel onChangeSpy={spy} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("switch", { name: "Superflex / 2-QB league" }));
+    const last = spy.mock.calls[spy.mock.calls.length - 1][0] as SettingsState;
+    expect(last.qb_starters).toBe(2);
+  });
+
+  it("disabling the toggle sets qb_starters to 1", async () => {
+    const spy = vi.fn();
+    render(<StatefulFullPanel initial={{ qb_starters: 2 }} onChangeSpy={spy} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("switch", { name: "Superflex / 2-QB league" }));
+    const last = spy.mock.calls[spy.mock.calls.length - 1][0] as SettingsState;
+    expect(last.qb_starters).toBe(1);
+  });
+});
+
 describe("SettingsPanel — tier count control", () => {
   it("number of tiers select renders with default value equal to league_size when tier_count absent", () => {
     render(<StatefulPanel />);

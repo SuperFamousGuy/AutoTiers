@@ -31,6 +31,7 @@ import type { Rule, GenerateRequest, PositionRulesState } from "@/api/types";
 
 const DEFAULT_SETTINGS: SettingsState = {
   scoring_format: "half_ppr",
+  qb_starters: 1,
   league_size: 12,
   draft_rounds: 15,
   tier_count: 12,
@@ -366,6 +367,9 @@ export default function App() {
       scoring_format: settings.scoring_format,
       league_type: "standard",
       league_size: settings.league_size,
+      // #724: superflex/2-QB toggle. Omitted (undefined) drops from the JSON body so
+      // the backend applies its single-QB default.
+      qb_starters: settings.qb_starters,
       qb_td_points: settings.qb_td_points,
       bonus_100yd_rushing: settings.bonus_100yd_rushing,
       bonus_100yd_receiving: settings.bonus_100yd_receiving,
