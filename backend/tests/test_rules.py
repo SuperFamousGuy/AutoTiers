@@ -167,6 +167,29 @@ def test_all_builtin_rules_have_descriptions():
         assert len(rule.description) > 20, f"Rule '{rule.name}' description is suspiciously short"
 
 
+def test_builtin_rules_fields_are_valid():
+    """Every BUILTIN_RULES condition.field must be a real PlayerContext attribute.
+
+    ``_evaluate`` in rules.py does ``getattr(ctx, condition.field, None)`` and
+    treats a missing attribute as ``None`` (condition -> False). A typo'd or
+    renamed field therefore produces a silently-dead rule: it shows as enabled
+    in /api/rules and the UI, its weight is tunable, but it can never fire and
+    nothing errors. This test fails loudly at CI instead. See issue #730 (same
+    silent-dead-rule class fixed in #502).
+    """
+    import dataclasses
+
+    valid_fields = {f.name for f in dataclasses.fields(PlayerContext)}
+    for rule in BUILTIN_RULES:
+        for condition in rule.conditions:
+            assert condition.field in valid_fields, (
+                f"Rule '{rule.name}' references condition field "
+                f"'{condition.field}', which is not an attribute of "
+                f"PlayerContext. This rule can never fire — fix the field name "
+                f"in builtin_rules.py or add the field to PlayerContext."
+            )
+
+
 def test_projection_unavailable_halves_score():
     import dataclasses
     rule = dataclasses.replace(next(r for r in BUILTIN_RULES if r.name == "Projection Unavailable"), enabled=True)
