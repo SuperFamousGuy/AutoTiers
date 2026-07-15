@@ -109,13 +109,16 @@ describe("AuthContext", () => {
     let resolveMount!: (r: Response) => void;
     const mountResp = new Promise<Response>((r) => { resolveMount = r; });
 
-    vi.spyOn(global, "fetch")
+    const fetchSpy = vi.spyOn(global, "fetch")
       // mount refresh() — anonymous payload, still in flight
       .mockReturnValueOnce(mountResp as unknown as ReturnType<typeof fetch>)
       // login() — resolves immediately with a real user
       .mockResolvedValueOnce(new Response(JSON.stringify(loggedIn), { status: 200 }));
 
     const { result } = renderHook(() => useAuth(), { wrapper });
+    // Ensure the mount refresh() fetch is in flight before logging in, so the
+    // stale-resolution ordering under test is deterministic.
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
 
     await act(async () => {
       await result.current.login({ email: "loggedin@b.com", password: "x" });
@@ -139,11 +142,14 @@ describe("AuthContext", () => {
     let resolveMount!: (r: Response) => void;
     const mountResp = new Promise<Response>((r) => { resolveMount = r; });
 
-    vi.spyOn(global, "fetch")
+    const fetchSpy = vi.spyOn(global, "fetch")
       .mockReturnValueOnce(mountResp as unknown as ReturnType<typeof fetch>)
       .mockResolvedValueOnce(new Response(JSON.stringify(signedUp), { status: 201 }));
 
     const { result } = renderHook(() => useAuth(), { wrapper });
+    // Ensure the mount refresh() fetch is in flight before signing up, so the
+    // stale-resolution ordering under test is deterministic.
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
 
     await act(async () => {
       await result.current.signup({ email: "signedup@b.com", password: "longenough123" });
@@ -168,13 +174,16 @@ describe("AuthContext", () => {
     let resolveMount!: (r: Response) => void;
     const mountResp = new Promise<Response>((r) => { resolveMount = r; });
 
-    vi.spyOn(global, "fetch")
+    const fetchSpy = vi.spyOn(global, "fetch")
       // mount refresh() — authenticated payload, still in flight
       .mockReturnValueOnce(mountResp as unknown as ReturnType<typeof fetch>)
       // logout() 204
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
 
     const { result } = renderHook(() => useAuth(), { wrapper });
+    // Ensure the mount refresh() fetch is in flight before logging out, so the
+    // stale-resolution ordering under test is deterministic.
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
 
     await act(async () => {
       await result.current.logout();

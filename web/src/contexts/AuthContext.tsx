@@ -20,10 +20,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
 
-  // Monotonic sequence guard. Every state-mutating auth call captures the id it
-  // was issued with; only the response of the latest-issued call is allowed to
-  // mutate state. Without this, concurrent calls race — the mount refresh() and
-  // a post-email-verification refresh() fire back-to-back, and if the older
+  // Monotonic sequence guard. The four async auth operations — refresh(),
+  // login(), signup(), and logout() — each capture the id they were issued
+  // with; only the response of the latest-issued of those four is allowed to
+  // apply its result to the guarded state (user, profiles, loading). Without
+  // this, concurrent calls race — the mount refresh() and a
+  // post-email-verification refresh() fire back-to-back, and if the older
   // (pre-verification) /api/auth/me response resolves last it would silently
   // overwrite the just-verified state with stale "unverified" data (#713).
   //
@@ -32,6 +34,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // payload would otherwise clobber the just-logged-in state on resolution
   // (#725). Bumping the seq before the network call invalidates any in-flight
   // refresh(), and applyIfCurrent() drops a stale refresh() that resolves late.
+  //
+  // NOTE: the raw setProfiles setter exposed on the context is deliberately
+  // NOT covered by this guard — it is a synchronous, caller-driven update (no
+  // in-flight response to race), so callers own its ordering.
   const refreshSeq = useRef(0);
 
   // Run `apply` only if `seq` is still the latest-issued sequence — i.e. no
