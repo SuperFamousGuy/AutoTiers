@@ -31,9 +31,11 @@ export function LinkedLeagueChip({ profileId, provider, leagueName, onRefreshed 
       try {
         await refreshLink(profileId);
       } catch (e) {
-        setError(
-          e instanceof ApiError ? extractApiErrorMessage(e.message) : "Refresh failed. Try again.",
-        );
+        // `extractApiErrorMessage` can come back empty (e.g. an empty response
+        // body), which would blank the alert and recreate the silent failure —
+        // fall back to the generic line whenever it does.
+        const message = e instanceof ApiError ? extractApiErrorMessage(e.message) : "";
+        setError(message || "Refresh failed. Try again.");
         return;
       }
       // The refresh landed server-side; a refetch failure is a distinct,
