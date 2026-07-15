@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getFavorites, putFavorites } from "@/api/favorites";
+import { createSingleFlight, type SerializedWrite } from "@/lib/singleFlight";
 import type { FavoritesOut, FavoritesUpdate } from "@/api/types";
 
 const EMPTY: FavoritesOut = { favorite_player_ids: [], favorite_teams: [] };
@@ -24,9 +25,21 @@ export function useFavorites(authenticated: boolean): UseFavoritesResult {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Last state the server confirmed (initial load or a successful PUT). A failed
+  // write rolls back to this real server truth rather than to a captured local
+  // snapshot, which could itself be a not-yet-persisted optimistic value.
+  const serverState = useRef<FavoritesOut>(EMPTY);
+  // The latest payload the user asked to persist. A settled write only writes
+  // its normalized response (or its rollback) back into state while it still
+  // matches this — otherwise a newer, queued write is the authority and an older
+  // response must not stomp its optimistic state.
+  const desired = useRef<FavoritesUpdate | null>(null);
+
   useEffect(() => {
     if (!authenticated) {
       setFavorites(EMPTY);
+      serverState.current = EMPTY;
+      desired.current = null;
       return;
     }
     let cancelled = false;
@@ -34,7 +47,10 @@ export function useFavorites(authenticated: boolean): UseFavoritesResult {
     setError(null);
     getFavorites()
       .then((fav) => {
-        if (!cancelled) setFavorites(fav);
+        if (!cancelled) {
+          setFavorites(fav);
+          serverState.current = fav;
+        }
       })
       .catch((e) => {
         if (!cancelled) setError(e.message ?? "Failed to load favorites");
@@ -47,17 +63,38 @@ export function useFavorites(authenticated: boolean): UseFavoritesResult {
     };
   }, [authenticated]);
 
-  const save = useCallback(async (next: FavoritesUpdate) => {
-    const prev = favorites;
-    setFavorites(next);            // optimistic
-    try {
+  // PUT /api/favorites is a full-replace and fires on every star-click with no
+  // debounce, so two quick clicks would otherwise issue two concurrent PUTs and
+  // whichever response the server processed last would win regardless of which
+  // click was last — a silent lost update. Single-flight the writes so the
+  // server sees one at a time, in causal order, coalescing to the latest.
+  const runSave = useRef<SerializedWrite<FavoritesUpdate> | undefined>(undefined);
+  if (!runSave.current) {
+    runSave.current = createSingleFlight<FavoritesUpdate>(async (_id, next) => {
       const persisted = await putFavorites(next);
-      setFavorites(persisted);     // accept server's normalized version (dedup, etc.)
+      serverState.current = persisted;
+      // Only adopt the normalized response when nothing newer is queued; a later
+      // edit's optimistic state is the current truth otherwise.
+      if (desired.current === next) setFavorites(persisted);
+    });
+  }
+
+  const save = useCallback(async (next: FavoritesUpdate) => {
+    desired.current = next;
+    setFavorites(next);            // optimistic — immediate, even while a write is in flight
+    try {
+      await runSave.current!("favorites", next);
     } catch (e) {
-      setFavorites(prev);          // revert
+      // Roll back only when this failed write is still the latest desired state;
+      // otherwise a newer queued write is already the authority and will
+      // reconcile. Revert to the last confirmed server truth.
+      if (desired.current === next) {
+        desired.current = null;
+        setFavorites(serverState.current);
+      }
       throw e;                     // caller (FavoritesPanel.commit) handles save-error UI
     }
-  }, [favorites]);
+  }, []);
 
   return { favorites, loading, error, save };
 }
