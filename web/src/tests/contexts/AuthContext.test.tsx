@@ -58,6 +58,46 @@ describe("AuthContext", () => {
     vi.restoreAllMocks();
   });
 
+  it("applies the latest-issued refresh() even if an earlier call resolves last", async () => {
+    // Reproduces #713: the mount refresh() (issued first, carrying a stale
+    // pre-verification payload) resolves AFTER a second refresh() that carries
+    // the fresh post-verification payload. The sequence guard must keep the
+    // later-issued response and discard the older one regardless of order.
+    const stale = { user: { id: "u1", email: "stale@b.com", yahoo_subject: null, google_subject: null, last_active_profile_id: null }, profiles: [] };
+    const fresh = { user: { id: "u1", email: "fresh@b.com", yahoo_subject: null, google_subject: null, last_active_profile_id: "p1" }, profiles: [{ id: "p1" }] };
+
+    let resolveFirst!: (r: Response) => void;
+    let resolveSecond!: (r: Response) => void;
+    const firstResp = new Promise<Response>((r) => { resolveFirst = r; });
+    const secondResp = new Promise<Response>((r) => { resolveSecond = r; });
+
+    vi.spyOn(global, "fetch")
+      // mount refresh() — stale payload, still in flight
+      .mockReturnValueOnce(firstResp as unknown as ReturnType<typeof fetch>)
+      // second refresh() — fresh payload
+      .mockReturnValueOnce(secondResp as unknown as ReturnType<typeof fetch>);
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    // Mount refresh() is in flight; issue the second refresh().
+    act(() => { void result.current.refresh(); });
+
+    // Resolve the SECOND (later-issued) call first — its payload should apply.
+    await act(async () => {
+      resolveSecond(new Response(JSON.stringify(fresh), { status: 200 }));
+    });
+    await waitFor(() => expect(result.current.user?.email).toBe("fresh@b.com"));
+
+    // Now resolve the FIRST (earlier-issued) call — it must be discarded.
+    await act(async () => {
+      resolveFirst(new Response(JSON.stringify(stale), { status: 200 }));
+    });
+
+    expect(result.current.user?.email).toBe("fresh@b.com");
+    expect(result.current.profiles).toEqual([{ id: "p1" }]);
+    expect(result.current.loading).toBe(false);
+    vi.restoreAllMocks();
+  });
+
   it("logout clears user and profiles", async () => {
     vi.spyOn(global, "fetch")
       // /me on mount returns user

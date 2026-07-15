@@ -2,14 +2,19 @@
 import uuid
 from datetime import datetime
 from typing import Optional, Any
-from pydantic import BaseModel, EmailStr, Field, model_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 # Re-export ProfileOut from profile.py so /me and /profiles share one schema.
 # Earlier we had two separate ProfileOut classes — and only the /me copy carried
 # linked_league. Every autosave PATCH returned the stripped /profiles copy,
 # overwriting the in-memory linked_league. Single source of truth prevents
 # that drift from happening again.
-from app.schemas.profile import ProfileOut
+#
+# _reject_oversized_json is the same 64KB cap ProfileCreate/ProfileUpdate apply.
+# /api/auth/signup is unauthenticated and writes initial_settings/initial_rules
+# straight into a new Profile row, so it needs the identical guard — reuse the
+# one helper rather than let the two shapes drift apart.
+from app.schemas.profile import ProfileOut, _reject_oversized_json
 
 
 # Upper bound on any password field. Well above any real password, but low
@@ -26,6 +31,11 @@ class SignupRequest(BaseModel):
     password: str = Field(min_length=10, max_length=MAX_PASSWORD_LENGTH)
     initial_settings: Optional[dict[str, Any]] = None
     initial_rules: Optional[dict[str, list[dict[str, Any]]]] = None
+
+    @field_validator("initial_settings", "initial_rules")
+    @classmethod
+    def _bound_json_size(cls, value: Optional[dict], info) -> Optional[dict]:
+        return _reject_oversized_json(value, info.field_name)
 
 
 class LoginRequest(BaseModel):

@@ -52,7 +52,6 @@ export function TiersPanel({ result, isPending, isError, error, onDownloadXlsx, 
   // without scrolling — this composes a case-insensitive substring match on top
   // of the position filter, entirely client-side (no regenerate round-trip) (#708).
   const [search, setSearch] = useState("");
-  const [draftMode, setDraftMode] = useState(false);
   // Excel export lifecycle. `downloadDraftXlsx` lazy-loads a code-split chunk and
   // then builds the workbook async — either step can reject (offline, a stale
   // chunk hash after a redeploy, a future throw). Track it so the button shows a
@@ -71,7 +70,9 @@ export function TiersPanel({ result, isPending, isError, error, onDownloadXlsx, 
   };
 
   const draftStorageKey = `${leagueKey ?? "default"}:${scoringFormat ?? "standard"}`;
-  const { isDrafted, draftedCount, toggleDrafted, reset: resetDraft, drafted } = useDraftBoard(draftStorageKey);
+  // draftMode is persisted per-context in useDraftBoard so a reload or remount
+  // mid-draft doesn't flip the toggle off and hide the saved picks (#707).
+  const { isDrafted, draftedCount, toggleDrafted, reset: resetDraft, drafted, draftMode, setDraftMode } = useDraftBoard(draftStorageKey);
 
   // Reset Draft wipes the live drafted-players board (per-league, per-format,
   // persisted to localStorage) with no undo. On a phone during a live draft
