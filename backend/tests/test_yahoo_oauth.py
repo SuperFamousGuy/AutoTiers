@@ -56,8 +56,25 @@ async def test_refresh_access_token():
         router.post("/oauth2/get_token").mock(
             return_value=Response(200, json={"access_token": "new_acc"})
         )
-        new_token = await refresh_access_token("old_refresh")
-    assert new_token == "new_acc"
+        access, refresh = await refresh_access_token("old_refresh")
+    assert access == "new_acc"
+    # No refresh_token in the response means Yahoo kept the existing one.
+    assert refresh is None
+
+
+@pytest.mark.asyncio
+async def test_refresh_access_token_returns_rotated_refresh_token():
+    """When Yahoo rotates the refresh token on a refresh grant, it comes back in
+    the tuple so the caller can persist it (issue #762)."""
+    with respx.mock(base_url="https://api.login.yahoo.com") as router:
+        router.post("/oauth2/get_token").mock(
+            return_value=Response(
+                200, json={"access_token": "new_acc", "refresh_token": "rotated_ref"}
+            )
+        )
+        access, refresh = await refresh_access_token("old_refresh")
+    assert access == "new_acc"
+    assert refresh == "rotated_ref"
 
 
 @pytest.mark.asyncio

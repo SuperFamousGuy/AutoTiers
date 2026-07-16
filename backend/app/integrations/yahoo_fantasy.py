@@ -70,6 +70,10 @@ async def _with_refresh(url: str, user, db: AsyncSession) -> dict:
     """Call _get; on 401, refresh the user's token and retry once.
 
     Updates user.yahoo_access_token (still encrypted) and commits db on refresh.
+    When Yahoo rotates the refresh token on the refresh grant, the new one is
+    re-encrypted and persisted in the same commit — otherwise the stored (now
+    stale) refresh token would guarantee the next refresh 401s and force an
+    avoidable reconnect. See issue #762.
     """
     access_token = decrypt(user.yahoo_access_token)
     try:
@@ -81,7 +85,9 @@ async def _with_refresh(url: str, user, db: AsyncSession) -> dict:
     # revoked/expired Yahoo returns 401 (or 400); that is not something the
     # user can fix by "verifying credentials" — they must reconnect Yahoo.
     try:
-        new_token = await refresh_access_token(decrypt(user.yahoo_refresh_token))
+        new_token, new_refresh_token = await refresh_access_token(
+            decrypt(user.yahoo_refresh_token)
+        )
     except httpx.HTTPStatusError as e:
         # Only a revoked/expired refresh token (Yahoo returns 400/401) means the
         # user must reconnect. Other statuses (429 rate-limit, 5xx) are transient
@@ -91,6 +97,12 @@ async def _with_refresh(url: str, user, db: AsyncSession) -> dict:
             raise YahooReauthRequired from e
         raise
     user.yahoo_access_token = encrypt(new_token)
+    # Yahoo may rotate the refresh token on a refresh grant; when it does,
+    # persist the new one in the same commit so the next refresh doesn't reuse
+    # the stale token and force an avoidable reconnect (issue #762). A None
+    # value means Yahoo kept the existing token — leave it untouched.
+    if new_refresh_token is not None:
+        user.yahoo_refresh_token = encrypt(new_refresh_token)
     await db.commit()
     return await _get(url, new_token)
 

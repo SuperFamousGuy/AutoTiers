@@ -273,8 +273,9 @@ async def test_fetch_league_refreshes_token_on_401(respx_mock):
     db = AsyncMock()
     user = _make_user()
 
-    async def fake_refresh(token: str) -> str:
-        return "new_access_token"
+    async def fake_refresh(token: str) -> tuple[str, str | None]:
+        # Yahoo did not rotate the refresh token this time.
+        return "new_access_token", None
 
     with pytest.MonkeyPatch().context() as m:
         m.setattr("app.integrations.yahoo_fantasy.decrypt", lambda x: x)
@@ -284,6 +285,43 @@ async def test_fetch_league_refreshes_token_on_401(respx_mock):
 
     assert data.league_id == "423.l.12345"
     assert user.yahoo_access_token == "new_access_token"
+    # Yahoo returned no new refresh token, so the stored one is left untouched.
+    assert user.yahoo_refresh_token == "enc_refresh"
+    db.commit.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_fetch_league_persists_rotated_refresh_token(respx_mock):
+    """When Yahoo rotates the refresh token on the refresh grant, both the new
+    access token AND the new refresh token are re-encrypted and committed —
+    otherwise the stale stored refresh token forces an avoidable reconnect on
+    the next call (issue #762)."""
+    league_key = "423.l.12345"
+    url = f"https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/settings"
+    respx_mock.get(url).mock(
+        side_effect=[
+            httpx.Response(401, text="Unauthorized"),
+            httpx.Response(200, json=SETTINGS_RESPONSE),
+        ]
+    )
+
+    db = AsyncMock()
+    user = _make_user()
+
+    async def fake_refresh(token: str) -> tuple[str, str | None]:
+        # Yahoo rotated the refresh token on this grant.
+        return "new_access_token", "rotated_refresh_token"
+
+    with pytest.MonkeyPatch().context() as m:
+        m.setattr("app.integrations.yahoo_fantasy.decrypt", lambda x: x)
+        m.setattr("app.integrations.yahoo_fantasy.encrypt", lambda x: f"enc:{x}")
+        m.setattr("app.integrations.yahoo_fantasy.refresh_access_token", fake_refresh)
+        data = await fetch_league(league_key, user, db)
+
+    assert data.league_id == "423.l.12345"
+    # Both tokens are re-encrypted and persisted in the same commit.
+    assert user.yahoo_access_token == "enc:new_access_token"
+    assert user.yahoo_refresh_token == "enc:rotated_refresh_token"
     db.commit.assert_called_once()
 
 

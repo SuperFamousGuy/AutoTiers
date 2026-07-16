@@ -53,8 +53,13 @@ async def exchange_code(code: str) -> tuple[str, str | None]:
         return data["access_token"], data.get("refresh_token")
 
 
-async def refresh_access_token(refresh_token: str) -> str:
+async def refresh_access_token(refresh_token: str) -> tuple[str, str | None]:
     """Exchange a refresh token for a new access token.
+
+    Returns (access_token, refresh_token). refresh_token is None when Yahoo
+    did not rotate it; when it is non-None Yahoo has issued a new refresh token
+    and the caller MUST persist it, or the next refresh will use a stale token
+    and force an avoidable reconnect. Mirrors exchange_code's tuple shape.
 
     Raises httpx.HTTPStatusError on non-2xx (including 401 when the refresh
     token has been revoked — callers should surface this as a reconnect prompt).
@@ -71,7 +76,8 @@ async def refresh_access_token(refresh_token: str) -> str:
             },
         )
         resp.raise_for_status()
-        return resp.json()["access_token"]
+        data = resp.json()
+        return data["access_token"], data.get("refresh_token")
 
 
 async def fetch_identity(access_token: str) -> tuple[str, str | None, bool]:
