@@ -19,6 +19,17 @@ router = APIRouter(prefix="/players", tags=["players-search"])
 _RESULT_CAP = 25
 
 
+def _escape_like(s: str) -> str:
+    """Escape LIKE metacharacters so a user query matches literally.
+
+    Without this, ``%`` and ``_`` in ``q`` act as wildcards: ``%`` matches
+    the whole table and ``a_e`` matches ``ace``/``ape``. Backslash is escaped
+    first so it doesn't double-escape the ``%``/``_`` replacements, and it is
+    passed as the ``escape=`` char to ``.like()`` below.
+    """
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 class PlayerSearchResult(BaseModel):
     id: str
     name: str
@@ -57,10 +68,10 @@ async def search_players(
     q_clean = q.strip()
     if not q_clean:
         raise HTTPException(status_code=400, detail="Query must not be blank.")
-    pattern = f"%{q_clean.lower()}%"
+    pattern = f"%{_escape_like(q_clean.lower())}%"
     rows = (await db.scalars(
         select(Player)
-        .where(func.lower(Player.name).like(pattern))
+        .where(func.lower(Player.name).like(pattern, escape="\\"))
         .order_by(Player.name)
         .limit(_RESULT_CAP)
     )).all()
