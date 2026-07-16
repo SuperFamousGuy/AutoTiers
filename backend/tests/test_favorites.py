@@ -6,6 +6,13 @@ test_favorites_auto_enable.py.
 import pytest
 from httpx import AsyncClient
 
+from app.schemas.favorites import (
+    _MAX_PLAYER_IDS,
+    _MAX_PLAYER_ID_LEN,
+    _MAX_TEAMS,
+    _MAX_TEAM_LEN,
+)
+
 
 async def _signup_and_login(async_client: AsyncClient, email: str = "fav@example.com") -> None:
     """Helper: signup + login via cookie. async_client persists the auth
@@ -111,7 +118,9 @@ async def test_put_favorites_rejects_oversized_player_list(async_client: AsyncCl
     """A list far above the cap is rejected at the schema boundary (422),
     before the dedup/blank-scan loop runs — not the domain-specific 409."""
     await _signup_and_login(async_client)
-    huge = [str(i) for i in range(100_000)]
+    # One entry over the schema bound hits the same len(...) > _MAX_PLAYER_IDS
+    # branch without allocating a giant list.
+    huge = [str(i) for i in range(_MAX_PLAYER_IDS + 1)]
     r = await async_client.put("/api/favorites", json={
         "favorite_player_ids": huge, "favorite_teams": [],
     })
@@ -121,7 +130,7 @@ async def test_put_favorites_rejects_oversized_player_list(async_client: AsyncCl
 @pytest.mark.asyncio
 async def test_put_favorites_rejects_oversized_team_list(async_client: AsyncClient, test_db):
     await _signup_and_login(async_client)
-    huge = ["KC"] * 100_000
+    huge = ["KC"] * (_MAX_TEAMS + 1)
     r = await async_client.put("/api/favorites", json={
         "favorite_player_ids": [], "favorite_teams": huge,
     })
@@ -130,10 +139,10 @@ async def test_put_favorites_rejects_oversized_team_list(async_client: AsyncClie
 
 @pytest.mark.asyncio
 async def test_put_favorites_rejects_oversized_player_id_string(async_client: AsyncClient, test_db):
-    """A single ~1 MB player-id string is rejected at validation (422), not 200."""
+    """A single over-length player-id string is rejected at validation (422), not 200."""
     await _signup_and_login(async_client)
     r = await async_client.put("/api/favorites", json={
-        "favorite_player_ids": ["A" * 1_000_000], "favorite_teams": [],
+        "favorite_player_ids": ["A" * (_MAX_PLAYER_ID_LEN + 1)], "favorite_teams": [],
     })
     assert r.status_code == 422, r.text
 
@@ -142,7 +151,7 @@ async def test_put_favorites_rejects_oversized_player_id_string(async_client: As
 async def test_put_favorites_rejects_oversized_team_string(async_client: AsyncClient, test_db):
     await _signup_and_login(async_client)
     r = await async_client.put("/api/favorites", json={
-        "favorite_player_ids": [], "favorite_teams": ["A" * 1_000_000],
+        "favorite_player_ids": [], "favorite_teams": ["A" * (_MAX_TEAM_LEN + 1)],
     })
     assert r.status_code == 422, r.text
 
