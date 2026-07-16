@@ -44,6 +44,35 @@ describe("useAutoSave", () => {
     }
   });
 
+  it("does not start a second save while one is in flight, then fires with the latest payload", async () => {
+    let resolveFirst!: () => void;
+    const gate = new Promise<void>((r) => { resolveFirst = r; });
+    let firstCall = true;
+    const save = vi.fn(async () => {
+      if (firstCall) {
+        firstCall = false;
+        await gate; // hold the first PATCH open
+      }
+    });
+    const { rerender } = renderHook(
+      ({ payload }) => useAutoSave({ activeId: "p1", payload, save, debounceMs: 10 }),
+      { initialProps: { payload: { x: 1 } } },
+    );
+    rerender({ payload: { x: 2 } });               // arms debounce → fires save A
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save).toHaveBeenLastCalledWith("p1", { x: 2 });
+
+    // Edit twice more while A is still awaiting the network. The debounce
+    // coalesces to x:3; single-flight must keep it queued, not fire concurrently.
+    rerender({ payload: { x: 3 } });
+    await new Promise((r) => setTimeout(r, 40));
+    expect(save).toHaveBeenCalledTimes(1);
+
+    resolveFirst();                                // A settles → queued B fires
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save).toHaveBeenLastCalledWith("p1", { x: 3 });
+  });
+
   it("resumes autosaving once the payload changes for the switched-to profile", () => {
     vi.useFakeTimers();
     try {
