@@ -52,6 +52,16 @@ describe("OnboardingTour", () => {
     expect(screen.getByRole("button", { name: /^next$/i })).toBeInTheDocument();
   });
 
+  it("the download step copy matches the 'Download Excel' button, not CSV", () => {
+    const downloadIndex = ONBOARDING_STEPS.findIndex((s) => s.id === "download");
+    setup(downloadIndex);
+    // The export control in TiersPanel is labeled "Download Excel" and produces
+    // an .xlsx; the tour copy must name that literal button label (not "the
+    // Excel file") and must not tell users to look for a CSV button.
+    expect(screen.getByText(/click download excel/i)).toBeInTheDocument();
+    expect(screen.queryByText(/csv/i)).not.toBeInTheDocument();
+  });
+
   it("Back is disabled on the first step and enabled later", () => {
     const { rerender } = render(
       <OnboardingTour

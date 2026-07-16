@@ -58,11 +58,11 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   },
   {
     id: "download",
-    // Prefer the actual Download CSV button; before tiers are generated it
+    // Prefer the actual Download Excel button; before tiers are generated it
     // isn't rendered, so fall back to highlighting the tiers panel.
     anchor: ['[data-tour="download"]', "#panel-tiers"],
     title: "4. Take it to draft day",
-    body: "Your tiers appear here. Download the CSV to bring them to your draft. You can replay this tour anytime from the help (?) button.",
+    body: "Your tiers appear here. Click Download Excel to bring them to your draft. You can replay this tour anytime from the help (?) button.",
     mobilePanel: "tiers",
   },
 ] as const;
