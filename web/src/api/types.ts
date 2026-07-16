@@ -44,7 +44,8 @@ export interface GenerateRequest {
   league_type: LeagueType;
   league_size: LeagueSize;
   // Number of QB slots the league starts per team: 1 = standard, 2 = superflex/2-QB.
-  // Backend-only for now (no UI control yet); deepens the QB VBD replacement baseline.
+  // Driven by the Superflex toggle in SettingsPanel (#724); deepens the QB VBD
+  // replacement baseline. Omitted → backend applies its single-QB default.
   qb_starters?: 1 | 2;
   qb_td_points: QbTdPoints;
   bonus_100yd_rushing: boolean;

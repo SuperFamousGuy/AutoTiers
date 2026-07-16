@@ -16,6 +16,10 @@ import type { Weights } from "@/lib/weights";
 
 export interface SettingsState {
   scoring_format: ScoringFormat;
+  // Number of QB slots the league starts (#724). 2 = superflex/2-QB, which deepens
+  // the QB VBD replacement baseline to match superflex ADP; omitted or 1 = standard
+  // single-QB. Persisted with the profile the same way as scoring_format.
+  qb_starters?: 1 | 2;
   league_size: LeagueSize;
   draft_rounds: number;
   qb_td_points: QbTdPoints;
@@ -169,6 +173,21 @@ export function SettingsPanel({ value, onChange, linkedLeague, profileId, onRefr
             </div>
           ))}
         </RadioGroup>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <div className="space-y-0.5">
+          <Label htmlFor="qb-starters-superflex" className="cursor-pointer">Superflex / 2-QB league</Label>
+          <p className="text-xs text-muted-foreground">
+            Deepens QB value with a 2-QB replacement baseline, matching superflex/2-QB ADP.
+          </p>
+        </div>
+        <Switch
+          id="qb-starters-superflex"
+          aria-label="Superflex / 2-QB league"
+          checked={value.qb_starters === 2}
+          onCheckedChange={(v) => set("qb_starters", v ? 2 : 1)}
+        />
       </div>
 
       <div className="space-y-2">

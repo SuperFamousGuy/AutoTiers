@@ -514,6 +514,90 @@ describe("App (authenticated integration)", () => {
     });
   });
 
+  it("sends qb_starters: 2 in the generate request when the Superflex toggle is on (#724)", async () => {
+    mockAuthenticated([PROFILE_ONE]);
+
+    let generateBody: Record<string, unknown> = {};
+    server.use(
+      http.post(`${API_URL}/api/generate`, async ({ request }) => {
+        generateBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ players: [], total: 0, data_as_of: null });
+      }),
+    );
+
+    renderApp();
+    await waitFor(() => expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument());
+    await screen.findByText("Target Share Premium");
+
+    const user = userEvent.setup();
+    const superflex = screen.getByRole("switch", { name: "Superflex / 2-QB league" });
+    expect(superflex).not.toBeChecked();
+    await user.click(superflex);
+    expect(superflex).toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: /^generate$/i }));
+
+    await waitFor(() => expect(generateBody.qb_starters).toBe(2));
+  });
+
+  it("omits/defaults qb_starters to single-QB when the Superflex toggle is off (#724)", async () => {
+    mockAuthenticated([PROFILE_ONE]);
+
+    let generateBody: Record<string, unknown> | undefined;
+    server.use(
+      http.post(`${API_URL}/api/generate`, async ({ request }) => {
+        generateBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ players: [], total: 0, data_as_of: null });
+      }),
+    );
+
+    renderApp();
+    await waitFor(() => expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument());
+    await screen.findByText("Target Share Premium");
+
+    // PROFILE_ONE's settings_json carries no qb_starters, so the toggle stays off
+    // and the request must not request superflex math.
+    expect(screen.getByRole("switch", { name: "Superflex / 2-QB league" })).not.toBeChecked();
+
+    await userEvent.setup().click(screen.getByRole("button", { name: /^generate$/i }));
+
+    // The generate request must actually fire (generateBody stays undefined until
+    // the handler runs), and with the toggle off qb_starters is omitted entirely —
+    // App.buildRequest leaves it undefined so it drops from the JSON body and the
+    // backend applies its single-QB default. Asserting "not 2" alone would pass
+    // even if the request never fired.
+    await waitFor(() => expect(generateBody).toBeDefined());
+    expect(generateBody).not.toHaveProperty("qb_starters");
+  });
+
+  it("persists the Superflex toggle into the profile settings autosave (#724)", async () => {
+    mockAuthenticated([PROFILE_ONE]);
+
+    let lastPatchSettings: Record<string, unknown> | undefined;
+    server.use(
+      http.patch(`${API_URL}/api/profiles/:id`, async ({ params, request }) => {
+        const body = (await request.json()) as { settings_json?: Record<string, unknown> };
+        lastPatchSettings = body.settings_json;
+        return HttpResponse.json({
+          id: params.id,
+          name: PROFILE_ONE.name,
+          settings_json: body.settings_json ?? PROFILE_ONE.settings_json,
+          rules_json: PROFILE_ONE.rules_json,
+          linked_league: null,
+        });
+      }),
+    );
+
+    renderApp();
+    await waitFor(() => expect(screen.getByRole("button", { name: /PPR 12-team/i })).toBeInTheDocument());
+    await screen.findByText("Target Share Premium");
+
+    await userEvent.setup().click(screen.getByRole("switch", { name: "Superflex / 2-QB league" }));
+
+    // Autosave PATCHes the full settings_json, which must carry qb_starters: 2.
+    await waitFor(() => expect(lastPatchSettings?.qb_starters).toBe(2), { timeout: 3000 });
+  });
+
   it("auto-opens Linked accounts dialog with error when ?linking_error is present", async () => {
     mockAuthenticated();
     window.history.replaceState({}, "", "/?linking_error=already_linked_elsewhere");
