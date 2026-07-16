@@ -6,8 +6,7 @@ import {
   disconnectLink,
   type LinkedLeagueResponse,
 } from "@/api/linkedLeague";
-import { ApiError } from "@/api/client";
-import { extractApiErrorMessage } from "@/lib/errors";
+import { useAsyncAction } from "@/hooks/useAsyncAction";
 import type { Profile } from "@/api/types";
 
 interface Props {
@@ -23,33 +22,26 @@ interface ConnectedStateProps {
 }
 
 function CbsConnectedState({ linked, profileId, onRefresh }: ConnectedStateProps) {
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { pending: busy, error, run } = useAsyncAction();
 
   async function handleRefresh() {
-    setError(null);
-    setBusy(true);
-    try {
-      await refreshLink(profileId);
-      await onRefresh();
-    } catch (e) {
-      setError(e instanceof ApiError ? extractApiErrorMessage(e.message) || "Refresh failed." : "Refresh failed.");
-    } finally {
-      setBusy(false);
-    }
+    await run(
+      async () => {
+        await refreshLink(profileId);
+        await onRefresh();
+      },
+      { fallback: "Refresh failed." },
+    );
   }
 
   async function handleDisconnect() {
-    setError(null);
-    setBusy(true);
-    try {
-      await disconnectLink(profileId);
-      await onRefresh();
-    } catch (e) {
-      setError(e instanceof ApiError ? extractApiErrorMessage(e.message) || "Disconnect failed." : "Disconnect failed.");
-    } finally {
-      setBusy(false);
-    }
+    await run(
+      async () => {
+        await disconnectLink(profileId);
+        await onRefresh();
+      },
+      { fallback: "Disconnect failed." },
+    );
   }
 
   return (
@@ -93,8 +85,7 @@ export function CbsConnectForm({ profile, onLinked, onRefresh }: Props) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [leagueId, setLeagueId] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { pending: busy, error, run } = useAsyncAction();
 
   const linked = profile.linked_league;
   if (linked?.provider === "cbs") {
@@ -104,24 +95,17 @@ export function CbsConnectForm({ profile, onLinked, onRefresh }: Props) {
   }
 
   async function handleConnect() {
-    setError(null);
-    setBusy(true);
-    try {
-      const result = await connectCbs(profile.id, {
-        email: email.trim(),
-        password: password.trim(),
-        league_id: leagueId.trim(),
-      });
-      onLinked(result);
-    } catch (e) {
-      setError(
-        e instanceof ApiError
-          ? extractApiErrorMessage(e.message) || "Connect failed. Please try again."
-          : "Connect failed. Please try again.",
-      );
-    } finally {
-      setBusy(false);
-    }
+    await run(
+      async () => {
+        const result = await connectCbs(profile.id, {
+          email: email.trim(),
+          password: password.trim(),
+          league_id: leagueId.trim(),
+        });
+        onLinked(result);
+      },
+      { fallback: "Connect failed. Please try again." },
+    );
   }
 
   const connectDisabled =

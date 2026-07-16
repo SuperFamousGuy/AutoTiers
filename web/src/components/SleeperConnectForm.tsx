@@ -8,7 +8,7 @@ import {
   type LinkedLeagueResponse,
 } from "@/api/linkedLeague";
 import { ApiError } from "@/api/client";
-import { extractApiErrorMessage } from "@/lib/errors";
+import { useAsyncAction } from "@/hooks/useAsyncAction";
 import type { SleeperLeagueSummary, Profile } from "@/api/types";
 import { currentSeason } from "@/lib/season";
 import { cn } from "@/lib/utils";
@@ -59,33 +59,26 @@ interface ConnectedStateProps {
 }
 
 function SleeperConnectedState({ linked, profileId, onRefresh }: ConnectedStateProps) {
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { pending: busy, error, run } = useAsyncAction();
 
   async function handleRefresh() {
-    setError(null);
-    setBusy(true);
-    try {
-      await refreshLink(profileId);
-      await onRefresh();
-    } catch (e) {
-      setError(e instanceof ApiError ? extractApiErrorMessage(e.message) || "Refresh failed." : "Refresh failed.");
-    } finally {
-      setBusy(false);
-    }
+    await run(
+      async () => {
+        await refreshLink(profileId);
+        await onRefresh();
+      },
+      { fallback: "Refresh failed." },
+    );
   }
 
   async function handleDisconnect() {
-    setError(null);
-    setBusy(true);
-    try {
-      await disconnectLink(profileId);
-      await onRefresh();
-    } catch (e) {
-      setError(e instanceof ApiError ? extractApiErrorMessage(e.message) || "Disconnect failed." : "Disconnect failed.");
-    } finally {
-      setBusy(false);
-    }
+    await run(
+      async () => {
+        await disconnectLink(profileId);
+        await onRefresh();
+      },
+      { fallback: "Disconnect failed." },
+    );
   }
 
   return (
@@ -130,8 +123,7 @@ export function SleeperConnectForm({ profile, onLinked, onRefresh }: Props) {
   const [username, setUsername] = useState("");
   const [leagues, setLeagues] = useState<SleeperLeagueSummary[]>([]);
   const [chosenLeague, setChosenLeague] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { pending: busy, error, run, setError } = useAsyncAction();
 
   const linked = profile.linked_league;
   if (linked?.provider === "sleeper") {
@@ -141,91 +133,76 @@ export function SleeperConnectForm({ profile, onLinked, onRefresh }: Props) {
   }
 
   async function handleContinue() {
-    setError(null);
-    setBusy(true);
-    try {
-      // Check the current and previous seasons. NFL fantasy leagues persist
-      // across years and many users carry leagues forward — checking just the
-      // current season makes us reject anyone in the offseason or anyone
-      // whose league hasn't rolled over yet.
-      const seasons = [currentSeason(), currentSeason() - 1];
-      const username_trimmed = username.trim();
-      let userNotFound = false;
-      const settled = await Promise.all(
-        seasons.map(async (season) => {
-          try {
-            return await listSleeperLeagues(profile.id, username_trimmed, season);
-          } catch (e) {
-            if (e instanceof ApiError && e.status === 404) userNotFound = true;
-            return [];
-          }
-        }),
-      );
-      if (userNotFound) {
-        setError("We couldn't find that Sleeper username.");
-        return;
-      }
-      // Combine and de-dupe by id, preferring the higher-season entry.
-      const flat = settled.flat();
-      const byId = new Map<string, SleeperLeagueSummary>();
-      for (const l of flat) {
-        const existing = byId.get(l.id);
-        if (!existing || l.season > existing.season) byId.set(l.id, l);
-      }
-      const result = Array.from(byId.values()).sort((a, b) => b.season - a.season);
-      if (result.length === 0) {
-        setError(
-          `No Sleeper leagues found for "${username_trimmed}" in ${seasons[1]} or ${seasons[0]}.`,
+    await run(
+      async () => {
+        // Check the current and previous seasons. NFL fantasy leagues persist
+        // across years and many users carry leagues forward — checking just the
+        // current season makes us reject anyone in the offseason or anyone
+        // whose league hasn't rolled over yet.
+        const seasons = [currentSeason(), currentSeason() - 1];
+        const username_trimmed = username.trim();
+        let userNotFound = false;
+        const settled = await Promise.all(
+          seasons.map(async (season) => {
+            try {
+              return await listSleeperLeagues(profile.id, username_trimmed, season);
+            } catch (e) {
+              if (e instanceof ApiError && e.status === 404) userNotFound = true;
+              return [];
+            }
+          }),
         );
-        return;
-      }
-      setLeagues(result);
-      setChosenLeague(result[0].id);
-      setStep("league");
-    } catch {
-      setError("Couldn't reach Sleeper. Please try again.");
-    } finally {
-      setBusy(false);
-    }
+        if (userNotFound) {
+          setError("We couldn't find that Sleeper username.");
+          return;
+        }
+        // Combine and de-dupe by id, preferring the higher-season entry.
+        const flat = settled.flat();
+        const byId = new Map<string, SleeperLeagueSummary>();
+        for (const l of flat) {
+          const existing = byId.get(l.id);
+          if (!existing || l.season > existing.season) byId.set(l.id, l);
+        }
+        const result = Array.from(byId.values()).sort((a, b) => b.season - a.season);
+        if (result.length === 0) {
+          setError(
+            `No Sleeper leagues found for "${username_trimmed}" in ${seasons[1]} or ${seasons[0]}.`,
+          );
+          return;
+        }
+        setLeagues(result);
+        setChosenLeague(result[0].id);
+        setStep("league");
+      },
+      // A network/unknown failure keeps the generic reach-Sleeper copy; the
+      // "username not found" / "no leagues" cases are set explicitly above.
+      { mapError: () => "Couldn't reach Sleeper. Please try again." },
+    );
   }
 
   async function handleConnect() {
-    setError(null);
-    setBusy(true);
-    try {
-      const chosen = leagues.find((l) => l.id === chosenLeague);
-      const result = await connectSleeper(profile.id, {
-        username: username.trim(),
-        league_id: chosenLeague,
-        season: chosen?.season ?? currentSeason(),
-      });
-      onLinked(result);
-    } catch (e) {
-      setError(
-        e instanceof ApiError
-          ? extractApiErrorMessage(e.message) || "Connect failed. Please try again."
-          : "Connect failed. Please try again.",
-      );
-    } finally {
-      setBusy(false);
-    }
+    await run(
+      async () => {
+        const chosen = leagues.find((l) => l.id === chosenLeague);
+        const result = await connectSleeper(profile.id, {
+          username: username.trim(),
+          league_id: chosenLeague,
+          season: chosen?.season ?? currentSeason(),
+        });
+        onLinked(result);
+      },
+      { fallback: "Connect failed. Please try again." },
+    );
   }
 
   async function handleLinkWithoutLeague() {
-    setError(null);
-    setBusy(true);
-    try {
-      const result = await connectSleeper(profile.id, { username: username.trim() });
-      onLinked(result);
-    } catch (e) {
-      setError(
-        e instanceof ApiError
-          ? extractApiErrorMessage(e.message) || "Connect failed. Please try again."
-          : "Connect failed. Please try again.",
-      );
-    } finally {
-      setBusy(false);
-    }
+    await run(
+      async () => {
+        const result = await connectSleeper(profile.id, { username: username.trim() });
+        onLinked(result);
+      },
+      { fallback: "Connect failed. Please try again." },
+    );
   }
 
   // True when handleContinue confirmed the username exists but found zero
