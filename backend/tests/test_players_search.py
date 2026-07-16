@@ -143,6 +143,22 @@ async def test_search_trailing_backslash_returns_200(async_client, test_db):
     assert r.json() == []
 
 
+@pytest.mark.asyncio
+async def test_search_backslash_is_literal_not_escape(async_client, test_db):
+    """A `\\` in the query must match a literal backslash, not act as the LIKE
+    escape char. This asserts the escaping behavior directly: if the backslash
+    handling in ``_escape_like`` is removed, the pattern's ``\\`` would be
+    consumed as the ESCAPE char and ``AC\\DC Fan`` would no longer match."""
+    test_db.add(Player(id="acdc", name="AC\\DC Fan", position="WR", team="KC"))
+    await _seed_players(test_db)
+    await _signup_and_login(async_client)
+    r = await async_client.get("/api/players/search?q=AC%5C")  # 'AC\'
+    assert r.status_code == 200
+    names = [p["name"] for p in r.json()]
+    assert "AC\\DC Fan" in names
+    assert "Saquon Barkley" not in names
+
+
 # ── /batch tests ────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
