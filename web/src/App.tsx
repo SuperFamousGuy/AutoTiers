@@ -459,6 +459,8 @@ export default function App() {
             onNew={handleNewProfile}
             onManage={() => setManageOpen(true)}
             canCreate={profiles.length < 5}
+            onUndo={handleUndo}
+            canUndo={canUndo}
           />
         ) : null}
         profilePicker={user ? (
