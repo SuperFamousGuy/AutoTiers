@@ -85,6 +85,80 @@ async def test_search_caps_results_at_25(async_client, test_db):
     assert len(r.json()) <= 25
 
 
+# ── LIKE metacharacter escaping ─────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_search_percent_is_literal_not_wildcard(async_client, test_db):
+    """A bare `%` must not match every player; it matches only names with a
+    literal `%`. Seeds a `%`-containing name plus unrelated players."""
+    test_db.add(Player(id="pct", name="50%_Off Deal", position="WR", team="KC"))
+    await _seed_players(test_db)
+    await _signup_and_login(async_client)
+    r = await async_client.get("/api/players/search?q=%25")  # %25 == '%'
+    assert r.status_code == 200
+    names = [p["name"] for p in r.json()]
+    assert "50%_Off Deal" in names
+    assert "Saquon Barkley" not in names
+    assert "Justin Jefferson" not in names
+
+
+@pytest.mark.asyncio
+async def test_search_underscore_is_literal_not_wildcard(async_client, test_db):
+    """`a_e` must not match `ace`/`ape`; `_` is a literal character now."""
+    test_db.add(Player(id="ace", name="Ace Player", position="WR", team="KC"))
+    test_db.add(Player(id="ape", name="Ape Player", position="WR", team="KC"))
+    test_db.add(Player(id="lit", name="Cra_e Man", position="WR", team="KC"))
+    await test_db.commit()
+    await _signup_and_login(async_client)
+    r = await async_client.get("/api/players/search?q=a_e")
+    assert r.status_code == 200
+    names = [p["name"] for p in r.json()]
+    assert "Cra_e Man" in names
+    assert "Ace Player" not in names
+    assert "Ape Player" not in names
+
+
+@pytest.mark.asyncio
+async def test_search_literal_percent_underscore_query_finds_match(async_client, test_db):
+    """The acceptance-criteria case: a `50%_Off` player is found by a literal
+    `%_` query, and a bare `%` query does not return unrelated players."""
+    test_db.add(Player(id="deal", name="50%_Off Special", position="WR", team="KC"))
+    await _seed_players(test_db)
+    await _signup_and_login(async_client)
+    r = await async_client.get("/api/players/search?q=%25_")  # literal '%_'
+    assert r.status_code == 200
+    names = [p["name"] for p in r.json()]
+    assert "50%_Off Special" in names
+    assert "Saquon Barkley" not in names
+
+
+@pytest.mark.asyncio
+async def test_search_trailing_backslash_returns_200(async_client, test_db):
+    """A query ending in `\\` must not produce a malformed pattern / 500."""
+    await _seed_players(test_db)
+    await _signup_and_login(async_client)
+    r = await async_client.get("/api/players/search?q=jeff%5C")  # 'jeff\'
+    assert r.status_code == 200
+    # No player name literally contains 'jeff\', so no matches expected.
+    assert r.json() == []
+
+
+@pytest.mark.asyncio
+async def test_search_backslash_is_literal_not_escape(async_client, test_db):
+    """A `\\` in the query must match a literal backslash, not act as the LIKE
+    escape char. This asserts the escaping behavior directly: if the backslash
+    handling in ``_escape_like`` is removed, the pattern's ``\\`` would be
+    consumed as the ESCAPE char and ``AC\\DC Fan`` would no longer match."""
+    test_db.add(Player(id="acdc", name="AC\\DC Fan", position="WR", team="KC"))
+    await _seed_players(test_db)
+    await _signup_and_login(async_client)
+    r = await async_client.get("/api/players/search?q=AC%5C")  # 'AC\'
+    assert r.status_code == 200
+    names = [p["name"] for p in r.json()]
+    assert "AC\\DC Fan" in names
+    assert "Saquon Barkley" not in names
+
+
 # ── /batch tests ────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
