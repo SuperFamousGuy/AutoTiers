@@ -101,6 +101,19 @@ class CBSFetcher:
                     fpts_idx = i
                     break
 
+        # Batch the existence check: one SELECT for every existing projection of
+        # this (source, scoring_format) up front, then look up / insert against
+        # the dict. Avoids an N+1 of one round-trip SELECT per scraped row.
+        existing_by_player: dict[str, Projection] = {
+            row.player_id: row
+            for row in (await db.scalars(
+                select(Projection).where(
+                    Projection.source == "cbs",
+                    Projection.scoring_format == scoring_format,
+                )
+            )).all()
+        }
+
         upserted = 0
         for tr in table.select("tbody tr"):
             cells = tr.find_all("td")
@@ -129,19 +142,15 @@ class CBSFetcher:
                 logger.warning("[cbs] unmatched %s | %s %s", position, name, team or "?")
                 continue
 
-            existing = await db.scalar(
-                select(Projection).where(
-                    Projection.player_id == player.id,
-                    Projection.source == "cbs",
-                    Projection.scoring_format == scoring_format,
-                )
-            )
+            existing = existing_by_player.get(player.id)
             if existing is None:
-                db.add(Projection(
+                new_row = Projection(
                     player_id=player.id, source="cbs",
                     scoring_format=scoring_format, projected_points=points,
                     last_updated=today,
-                ))
+                )
+                db.add(new_row)
+                existing_by_player[player.id] = new_row
             else:
                 existing.projected_points = points
                 existing.last_updated = today

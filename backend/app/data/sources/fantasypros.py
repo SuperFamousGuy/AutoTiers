@@ -93,6 +93,19 @@ class FantasyProsFetcher:
         # per-game numbers. Log a warning if scraped values look too small.
         season_total_min_expected = {"QB": 100, "RB": 50, "WR": 50, "TE": 30}
 
+        # Batch the existence check: one SELECT for every existing projection of
+        # this (source, scoring_format) up front, then look up / insert against
+        # the dict. Avoids an N+1 of one round-trip SELECT per scraped row.
+        existing_by_player: dict[str, Projection] = {
+            row.player_id: row
+            for row in (await db.scalars(
+                select(Projection).where(
+                    Projection.source == "fantasypros",
+                    Projection.scoring_format == scoring_format,
+                )
+            )).all()
+        }
+
         upserted = 0
         for tr in table.select("tbody tr"):
             cells = tr.find_all("td")
@@ -126,17 +139,13 @@ class FantasyProsFetcher:
                 logger.warning("[fantasypros] unmatched %s | %s %s", position, name, team or "?")
                 continue
 
-            existing = await db.scalar(
-                select(Projection).where(
-                    Projection.player_id == player.id,
-                    Projection.source == "fantasypros",
-                    Projection.scoring_format == scoring_format,
-                )
-            )
+            existing = existing_by_player.get(player.id)
             if existing is None:
-                db.add(Projection(player_id=player.id, source="fantasypros",
-                                  scoring_format=scoring_format, projected_points=points,
-                                  last_updated=today))
+                new_row = Projection(player_id=player.id, source="fantasypros",
+                                     scoring_format=scoring_format, projected_points=points,
+                                     last_updated=today)
+                db.add(new_row)
+                existing_by_player[player.id] = new_row
             else:
                 existing.projected_points = points
                 existing.last_updated = today
@@ -151,6 +160,19 @@ class FantasyProsFetcher:
         table = soup.find("table", id="data")
         if table is None:
             return 0
+
+        # Batch the existence check: one SELECT for every existing ADP row of
+        # this (adp_source, format) up front, then look up / insert against the
+        # dict instead of one round-trip SELECT per scraped row.
+        existing_by_player: dict[str, ADPData] = {
+            row.player_id: row
+            for row in (await db.scalars(
+                select(ADPData).where(
+                    ADPData.adp_source == "fantasypros",
+                    ADPData.format == fmt,
+                )
+            )).all()
+        }
 
         upserted = 0
         for tr in table.select("tbody tr"):
@@ -173,16 +195,12 @@ class FantasyProsFetcher:
                 logger.warning("[fantasypros adp] unmatched %s %s | %s", fmt, name, team or "?")
                 continue
 
-            existing = await db.scalar(
-                select(ADPData).where(
-                    ADPData.player_id == player.id,
-                    ADPData.format == fmt,
-                    ADPData.adp_source == "fantasypros",
-                )
-            )
+            existing = existing_by_player.get(player.id)
             if existing is None:
-                db.add(ADPData(player_id=player.id, format=fmt, adp=adp_val,
-                               adp_source="fantasypros", last_updated=today))
+                new_row = ADPData(player_id=player.id, format=fmt, adp=adp_val,
+                                  adp_source="fantasypros", last_updated=today)
+                db.add(new_row)
+                existing_by_player[player.id] = new_row
             else:
                 existing.adp = adp_val
                 existing.last_updated = today

@@ -3,7 +3,7 @@ import respx
 from httpx import Response
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import event, select
 from app.models import Player, Projection, ADPData
 from app.data.sources.fantasypros import FantasyProsFetcher
 
@@ -102,6 +102,103 @@ async def test_fantasypros_reads_fpts_by_header_not_position(test_db):
     assert chase_proj.projected_points == 340.5, (
         f"Expected 340.5 (FPTS season-total), got {chase_proj.projected_points}. "
         "Probably read the last column (AVG = per-game) instead."
+    )
+
+
+def _projections_html(rows):
+    """rows is [(name, team, fpts), ...] → a FantasyPros-style projections table."""
+    body = "".join(
+        f"<tr><td><a>{name}</a> <small>{team}</small></td><td>{pts}</td></tr>"
+        for name, team, pts in rows
+    )
+    return (
+        "<html><body><table id='data'>"
+        "<thead><tr><th>Player</th><th>FPTS</th></tr></thead>"
+        f"<tbody>{body}</tbody></table></body></html>"
+    )
+
+
+def _adp_html(rows):
+    """rows is [(name, team, pos, adp), ...] → a FantasyPros-style ADP table."""
+    body = "".join(
+        f"<tr><td>{i}</td><td><a>{name}</a> <small>{team}</small></td>"
+        f"<td>{pos}</td><td>{adp}</td></tr>"
+        for i, (name, team, pos, adp) in enumerate(rows, start=1)
+    )
+    return (
+        "<html><body><table id='data'>"
+        "<thead><tr><th>Rank</th><th>Player</th><th>Pos</th><th>ADP</th></tr></thead>"
+        f"<tbody>{body}</tbody></table></body></html>"
+    )
+
+
+def _count_selects(test_engine, from_table):
+    """Context-manager-free helper: returns (listener, captured_list)."""
+    captured: list[str] = []
+
+    def _listener(conn, cursor, statement, parameters, context, executemany):
+        normalized = " ".join(statement.split()).lower()
+        if normalized.startswith("select") and f"from {from_table}" in normalized:
+            captured.append(statement)
+
+    return _listener, captured
+
+
+@pytest.mark.parametrize("n_rows", [1, 5, 20])
+@pytest.mark.asyncio
+async def test_fantasypros_projections_existence_check_is_one_select(test_engine, test_db, n_rows):
+    """N+1 guard: parsing N projection rows issues exactly one pre-load SELECT
+    against ``projections``, not one per row."""
+    from datetime import date as _date
+
+    for i in range(n_rows):
+        test_db.add(Player(id=f"wr_{i}", name=f"Wide Receiver {i}", position="WR", team="MIN"))
+    await test_db.commit()
+
+    html = _projections_html([(f"Wide Receiver {i}", "MIN", 300 - i) for i in range(n_rows)])
+
+    listener, projection_selects = _count_selects(test_engine, "projections")
+    event.listen(test_engine.sync_engine, "before_cursor_execute", listener)
+    try:
+        fetcher = FantasyProsFetcher()
+        upserted = await fetcher._parse_projections(test_db, html, "WR", "ppr", _date.today())
+        await test_db.commit()
+    finally:
+        event.remove(test_engine.sync_engine, "before_cursor_execute", listener)
+
+    assert upserted == n_rows
+    assert len(projection_selects) == 1, (
+        f"expected one existence-check SELECT for {n_rows} rows, "
+        f"got {len(projection_selects)} (N+1 regression)"
+    )
+
+
+@pytest.mark.parametrize("n_rows", [1, 5, 20])
+@pytest.mark.asyncio
+async def test_fantasypros_adp_existence_check_is_one_select(test_engine, test_db, n_rows):
+    """N+1 guard: parsing N ADP rows issues exactly one pre-load SELECT against
+    ``adp_data``, not one per row."""
+    from datetime import date as _date
+
+    for i in range(n_rows):
+        test_db.add(Player(id=f"wr_{i}", name=f"Wide Receiver {i}", position="WR", team="MIN"))
+    await test_db.commit()
+
+    html = _adp_html([(f"Wide Receiver {i}", "MIN", "WR", i + 1) for i in range(n_rows)])
+
+    listener, adp_selects = _count_selects(test_engine, "adp_data")
+    event.listen(test_engine.sync_engine, "before_cursor_execute", listener)
+    try:
+        fetcher = FantasyProsFetcher()
+        upserted = await fetcher._parse_adp(test_db, html, "ppr", _date.today())
+        await test_db.commit()
+    finally:
+        event.remove(test_engine.sync_engine, "before_cursor_execute", listener)
+
+    assert upserted == n_rows
+    assert len(adp_selects) == 1, (
+        f"expected one existence-check SELECT for {n_rows} rows, "
+        f"got {len(adp_selects)} (N+1 regression)"
     )
 
 
