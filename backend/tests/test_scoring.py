@@ -2,7 +2,7 @@ import pytest
 from app.engine.scoring import (
     ScoringFormat, LeagueType, LeagueSettings, PlayerStats,
     calculate_fantasy_points, blend_scores, _games_scale, PriorYearRamp,
-    _score_turnovers_and_conversions,
+    _score_turnovers_and_conversions, _score_first_downs,
 )
 
 
@@ -134,6 +134,61 @@ def test_turnover_settings_are_configurable():
     settings = _settings(fumble_lost_points=-1.0, two_pt_points=3.0)
     assert _score_turnovers_and_conversions(stats, settings) == pytest.approx(2.0)
     assert calculate_fantasy_points(stats, settings) == pytest.approx(2.0)
+
+
+# --- First-down bonus (#771) -----------------------------------------------
+
+def test_first_down_bonus_awards_points_per_first_down_when_enabled():
+    """Enabled bonus: default 1.0 per rushing/receiving first down, additive."""
+    stats = _stats(rush_att=20, rush_yards=100.0, rush_tds=1, first_down_rush=6, first_down_rec=2)
+    pts = calculate_fantasy_points(
+        stats, _settings(scoring_format=ScoringFormat.STANDARD, bonus_first_downs=True), position="RB"
+    )
+    # 100*0.1 + 1*6 + (6+2)*1.0 = 10 + 6 + 8 = 24
+    assert pts == pytest.approx(24.0)
+
+
+def test_first_down_bonus_disabled_by_default_is_no_op():
+    """Regression: with the bonus off (default), first downs never affect score."""
+    with_fds = _stats(receptions=8, rec_yards=100.0, rec_tds=1, first_down_rush=3, first_down_rec=5)
+    without = _stats(receptions=8, rec_yards=100.0, rec_tds=1)
+    settings = _settings()  # bonus_first_downs=False by default
+    scored_with = calculate_fantasy_points(with_fds, settings, position="WR")
+    scored_without = calculate_fantasy_points(without, settings, position="WR")
+    assert scored_with == pytest.approx(24.0)
+    assert scored_with == scored_without
+
+
+def test_first_down_counts_default_to_zero_are_no_op_even_when_enabled():
+    """A player with zero first downs scores identically whether or not the
+    bonus is enabled — the additive term is exactly zero."""
+    stats = _stats(receptions=8, rec_yards=100.0, rec_tds=1)  # first_down_* default to 0
+    off = calculate_fantasy_points(stats, _settings(bonus_first_downs=False), position="WR")
+    on = calculate_fantasy_points(stats, _settings(bonus_first_downs=True), position="WR")
+    assert off == pytest.approx(24.0)
+    assert off == on
+
+
+def test_first_down_bonus_gated_by_setting():
+    """Same player, same first downs — the bonus applies only when enabled."""
+    stats = _stats(receptions=8, rec_yards=100.0, first_down_rec=4)
+    delta = calculate_fantasy_points(stats, _settings(bonus_first_downs=True), position="WR") - \
+        calculate_fantasy_points(stats, _settings(bonus_first_downs=False), position="WR")
+    assert delta == pytest.approx(4.0)  # 4 first downs * 1.0
+
+
+def test_first_down_points_are_configurable():
+    """The per-first-down value is overridable via LeagueSettings, not hardcoded."""
+    stats = _stats(first_down_rush=3, first_down_rec=2)
+    settings = _settings(bonus_first_downs=True, first_down_points=0.5)
+    assert _score_first_downs(stats, settings) == pytest.approx(2.5)  # 5 * 0.5
+    assert calculate_fantasy_points(stats, settings) == pytest.approx(2.5)
+
+
+def test_score_first_downs_helper_returns_zero_when_disabled():
+    """Direct helper check: disabled → 0.0 regardless of first-down counts."""
+    stats = _stats(first_down_rush=10, first_down_rec=10)
+    assert _score_first_downs(stats, _settings(bonus_first_downs=False)) == 0.0
 
 
 def test_blend_all_sources():

@@ -90,6 +90,30 @@ async def test_nfl_data_populates_fumbles_lost_and_two_pt(test_db, mock_nfl_data
 
 
 @pytest.mark.asyncio
+async def test_nfl_data_populates_first_downs(test_db, mock_nfl_data):
+    """#771: nflverse rushing_first_downs / receiving_first_downs land in
+    first_down_rush / first_down_rec."""
+    test_db.add(Player(id="4017", name="Josh Allen", position="QB", team="BUF", gsis_id="00-0034796"))
+    test_db.add(Player(id="6794", name="Ja'Marr Chase", position="WR", team="CIN", gsis_id="00-0036900"))
+    await test_db.commit()
+
+    fetcher = NflDataFetcher(prior_seasons=1, latest_season=2025)
+    await fetcher.fetch(test_db)
+
+    allen = await test_db.scalar(
+        select(PlayerStat).where(PlayerStat.player_id == "4017", PlayerStat.season == 2025)
+    )
+    assert allen.first_down_rush == 32
+    assert allen.first_down_rec == 0
+
+    chase = await test_db.scalar(
+        select(PlayerStat).where(PlayerStat.player_id == "6794", PlayerStat.season == 2025)
+    )
+    assert chase.first_down_rush == 0
+    assert chase.first_down_rec == 85
+
+
+@pytest.mark.asyncio
 async def test_nfl_data_idempotent_on_rerun(test_db, mock_nfl_data):
     test_db.add(Player(id="4017", name="Josh Allen", position="QB", team="BUF", gsis_id="00-0034796"))
     await test_db.commit()
