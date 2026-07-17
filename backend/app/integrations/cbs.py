@@ -47,19 +47,31 @@ def _league_api_base(league_id: str) -> str:
     return f"https://{league_id}.football.cbssports.com/api/league"
 
 
-def _current_season() -> int:
+def _current_season(stored_season: int | None = None) -> int:
     """Best-effort current NFL season, mirroring web/src/lib/season.ts.
 
     CBS's /league/details response (confirmed against the FFMWR reference
     implementation, ffmwr/dao/platforms/cbs.py, map_data_to_base) exposes
     name/current_period/num_teams/regular_season_periods/num_divisions but
     NO season/year field — FFMWR itself sources season from caller-supplied
-    config, not from the API. Without a CBS-side season value, we fall back
-    to wall-clock inference (NFL season rolls over in March; Jan/Feb belong
-    to the previous season), same logic the frontend's currentSeason() uses
-    for ESPN's pre-link flow. This is the best available signal given CBS's
-    API doesn't expose the year, not a guess invented from nothing.
+    config, not from the API.
+
+    When a `stored_season` is supplied (the /link/refresh path passes the
+    season cached at initial-link time), we return it verbatim so the season
+    is pinned to what the user linked and only ever changes on an explicit
+    relink. Without a caller-supplied season (the initial-link path, which
+    has no prior value) we fall back to wall-clock inference (NFL season
+    rolls over in March; Jan/Feb belong to the previous season), the same
+    logic the frontend's currentSeason() uses for ESPN's pre-link flow.
+
+    Deriving season from wall-clock on *every* fetch was the bug (issue
+    #775): a refresh made after the March rollover boundary could silently
+    flip league_metadata_json.season forward with no underlying league
+    change, corrupting the season badge and any season-keyed logic
+    downstream. Caching it at link time removes that non-determinism.
     """
+    if stored_season:
+        return stored_season
     today = date.today()
     return today.year - 1 if today.month < 3 else today.year
 
@@ -95,8 +107,16 @@ async def get_access_token(email: str, password: str) -> str:
     return access_token
 
 
-async def fetch_league(league_id: str, access_token: str) -> LeagueData:
+async def fetch_league(
+    league_id: str, access_token: str, stored_season: int | None = None
+) -> LeagueData:
     """Fetch league details/rules/teams/rosters/transaction-log from CBS.
+
+    `stored_season`, when passed, is the season cached in
+    league_metadata_json at initial-link time. The /link/refresh path
+    threads it through so the season stays pinned to what the user linked
+    (issue #775); the initial-link call site omits it (there is no prior
+    season) and falls back to wall-clock inference. See _current_season.
 
     Raises CbsAuthRequired on an invalid/expired access token (CBS returns
     HTTP 400 with 'Failed Authentication: error - invalid access token').
@@ -131,10 +151,16 @@ async def fetch_league(league_id: str, access_token: str) -> LeagueData:
 
     # CBS's /league/details payload has no season/year field (confirmed
     # against the FFMWR reference implementation — see _current_season's
-    # docstring); derive it from wall-clock instead of trusting a key that
-    # doesn't exist (which previously always evaluated to season=0 and broke
-    # /link/refresh's "missing season metadata" guard on every CBS profile).
-    season = int(details["season"]) if isinstance(details.get("season"), int) else _current_season()
+    # docstring); on the refresh path use the season cached at link time
+    # (stored_season), and otherwise derive it from wall-clock, rather than
+    # trusting a key that doesn't exist (which previously always evaluated to
+    # season=0 and broke /link/refresh's "missing season metadata" guard on
+    # every CBS profile).
+    season = (
+        int(details["season"])
+        if isinstance(details.get("season"), int)
+        else _current_season(stored_season)
+    )
 
     return LeagueData(
         league_id=str(league_id),

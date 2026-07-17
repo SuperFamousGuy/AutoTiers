@@ -1133,3 +1133,49 @@ async def test_refresh_nfl_refetches_by_stored_season(async_client, test_db):
         r = await async_client.post(f"/api/profiles/{p.id}/link/refresh")
     assert r.status_code == 200, r.text
     assert r.json()["profile"]["settings_json"]["league_size"] == 14
+
+
+@pytest.mark.asyncio
+async def test_refresh_cbs_pins_stored_season_across_wall_clock_rollover(async_client, test_db):
+    """Acceptance criteria for issue #775: a CBS league linked with
+    season=2026 keeps league_metadata_json.season == 2026 across a refresh
+    made after the March wall-clock rollover, until the user relinks. CBS's
+    API never returns a season, so before the fix the refresh path re-derived
+    it from wall-clock and could silently flip it to 2027."""
+    import app.integrations.cbs as cbs_module
+    from datetime import date, datetime, timezone
+    from app.security.fernet import encrypt
+
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    ll = LinkedLeague(
+        profile_id=p.id, provider="cbs", league_id="999999",
+        username_or_swid="fan@example.com",
+        credentials_encrypted=encrypt("cbs-access-token"),
+        league_metadata_json={"name": "CBS Champs", "season": 2026},
+        keepers_json=[], adp_json=None,
+        last_synced_at=datetime.now(timezone.utc),
+    )
+    test_db.add(ll)
+    await test_db.commit()
+
+    class _FakeDate(date):
+        @classmethod
+        def today(cls):
+            return date(2027, 9, 1)  # wall-clock would infer season 2027
+
+    cbs_module.date = _FakeDate
+    try:
+        # Refresh reuses the stored access token, so the auth login endpoint
+        # is never hit — don't assert it was called.
+        with respx.mock(assert_all_called=False) as router:
+            _mock_cbs_league_success(router)
+            r = await async_client.post(f"/api/profiles/{p.id}/link/refresh")
+    finally:
+        cbs_module.date = date
+
+    assert r.status_code == 200, r.text
+    assert r.json()["linked_league"]["league_metadata_json"]["season"] == 2026
+
+    await test_db.refresh(ll)
+    assert ll.league_metadata_json["season"] == 2026
