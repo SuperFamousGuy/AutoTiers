@@ -252,9 +252,8 @@ async def test_login_rate_limit_is_case_insensitive(async_client):
     })
     async_client.cookies.clear()
 
-    from app.auth.rate_limit import login_rate_limiter
-    login_rate_limiter._attempts.clear()
-
+    # Rate limiters are reset per-test by the autouse _reset_rate_limiters
+    # fixture in conftest.py, so no manual clearing is needed here.
     casings = ["Alice@Example.com", "alice@example.com", "ALICE@EXAMPLE.COM"]
     statuses = []
     # 3 casings x 2 each = 6 attempts. Attempts 1-5 hit the account (401);

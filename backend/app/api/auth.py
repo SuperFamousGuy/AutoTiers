@@ -227,10 +227,11 @@ async def login(
     response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> MeResponse:
-    # Key the rate limiter on the normalized email so casing variants
-    # (Attacker@Example.com vs attacker@example.com) share one attempt
-    # bucket. User.email lookups resolve case-insensitively, so without
-    # this an attacker could reset the 5-attempt limit per casing variant.
+    # Pydantic EmailStr already lowercases the domain (RFC 5321 domains are
+    # case-insensitive); local parts are left as provided. Key the rate limiter
+    # on the fully lowercased email so casing variants (Attacker@Example.com vs
+    # attacker@example.com) share one attempt bucket and can't each be used to
+    # reset the 5-attempt limit. Mirrors the normalisation in forgot_password.
     if not login_rate_limiter.check_and_record(body.email.strip().lower()):
         raise HTTPException(status_code=429, detail="Too many attempts; try again later")
 
