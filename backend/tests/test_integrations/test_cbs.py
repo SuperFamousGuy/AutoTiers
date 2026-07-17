@@ -421,6 +421,74 @@ def test_current_season_rolls_over_in_march():
         cbs_module.date = date
 
 
+def test_current_season_prefers_stored_season_over_wall_clock():
+    """When a season is cached (the /link/refresh path), _current_season
+    returns it verbatim and never consults wall-clock (issue #775)."""
+    import app.integrations.cbs as cbs_module
+
+    class _FakeDate(date):
+        @classmethod
+        def today(cls):
+            # A post-rollover date whose wall-clock season (2027) differs
+            # from the stored one — proves stored wins.
+            return date(2027, 9, 1)
+
+    cbs_module.date = _FakeDate
+    try:
+        assert cbs_module._current_season(2026) == 2026
+        # A falsy stored_season (0/None) is treated as "no cached value" and
+        # falls back to wall-clock, matching the refresh guard's semantics.
+        assert cbs_module._current_season(0) == 2027
+        assert cbs_module._current_season(None) == 2027
+    finally:
+        cbs_module.date = date
+
+
+@pytest.mark.asyncio
+async def test_fetch_league_pins_stored_season_across_wall_clock_rollover():
+    """A CBS league linked with season=2026 keeps season==2026 on a refresh
+    made after the March rollover, because refresh passes stored_season
+    through instead of re-deriving from wall-clock (issue #775)."""
+    import app.integrations.cbs as cbs_module
+
+    league_id = "12345"
+
+    class _FakeDate(date):
+        @classmethod
+        def today(cls):
+            return date(2027, 9, 1)  # wall-clock would infer 2027
+
+    cbs_module.date = _FakeDate
+    try:
+        with respx.mock() as router:
+            router.get(_league_url(league_id, "details")).mock(
+                return_value=Response(200, json={
+                    "body": {"league_details": {"name": "Dynasty Champs", "num_teams": 10}},
+                }),
+            )
+            router.get(_league_url(league_id, "rules")).mock(
+                return_value=Response(200, json={"body": {"rules": {}}}),
+            )
+            router.get(_league_url(league_id, "teams")).mock(
+                return_value=Response(200, json={"body": {"teams": []}}),
+            )
+            router.get(_league_url(league_id, "rosters")).mock(
+                return_value=Response(200, json={"body": {"rosters": {"teams": []}}}),
+            )
+            router.get(_league_url(league_id, "transaction-list/log")).mock(
+                return_value=Response(200, json={"body": {"transaction_log": []}}),
+            )
+            pinned = await fetch_league(league_id, "valid-token", 2026)
+            # Omitting stored_season (the initial-link call site) still falls
+            # back to wall-clock inference — behaviour unchanged there.
+            unpinned = await fetch_league(league_id, "valid-token")
+
+        assert pinned.season == 2026
+        assert unpinned.season == 2027
+    finally:
+        cbs_module.date = date
+
+
 @pytest.mark.asyncio
 async def test_get_access_token_follows_redirect():
     """The CBS auth client must follow redirects (httpx defaults

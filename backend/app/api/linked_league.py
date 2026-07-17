@@ -593,7 +593,11 @@ async def refresh(
         if not access_token:
             raise HTTPException(status_code=400, detail="CBS access token missing — please reconnect.")
         try:
-            data = await fetch_cbs_league(ll.league_id, access_token)
+            # Pin the season to the value cached at link time rather than
+            # re-deriving it from wall-clock on every refresh (issue #775) —
+            # otherwise a refresh after the March rollover could silently
+            # flip league_metadata_json.season with no underlying change.
+            data = await fetch_cbs_league(ll.league_id, access_token, stored_season)
         except CbsAuthRequired:
             raise HTTPException(status_code=400, detail="CBS session expired — reconnect your CBS account.")
         except Exception as e:
