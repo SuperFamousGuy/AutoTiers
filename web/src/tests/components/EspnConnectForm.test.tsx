@@ -110,6 +110,10 @@ describe("EspnConnectForm", () => {
     // Spellcheck off so the browser doesn't squiggle the opaque value.
     expect(swid).toHaveAttribute("spellcheck", "false");
     expect(espnS2).toHaveAttribute("spellcheck", "false");
+    // Autocomplete off so the browser doesn't autofill/password-manage the
+    // pasted cookie strings, which would defeat the visual-verify intent.
+    expect(swid).toHaveAttribute("autocomplete", "off");
+    expect(espnS2).toHaveAttribute("autocomplete", "off");
   });
 
   it("includes cookies in the body when private + all fields filled", async () => {
