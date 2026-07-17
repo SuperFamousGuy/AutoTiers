@@ -40,7 +40,7 @@ from app.integrations.scoring_mappers import (
     sleeper_to_settings, espn_to_settings, yahoo_to_settings, cbs_to_settings,
     nfl_to_settings,
 )
-from app.security.fernet import encrypt, decrypt
+from app.security.fernet import encrypt, decrypt, InvalidCiphertext
 from app.schemas.linked_league import LinkedLeagueOut
 from app.schemas.auth import ProfileOut
 
@@ -563,7 +563,12 @@ async def refresh(
             raise _provider_http_error("Sleeper", e)
         mapped = sleeper_to_settings(data.raw_scoring, league_size=data.league_size)
     elif ll.provider == "espn":
-        espn_s2 = decrypt(ll.credentials_encrypted) if ll.credentials_encrypted else None
+        try:
+            espn_s2 = decrypt(ll.credentials_encrypted) if ll.credentials_encrypted else None
+        except InvalidCiphertext:
+            # Stale ciphertext (e.g. SECRET_KEY rotation) — surface as a reconnect
+            # prompt, matching the EspnAuthRequired branch, not an uncaught 500.
+            raise HTTPException(status_code=400, detail="ESPN cookies expired — please reconnect.")
         try:
             data = await fetch_espn_league(
                 ll.league_id, stored_season,
@@ -585,7 +590,12 @@ async def refresh(
             raise _provider_http_error("Yahoo", e)
         mapped = yahoo_to_settings(data.raw_scoring, league_size=data.league_size)
     elif ll.provider == "cbs":
-        access_token = decrypt(ll.credentials_encrypted) if ll.credentials_encrypted else None
+        try:
+            access_token = decrypt(ll.credentials_encrypted) if ll.credentials_encrypted else None
+        except InvalidCiphertext:
+            # Stale ciphertext (e.g. SECRET_KEY rotation) — surface as a reconnect
+            # prompt, matching the CbsAuthRequired branch, not an uncaught 500.
+            raise HTTPException(status_code=400, detail="CBS session expired — reconnect your CBS account.")
         if not access_token:
             raise HTTPException(status_code=400, detail="CBS access token missing — please reconnect.")
         try:
