@@ -69,7 +69,8 @@ class NflDataFetcher:
         # (latest_season + 1) so this season's rookies (years_exp==0, drafted in
         # latest_season + 1) are covered. Failures are silent — draft data is
         # supplemental and must not fail the whole fetcher (like schedules).
-        draft_years = list(range(min(self.seasons_to_load), self.latest_season + 2))
+        oldest_season = min(self.seasons_to_load) if self.seasons_to_load else self.latest_season
+        draft_years = list(range(oldest_season, self.latest_season + 2))
         try:
             draft_df = import_draft_picks(draft_years)
         except Exception:
@@ -241,6 +242,10 @@ class NflDataFetcher:
                         ts.last_updated = date.today()
 
         if total_upserted == 0 and last_err is not None:
+            # Draft capital is populated once outside the season loop, so persist
+            # it even when every seasonal pull failed — otherwise successfully
+            # fetched draft data would be discarded along with the stats failure.
+            await db.commit()
             return SourceResult(source=self.name, rows_upserted=0,
                                 last_attempted=attempted, success=False,
                                 error=f"failed for all seasons: {last_err}")

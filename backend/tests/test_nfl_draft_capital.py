@@ -74,7 +74,7 @@ async def test_draft_capital_populated_and_none_handling(test_db, mock_nfl_sourc
 async def test_draft_capital_fetch_failure_is_non_fatal(test_db, mock_nfl_sources, monkeypatch):
     """import_draft_picks raising must not fail the whole fetcher (#770)."""
     def _boom(years):
-        raise RuntimeError("nflreadpy is down")
+        raise RuntimeError("nfl_data_py is down")
 
     monkeypatch.setattr(mock_nfl_sources, "import_draft_picks", _boom)
     test_db.add(Player(id="p1", name="Rook", position="RB", team="NE", gsis_id="00-0000001"))
