@@ -5,9 +5,11 @@ test_favorites_auto_enable.py.
 """
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.player import Player
+from app.models.user_favorites import UserFavorites
 from app.schemas.favorites import (
     _MAX_PLAYER_IDS,
     _MAX_PLAYER_ID_LEN,
@@ -145,6 +147,10 @@ async def test_put_favorites_rejects_partially_unknown_player_ids(async_client: 
     # Nothing persisted: the row must not have been created.
     r = await async_client.get("/api/favorites")
     assert r.json() == {"favorite_player_ids": [], "favorite_teams": []}
+    # Assert at the DB layer directly — the GET response above is identical
+    # whether the row is absent or present-but-empty, so prove no row exists.
+    rows = (await test_db.execute(select(UserFavorites))).scalars().all()
+    assert rows == []
 
 
 @pytest.mark.asyncio
