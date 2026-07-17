@@ -83,7 +83,11 @@ function SleeperConnectedState({ linked, profileId, onRefresh }: ConnectedStateP
 
   return (
     <div className="space-y-3">
-      {error && <p className="text-xs text-red-600">{error}</p>}
+      {error && (
+        <p role="alert" className="text-xs text-red-600">
+          {error}
+        </p>
+      )}
       <div className="rounded-lg border-2 border-green-500 bg-green-50/50 dark:bg-green-900/30 p-3">
         <div className="mb-1 flex items-center gap-2">
           <div className="flex h-5 w-5 items-center justify-center rounded-full bg-green-500">
@@ -215,7 +219,9 @@ export function SleeperConnectForm({ profile, onLinked, onRefresh }: Props) {
       <StepIndicator step={step} />
       {error && (
         <div className="space-y-2">
-          <p className="text-xs text-red-600">{error}</p>
+          <p role="alert" className="text-xs text-red-600">
+            {error}
+          </p>
           {noLeaguesFound && (
             <Button
               size="sm"
