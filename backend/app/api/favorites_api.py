@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import User, UserFavorites
+from app.models import Player, User, UserFavorites
 from app.auth.dependencies import require_user
 from app.schemas.favorites import FavoritesUpdate, FavoritesOut
 from app.data.teams import is_valid_team
@@ -25,8 +25,13 @@ def _dedupe_preserve_order(items: list[str]) -> list[str]:
     return out
 
 
-def _validate_and_normalize(body: FavoritesUpdate) -> tuple[list[str], list[str]]:
-    """Apply cap, blank, team-validity, and dedup rules. Raise HTTPException on violation."""
+async def _validate_and_normalize(
+    body: FavoritesUpdate, db: AsyncSession
+) -> tuple[list[str], list[str]]:
+    """Apply cap, blank, team-validity, player-existence, and dedup rules.
+
+    Raise HTTPException on violation.
+    """
     # Class 2 guard: reject blank/whitespace-only entries before counting toward cap.
     if any(not pid or not pid.strip() for pid in body.favorite_player_ids):
         raise HTTPException(status_code=422, detail="Player ID entries must not be blank.")
@@ -52,6 +57,21 @@ def _validate_and_normalize(body: FavoritesUpdate) -> tuple[list[str], list[str]
             status_code=409,
             detail=f"Too many favorite teams (max {_TEAM_CAP}).",
         )
+
+    # Player-existence validity: mirror the team-validity guard so a typo'd or
+    # stale ID is rejected here (422) rather than persisted and then silently
+    # dropped in generate (player.id in favorite_pids_set never matches). Query
+    # only after the cap check so an over-cap list still gets the domain 409.
+    if player_ids:
+        known = set((await db.scalars(
+            select(Player.id).where(Player.id.in_(player_ids))
+        )).all())
+        unknown = [pid for pid in player_ids if pid not in known]
+        if unknown:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unknown player ID(s): {', '.join(unknown)}",
+            )
     return player_ids, teams
 
 
@@ -74,7 +94,7 @@ async def put_favorites(
     user: User = require_user,
     db: AsyncSession = Depends(get_db),
 ) -> FavoritesOut:
-    player_ids, teams = _validate_and_normalize(body)
+    player_ids, teams = await _validate_and_normalize(body, db)
 
     row = (await db.scalars(
         select(UserFavorites).where(UserFavorites.user_id == user.id)
