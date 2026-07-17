@@ -54,5 +54,9 @@ class PlayerStat(Base):
     # Turnovers / 2-point conversions (#663). Nullable; treated as 0 when absent.
     fumbles_lost: Mapped[Optional[int]] = mapped_column(Integer)
     two_pt_conversions: Mapped[Optional[int]] = mapped_column(Integer)
+    # First downs (#771). Nullable; treated as 0 when absent. Populated from
+    # nflverse rushing_first_downs / receiving_first_downs in ingestion.
+    first_down_rush: Mapped[Optional[int]] = mapped_column(Integer)
+    first_down_rec: Mapped[Optional[int]] = mapped_column(Integer)
 
     player: Mapped["Player"] = relationship(back_populates="stats")

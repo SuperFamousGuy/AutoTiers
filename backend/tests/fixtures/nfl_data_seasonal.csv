@@ -1,7 +1,7 @@
-player_id,season,player_display_name,position,recent_team,attempts,completions,passing_yards,passing_tds,interceptions,carries,rushing_yards,rushing_tds,targets,receptions,receiving_yards,receiving_tds,games,rushing_fumbles_lost,receiving_fumbles_lost,sack_fumbles_lost,passing_2pt_conversions,rushing_2pt_conversions,receiving_2pt_conversions
-00-0034796,2025,Josh Allen,QB,BUF,525,360,4180,33,12,95,520,8,0,0,0,0,17,1,0,3,2,1,0
-00-0036900,2025,Ja'Marr Chase,WR,CIN,0,0,0,0,0,0,0,0,175,127,1708,17,17,0,1,0,0,0,1
-00-0036322,2025,Justin Jefferson,WR,MIN,0,0,0,0,0,0,0,0,154,103,1533,10,17,0,0,0,0,0,0
-00-0039169,2025,Bijan Robinson,RB,ATL,0,0,0,0,0,245,1226,11,70,58,431,1,17,0,0,0,0,0,0
-00-0034844,2025,Saquon Barkley,RB,PHI,0,0,0,0,0,290,1610,16,45,36,271,0,16,0,0,0,0,0,0
-00-0039901,2025,Kyren Williams,RB,LAR,0,0,0,0,0,260,1180,12,55,44,320,2,16,0,0,0,0,0,0
+player_id,season,player_display_name,position,recent_team,attempts,completions,passing_yards,passing_tds,interceptions,carries,rushing_yards,rushing_tds,targets,receptions,receiving_yards,receiving_tds,games,rushing_fumbles_lost,receiving_fumbles_lost,sack_fumbles_lost,passing_2pt_conversions,rushing_2pt_conversions,receiving_2pt_conversions,rushing_first_downs,receiving_first_downs
+00-0034796,2025,Josh Allen,QB,BUF,525,360,4180,33,12,95,520,8,0,0,0,0,17,1,0,3,2,1,0,32,0
+00-0036900,2025,Ja'Marr Chase,WR,CIN,0,0,0,0,0,0,0,0,175,127,1708,17,17,0,1,0,0,0,1,0,85
+00-0036322,2025,Justin Jefferson,WR,MIN,0,0,0,0,0,0,0,0,154,103,1533,10,17,0,0,0,0,0,0,0,72
+00-0039169,2025,Bijan Robinson,RB,ATL,0,0,0,0,0,245,1226,11,70,58,431,1,17,0,0,0,0,0,0,58,24
+00-0034844,2025,Saquon Barkley,RB,PHI,0,0,0,0,0,290,1610,16,45,36,271,0,16,0,0,0,0,0,0,71,15
+00-0039901,2025,Kyren Williams,RB,LAR,0,0,0,0,0,260,1180,12,55,44,320,2,16,0,0,0,0,0,0,54,18

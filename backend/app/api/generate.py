@@ -299,6 +299,8 @@ class _StatSnapshot:
     red_zone_looks: Optional[int]
     fumbles_lost: Optional[int]
     two_pt_conversions: Optional[int]
+    first_down_rush: Optional[int]
+    first_down_rec: Optional[int]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -352,6 +354,8 @@ def _snapshot_stat(s: PlayerStat) -> _StatSnapshot:
         red_zone_looks=s.red_zone_looks,
         fumbles_lost=s.fumbles_lost,
         two_pt_conversions=s.two_pt_conversions,
+        first_down_rush=s.first_down_rush,
+        first_down_rec=s.first_down_rec,
     )
 
 
@@ -554,6 +558,8 @@ def _compute_ranked_players(
                 games_played=stat.games_played or 1,
                 fumbles_lost=stat.fumbles_lost or 0,
                 two_pt_conversions=stat.two_pt_conversions or 0,
+                first_down_rush=stat.first_down_rush or 0,
+                first_down_rec=stat.first_down_rec or 0,
             )
             prior_actual = calculate_fantasy_points(ps, settings, position=player.position)
 

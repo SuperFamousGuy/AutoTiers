@@ -144,6 +144,12 @@ class NflDataFetcher:
                     + int(row.get("rushing_2pt_conversions") or 0)
                     + int(row.get("receiving_2pt_conversions") or 0)
                 )
+                # First downs (#771). nflverse exposes rushing_first_downs /
+                # receiving_first_downs at the player-season level; store them
+                # separately so scoring can award the first-down bonus. Missing
+                # columns default to 0.
+                stat.first_down_rush = int(row.get("rushing_first_downs") or 0)
+                stat.first_down_rec = int(row.get("receiving_first_downs") or 0)
 
                 if snap_available:
                     # The source produced a season map this run, so write for every

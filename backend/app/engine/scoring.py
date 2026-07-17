@@ -79,7 +79,11 @@ class LeagueSettings:
     qb_td_points: float
     bonus_100yd_rushing: bool
     bonus_100yd_receiving: bool
-    # RESERVED: not yet scored — first-down data not available in PlayerStats
+    # First-down bonus (#771): a common ESPN/Yahoo custom-scoring option. When
+    # enabled, awards ``first_down_points`` per rushing/receiving first down (see
+    # ``_score_first_downs``). First-down data now flows through PlayerStats
+    # (populated from nflverse's rushing_first_downs / receiving_first_downs),
+    # so the old "not yet scored" reservation no longer applies.
     bonus_first_downs: bool
     weight_prior_year: float
     weight_espn: float
@@ -97,6 +101,13 @@ class LeagueSettings:
     # to before this field existed.
     fumble_lost_points: float = -2.0
     two_pt_points: float = 2.0
+    # First-down bonus value (#771): points awarded per rushing/receiving first
+    # down when ``bonus_first_downs`` is enabled. 1.0 is the most common
+    # "points-per-first-down" premium value. Trailing default so existing
+    # callers are unaffected; gated by ``bonus_first_downs`` and multiplied by
+    # first-down counts that default to 0, so a player without first-down data
+    # or with the bonus disabled scores identically to before this field.
+    first_down_points: float = 1.0
 
 
 @dataclass
@@ -118,6 +129,12 @@ class PlayerStats:
     # neither a fumble lost nor a 2-pt conversion scores exactly as before.
     fumbles_lost: int = 0
     two_pt_conversions: int = 0
+    # First downs (#771). Default 0 so every existing caller (tests, xfp
+    # adapters, scripts) keeps byte-identical output — a player with no
+    # first-down data scores exactly as before these fields existed. Populated
+    # from nflverse rushing_first_downs / receiving_first_downs in ingestion.
+    first_down_rush: int = 0
+    first_down_rec: int = 0
 
 
 def _score_receiving(stats: PlayerStats, settings: LeagueSettings, position: str = "") -> float:
@@ -181,12 +198,32 @@ def _score_turnovers_and_conversions(stats: PlayerStats, settings: LeagueSetting
     )
 
 
+def _score_first_downs(stats: PlayerStats, settings: LeagueSettings) -> float:
+    """First-down bonus (#771).
+
+    Gated by ``settings.bonus_first_downs`` — a common ESPN/Yahoo custom-scoring
+    option. When enabled, awards ``settings.first_down_points`` (default 1.0) per
+    rushing or receiving first down. Applies to every position (a QB can pick up
+    a rushing first down too). With the bonus disabled, or with both first-down
+    counts at their default of 0, this returns 0.0 — so
+    ``calculate_fantasy_points`` is byte-identical to its pre-#771 output for any
+    player without first-down data or with the setting off.
+    """
+    if not settings.bonus_first_downs:
+        return 0.0
+    return (stats.first_down_rush + stats.first_down_rec) * settings.first_down_points
+
+
 def calculate_fantasy_points(stats: PlayerStats, settings: LeagueSettings, position: str = "") -> float:
     """Total fantasy points across all categories. Sum of the component helpers.
 
     #663 adds fumbles-lost and 2-pt-conversion scoring via
     ``_score_turnovers_and_conversions``; both counts default to 0 so output is
     byte-identical to the pre-#663 formula for any player without either.
+    #771 adds the first-down bonus via ``_score_first_downs``; it is gated by
+    ``bonus_first_downs`` (default False) and the first-down counts default to 0,
+    so output is byte-identical to the pre-#771 formula unless a league both
+    enables the bonus and has a player with first downs on record.
     """
     pts = (
         _score_passing(stats, settings)
@@ -194,6 +231,7 @@ def calculate_fantasy_points(stats: PlayerStats, settings: LeagueSettings, posit
         + _score_tds_only(stats, settings)
         + _score_receiving(stats, settings, position)
         + _score_turnovers_and_conversions(stats, settings)
+        + _score_first_downs(stats, settings)
     )
     return round(pts, 2)
 

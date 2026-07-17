@@ -91,6 +91,12 @@ def _to_player_stats(s: _StatLike) -> PlayerStats:
         # object. getattr guards test stubs that predate these attributes.
         fumbles_lost=getattr(s, "fumbles_lost", 0) or 0,
         two_pt_conversions=getattr(s, "two_pt_conversions", 0) or 0,
+        # #771: carried through for faithfulness. Inert for the xFP math (the
+        # opportunity regression never reads first downs), but keeps the adapter
+        # a complete copy of the source object. getattr guards test stubs that
+        # predate these attributes.
+        first_down_rush=getattr(s, "first_down_rush", 0) or 0,
+        first_down_rec=getattr(s, "first_down_rec", 0) or 0,
     )
 
 
