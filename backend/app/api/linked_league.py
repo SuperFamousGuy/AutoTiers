@@ -477,7 +477,11 @@ async def post_cbs(
     ll.username_or_swid = email
     ll.credentials_encrypted = encrypt(access_token)
     ll.league_id = data.league_id
-    ll.league_metadata_json = {"name": data.name, "season": data.season}
+    # CBS's scoring-key and keeper heuristics are unverified against a live
+    # payload (see scoring_mappers._CBS_RECEPTION_KEYS and cbs._extract_keepers),
+    # so a "successful" link can silently carry default scoring / empty keepers.
+    # Flag every CBS link so the frontend can prompt the user to verify scoring.
+    ll.league_metadata_json = {"name": data.name, "season": data.season, "scoring_unconfirmed": True}
     ll.keepers_json = data.keepers
     ll.adp_json = data.adp_json
     ll.last_synced_at = datetime.now(timezone.utc)
@@ -611,6 +615,10 @@ async def refresh(
 
     _apply_settings(profile, mapped)
     ll.league_metadata_json = {"name": data.name, "season": data.season}
+    if ll.provider == "cbs":
+        # Mirror post_cbs: keep the unconfirmed-scoring flag on every refresh so
+        # the frontend hint doesn't disappear when a CBS league is re-synced.
+        ll.league_metadata_json["scoring_unconfirmed"] = True
     ll.keepers_json = data.keepers
     ll.adp_json = data.adp_json
     ll.last_synced_at = datetime.now(timezone.utc)

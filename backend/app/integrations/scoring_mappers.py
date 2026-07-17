@@ -5,6 +5,9 @@ We don't construct the full SettingsState (which lives in the frontend) —
 we return the JSON-serializable subset that gets written into
 `profile.settings_json`.
 """
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def _classify_ppr(rec_value: float) -> str:
@@ -137,26 +140,53 @@ def cbs_to_settings(raw_scoring: dict, league_size: int) -> dict:
     reference). Falls back to 4.0 QB TD points / standard (non-PPR) scoring
     when the expected keys aren't present, mirroring ESPN/Sleeper's defaults.
     """
-    scoring = raw_scoring.get("scoring") or {}
+    scoring = raw_scoring.get("scoring")
+    if not isinstance(scoring, dict):
+        scoring = {}
 
-    def _stat_value(keys: tuple[str, ...], default: float) -> float:
+    def _stat_value(keys: tuple[str, ...], default: float) -> tuple[float, bool]:
+        """Return (value, key_present).
+
+        key_present is True when at least one candidate key existed in the
+        scoring dict — even if its value failed to parse — so the caller can
+        tell 'the key naming is wrong' (nothing matched) apart from 'right key,
+        unparseable value' (matched, fell back to default anyway).
+        """
+        found = False
         for key in keys:
-            entry = scoring.get(key)
-            if entry is None:
+            if key not in scoring:
                 continue
+            found = True
+            entry = scoring.get(key)
             if isinstance(entry, dict):
                 value = entry.get("value")
             else:
                 value = entry
             if value is not None:
                 try:
-                    return float(value)
+                    return float(value), True
                 except (TypeError, ValueError):
                     continue
-        return default
+        return default, found
 
-    rec = _stat_value(_CBS_RECEPTION_KEYS, 0.0)
-    pass_td = _stat_value(_CBS_PASS_TD_KEYS, 4.0)
+    rec, rec_found = _stat_value(_CBS_RECEPTION_KEYS, 0.0)
+    pass_td, pass_td_found = _stat_value(_CBS_PASS_TD_KEYS, 4.0)
+
+    # Diagnostic: if NEITHER a reception nor a passing-TD key matched, the CBS
+    # key names (_CBS_RECEPTION_KEYS/_CBS_PASS_TD_KEYS — never confirmed against
+    # a live payload) are probably wrong for this league, and the scoring the
+    # user just linked is silently the standard/4.0 defaults. Surface the actual
+    # keys we saw so a real payload can be captured and the constants corrected.
+    # (A single miss, e.g. only `rec` absent, is normal for a standard league,
+    # so we only warn when BOTH fall through.)
+    if not rec_found and not pass_td_found:
+        logger.warning(
+            "CBS scoring mapper fell through to defaults: none of the reception "
+            "keys %s or passing-TD keys %s matched the scoring payload. Observed "
+            "scoring keys: %s. Linked scoring may be wrong (standard/%.1f QB TD).",
+            list(_CBS_RECEPTION_KEYS), list(_CBS_PASS_TD_KEYS),
+            sorted(scoring.keys()), pass_td,
+        )
 
     return {
         "scoring_format": _classify_ppr(rec),

@@ -677,6 +677,9 @@ async def test_post_cbs_succeeds_and_persists_encrypted_token_not_password(async
     assert body["linked_league"]["provider"] == "cbs"
     assert body["linked_league"]["league_id"] == "999999"
     assert body["linked_league"]["league_metadata_json"]["name"] == "CBS Champs"
+    # CBS scoring/keeper heuristics are unverified (issue #769) — every CBS link
+    # carries a flag the frontend can use to prompt the user to verify scoring.
+    assert body["linked_league"]["league_metadata_json"]["scoring_unconfirmed"] is True
     assert body["profile"]["settings_json"]["scoring_format"] == "ppr"
     assert body["profile"]["settings_json"]["league_size"] == 10
 
@@ -941,6 +944,9 @@ async def test_refresh_cbs_reuses_stored_token_without_reprompting_credentials(a
 
     assert r.status_code == 200, r.text
     assert r.json()["linked_league"]["league_metadata_json"]["name"] == "Refreshed"
+    # The unconfirmed-scoring flag (issue #769) must survive a refresh, so the
+    # frontend hint doesn't vanish when a CBS league is re-synced.
+    assert r.json()["linked_league"]["league_metadata_json"]["scoring_unconfirmed"] is True
     assert r.json()["profile"]["settings_json"]["scoring_format"] == "half_ppr"
 
 
