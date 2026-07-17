@@ -171,6 +171,46 @@ async def test_cbs_fetcher_queries_position_once_not_per_row(test_engine, test_d
     )
 
 
+@pytest.mark.parametrize("n_rows", [1, 5, 20])
+@pytest.mark.asyncio
+async def test_cbs_parse_projections_existence_check_is_one_select(test_engine, test_db, n_rows):
+    """N+1 guard: the existence check must be a single pre-load SELECT against
+    ``projections`` for the whole page, regardless of how many rows are parsed —
+    not one round-trip SELECT per row."""
+    from datetime import date as _date
+
+    for i in range(n_rows):
+        test_db.add(Player(id=f"wr_{i}", name=f"Wide Receiver {i}", position="WR", team="MIN"))
+    await test_db.commit()
+
+    html = _valid_cbs_html([
+        (f"Wide Receiver {i}", "MIN", f"{300 - i}.0") for i in range(n_rows)
+    ])
+
+    projection_selects: list[str] = []
+
+    def _listener(conn, cursor, statement, parameters, context, executemany):
+        normalized = " ".join(statement.split()).lower()
+        if normalized.startswith("select") and "from projections" in normalized:
+            projection_selects.append(statement)
+
+    event.listen(test_engine.sync_engine, "before_cursor_execute", _listener)
+    try:
+        fetcher = CBSFetcher()
+        upserted = await fetcher._parse_projections(
+            test_db, html, "WR", "ppr", _date.today(),
+        )
+        await test_db.commit()
+    finally:
+        event.remove(test_engine.sync_engine, "before_cursor_execute", _listener)
+
+    assert upserted == n_rows
+    assert len(projection_selects) == 1, (
+        f"expected exactly one existence-check SELECT for {n_rows} rows, "
+        f"got {len(projection_selects)} (N+1 regression)"
+    )
+
+
 @pytest.mark.asyncio
 async def test_cbs_fetcher_updates_existing_projection(test_db):
     """Re-running CBS for the same player should update the existing row, not insert."""
