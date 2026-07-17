@@ -227,7 +227,11 @@ async def login(
     response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> MeResponse:
-    if not login_rate_limiter.check_and_record(body.email):
+    # Key the rate limiter on the normalized email so casing variants
+    # (Attacker@Example.com vs attacker@example.com) share one attempt
+    # bucket. User.email lookups resolve case-insensitively, so without
+    # this an attacker could reset the 5-attempt limit per casing variant.
+    if not login_rate_limiter.check_and_record(body.email.strip().lower()):
         raise HTTPException(status_code=429, detail="Too many attempts; try again later")
 
     user = await db.scalar(select(User).where(User.email == body.email))

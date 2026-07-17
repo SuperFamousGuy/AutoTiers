@@ -239,6 +239,42 @@ async def test_login_rate_limit_triggers_after_5_fails(async_client):
 
 
 @pytest.mark.asyncio
+async def test_login_rate_limit_is_case_insensitive(async_client):
+    """Issue #766: casing variants of one email share a single rate-limit
+    bucket. Three casings, 2 wrong-password attempts each (6 total) must be
+    blocked after 5 combined attempts — identical to same-case behaviour.
+    Otherwise an attacker resets the 5-attempt limit per casing variant and
+    gets effectively unlimited brute-force attempts against one account.
+    """
+    await async_client.post("/api/auth/signup", json={
+        "email": "alice@example.com",
+        "password": "correct horse battery",
+    })
+    async_client.cookies.clear()
+
+    from app.auth.rate_limit import login_rate_limiter
+    login_rate_limiter._attempts.clear()
+
+    casings = ["Alice@Example.com", "alice@example.com", "ALICE@EXAMPLE.COM"]
+    statuses = []
+    # 3 casings x 2 each = 6 attempts. Attempts 1-5 hit the account (401);
+    # the 6th must be rate-limited (429) because all casings share a bucket.
+    for i in range(6):
+        r = await async_client.post("/api/auth/login", json={
+            "email": casings[i % len(casings)],
+            "password": "bad",
+        })
+        statuses.append(r.status_code)
+
+    assert statuses[:5] == [401, 401, 401, 401, 401], (
+        f"first 5 combined attempts should reach the account (401); got {statuses}"
+    )
+    assert statuses[5] == 429, (
+        f"6th attempt across casings must be rate-limited (429); got {statuses}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_logout_clears_cookie(async_client):
     await async_client.post("/api/auth/signup", json={
         "email": "alice@example.com",
