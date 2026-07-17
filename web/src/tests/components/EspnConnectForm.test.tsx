@@ -97,6 +97,21 @@ describe("EspnConnectForm", () => {
     expect(screen.getByLabelText(/espn_s2/i)).toBeInTheDocument();
   });
 
+  it("renders SWID + espn_s2 as verifiable text, not masked password fields", async () => {
+    // These are opaque cookie strings the user pastes and must be able to
+    // visually verify (no clipped brace / trailing space) — issue #773.
+    render(<EspnConnectForm profile={baseProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /^private league$/i }));
+    const swid = await screen.findByLabelText(/swid/i);
+    const espnS2 = screen.getByLabelText(/espn_s2/i);
+    expect(swid).toHaveAttribute("type", "text");
+    expect(espnS2).toHaveAttribute("type", "text");
+    // Spellcheck off so the browser doesn't squiggle the opaque value.
+    expect(swid).toHaveAttribute("spellcheck", "false");
+    expect(espnS2).toHaveAttribute("spellcheck", "false");
+  });
+
   it("includes cookies in the body when private + all fields filled", async () => {
     const { connectEspn } = await import("@/api/linkedLeague");
     (connectEspn as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
