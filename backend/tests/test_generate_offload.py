@@ -189,7 +189,8 @@ def _snapshot_pool(n_per_position: int = 6) -> list[_PlayerSnapshot]:
             )
             pool.append(_PlayerSnapshot(
                 id=f"{pos.lower()}_{i}", name=f"{pos} Player {i}", position=pos,
-                team="NE", age=25, years_exp=3, stats=(stat,),
+                team="NE", age=25, years_exp=3, draft_round=None, draft_pick=None,
+                stats=(stat,),
                 projections=(_ProjSnapshot("fantasypros", "ppr", 250.0 - i * 3),),
                 adp_entries=(_AdpSnapshot("ppr", float(i + 1)),),
             ))

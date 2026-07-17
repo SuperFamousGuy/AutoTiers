@@ -24,6 +24,9 @@ def mock_nfl_data(monkeypatch):
     monkeypatch.setattr(mod, "import_pbp_data", lambda years: pd.DataFrame())
     # Schedule not required for these tests — return empty DataFrame.
     monkeypatch.setattr(mod, "import_schedules", lambda years: pd.DataFrame())
+    # Draft picks not required for these tests — return empty DataFrame so the
+    # fetcher never reaches the network for draft capital (#770).
+    monkeypatch.setattr(mod, "import_draft_picks", lambda years: pd.DataFrame())
 
 
 def test_nfl_fetcher_accepts_prior_seasons():

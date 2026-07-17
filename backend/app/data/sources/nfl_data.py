@@ -5,7 +5,13 @@ from datetime import datetime, date
 from typing import ClassVar
 
 import pandas as pd
-from nfl_data_py import import_seasonal_data, import_snap_counts, import_pbp_data, import_schedules
+from nfl_data_py import (
+    import_seasonal_data,
+    import_snap_counts,
+    import_pbp_data,
+    import_schedules,
+    import_draft_picks,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +32,18 @@ def _safe_float(value, default: float = 0.0) -> float:
     return float(value)
 
 
+def _safe_int_or_none(value):
+    """Coerce a possibly-None/NaN pandas scalar to ``int`` or ``None``.
+
+    Draft-pick rows carry NaN for undrafted players and for rows missing a
+    round/pick, and ``int(NaN)`` raises. Return ``None`` for any absent value so
+    the downstream rule (which treats None as a non-match) behaves correctly.
+    """
+    if value is None or pd.isna(value):
+        return None
+    return int(value)
+
+
 class NflDataFetcher:
     name: ClassVar[str] = "nfl_data_py"
 
@@ -40,9 +58,30 @@ class NflDataFetcher:
         total_upserted = 0
         last_err: Exception | None = None
 
-        # Build gsis_id → Player.id map once across all seasons.
+        # Build gsis_id → Player map once across all seasons.
         players = (await db.scalars(select(Player).where(Player.gsis_id.is_not(None)))).all()
         gsis_to_pid = {p.gsis_id: p.id for p in players}
+        players_by_gsis = {p.gsis_id: p for p in players}
+
+        # Draft capital is a career-constant player attribute, not a per-season
+        # stat, so populate it once outside the season loop. Fetch draft classes
+        # from the oldest loaded stat season through the upcoming draft
+        # (latest_season + 1) so this season's rookies (years_exp==0, drafted in
+        # latest_season + 1) are covered. Failures are silent — draft data is
+        # supplemental and must not fail the whole fetcher (like schedules).
+        draft_years = list(range(min(self.seasons_to_load), self.latest_season + 2))
+        try:
+            draft_df = import_draft_picks(draft_years)
+        except Exception:
+            draft_df = None
+        if draft_df is not None and not draft_df.empty and "gsis_id" in draft_df.columns:
+            for _, row in draft_df.iterrows():
+                gsis = row.get("gsis_id")
+                player = players_by_gsis.get(gsis) if isinstance(gsis, str) else None
+                if player is None:
+                    continue
+                player.draft_round = _safe_int_or_none(row.get("round"))
+                player.draft_pick = _safe_int_or_none(row.get("pick"))
 
         for season in self.seasons_to_load:
             try:

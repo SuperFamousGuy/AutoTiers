@@ -69,6 +69,14 @@ class PlayerContext:
     plays_in_dome: Optional[bool] = None
     is_denver_kicker: Optional[bool] = None
     cold_weather_kicker: Optional[bool] = None
+    # Draft capital. ``draft_round`` is the NFL draft round (1–7); ``draft_pick``
+    # is the overall selection number. Both are None for undrafted (UDFA)
+    # players and for anyone whose draft record didn't match during ingestion.
+    # Following the engine's "unknown field = no match" convention, a rule gated
+    # on draft_round never fires for a None value (see the "Rookie RB Draft
+    # Capital" rule in builtin_rules.py).
+    draft_round: Optional[int] = None
+    draft_pick: Optional[int] = None
 
 
 @dataclass

@@ -16,6 +16,7 @@ _CATEGORIES = {
     "New Head Coach": "Situation",
     "Sophomore Leap": "Situation",
     "TE Year-3 Leap": "Situation",
+    "Rookie RB Draft Capital": "Situation",
     "Contract Year": "Situation",
     "Bad Offense": "Situation",
     "Follow the Money": "Situation",

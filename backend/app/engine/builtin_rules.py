@@ -123,6 +123,30 @@ BUILTIN_RULES: list[Rule] = [
         ),
         positions=["TE"],
     ),
+    # Rookie RBs are the one position where draft capital is the dominant public
+    # predictor of Year-1 fantasy hit rate (2026 rookie-class analysis converges:
+    # FantasyPros, RotoBaller, Fantasy Life). Gated to first-year backs drafted in
+    # the first two rounds. UDFA / day-3 backs (draft_round None or >2) do NOT
+    # fire — a None draft_round is a non-match under the engine's
+    # "unknown field = no match" convention (_evaluate), locked by a unit test.
+    # Magnitude mirrors "Sophomore Leap" (+8%). See the autotiers-ff-knowledge
+    # "Draft Capital Is the Dominant Predictor of Rookie RB Hit Rate" entry.
+    Rule(
+        name="Rookie RB Draft Capital",
+        conditions=[
+            RuleCondition(field="position", operator="==", value="RB"),
+            RuleCondition(field="years_exp", operator="==", value=0),
+            RuleCondition(field="draft_round", operator="<=", value=2),
+        ],
+        effect=RuleEffect(type=EffectType.MULTIPLIER, value=1.08),
+        description=(
+            "Boosts rookie RBs (years_exp==0) drafted in the first two rounds — "
+            "draft capital is the most predictive public signal for rookie RB "
+            "hit rate. UDFA / day-3 backs (draft_round None or >2) do not fire. "
+            "+8% at default weight."
+        ),
+        positions=["RB"],
+    ),
     Rule(
         name="Contract Year Flag",
         conditions=[RuleCondition(field="years_exp", operator=">", value=3)],
