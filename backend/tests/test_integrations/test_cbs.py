@@ -1,3 +1,4 @@
+import logging
 from datetime import date
 
 import pytest
@@ -354,6 +355,42 @@ def test_extract_keepers_skips_malformed_entries_but_keeps_valid_ones():
     assert _extract_keepers(transaction_log, rosters_raw) == [
         {"player_name": "Bob Smith", "position": "RB", "team": "KC"},
     ]
+
+
+def test_extract_keepers_nonempty_log_zero_keepers_logs_warning(caplog):
+    """Acceptance criterion (issue #769): a non-empty transaction log that yields
+    zero keepers must log a warning listing the observed move types, so the
+    unverified keeper discriminator can be corrected against a real payload
+    instead of silently persisting keepers=[]."""
+    transaction_log = [
+        {"moves": [{"type": "won", "player": {"fullname": "A"}}]},
+        {"moves": [{"type": "drop"}, {"type": "add"}]},
+    ]
+    with caplog.at_level(logging.WARNING, logger="app.integrations.cbs"):
+        assert _extract_keepers(transaction_log, []) == []
+    assert len(caplog.records) == 1
+    msg = caplog.records[0].getMessage()
+    assert "won" in msg and "drop" in msg and "add" in msg
+
+
+def test_extract_keepers_with_keepers_does_not_log_warning(caplog):
+    """When keepers ARE detected, no diagnostic warning fires — the heuristic
+    matched something, so there's nothing to flag."""
+    transaction_log = [{"moves": [{"type": "keeper", "player": {"fullname": "Bob Smith"}}]}]
+    with caplog.at_level(logging.WARNING, logger="app.integrations.cbs"):
+        assert _extract_keepers(transaction_log, []) == [
+            {"player_name": "Bob Smith", "position": "", "team": ""},
+        ]
+    assert caplog.records == []
+
+
+def test_extract_keepers_empty_log_does_not_log_warning(caplog):
+    """An empty (or all-malformed) transaction log has nothing to diagnose — the
+    warning must only fire when there were real transactions to inspect."""
+    with caplog.at_level(logging.WARNING, logger="app.integrations.cbs"):
+        assert _extract_keepers([], []) == []
+        assert _extract_keepers([None, "garbage", 42], []) == []
+    assert caplog.records == []
 
 
 def test_current_season_rolls_over_in_march():

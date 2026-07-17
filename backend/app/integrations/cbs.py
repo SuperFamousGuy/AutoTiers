@@ -16,10 +16,13 @@ Quirk: the auth endpoint returns HTTP 200 even on bad credentials, with the
 failure embedded in the JSON body as {"body": {"errors": [...]}}. We must
 inspect the body, not rely on httpx.raise_for_status().
 """
+import logging
 from datetime import date
 
 import httpx
 from app.integrations.types import LeagueData
+
+logger = logging.getLogger(__name__)
 
 
 class CbsAuthRequired(Exception):
@@ -220,9 +223,12 @@ def _extract_keepers(transaction_log: list[dict], rosters_raw: list[dict]) -> li
             }
 
     keepers: list[dict] = []
-    for tx in _as_dict_list(transaction_log):
+    observed_move_types: set[str] = set()
+    transactions = _as_dict_list(transaction_log)
+    for tx in transactions:
         for move in _as_dict_list(tx.get("moves")):
             move_type = str(move.get("type") or "").lower()
+            observed_move_types.add(move_type)
             is_keeper = "keeper" in move_type or bool(move.get("is_keeper"))
             if not is_keeper:
                 continue
@@ -238,4 +244,17 @@ def _extract_keepers(transaction_log: list[dict], rosters_raw: list[dict]) -> li
                 "position": player.get("position") or looked_up.get("position", ""),
                 "team": player.get("pro_team") or looked_up.get("team", ""),
             })
+
+    # Diagnostic: a real transaction log that yields zero keepers is the
+    # expected signal that the keeper discriminator above ("keeper" in the move
+    # type, or an is_keeper flag — never confirmed against a live CBS payload)
+    # doesn't match CBS's actual naming. Surface the move types we DID see so a
+    # real payload can be captured and the heuristic corrected, rather than
+    # silently persisting keepers=[] on every CBS league.
+    if transactions and not keepers:
+        logger.warning(
+            "CBS keeper heuristic found zero keepers across %d transaction(s); "
+            "the keeper discriminator may be wrong. Observed move types: %s.",
+            len(transactions), sorted(observed_move_types),
+        )
     return keepers

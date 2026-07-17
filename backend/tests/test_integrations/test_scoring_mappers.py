@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 from app.integrations.scoring_mappers import sleeper_to_settings, espn_to_settings, cbs_to_settings, nfl_to_settings
 
@@ -118,6 +120,51 @@ def test_cbs_tries_alternate_key_casings():
     s = cbs_to_settings(raw, league_size=12)
     assert s["scoring_format"] == "ppr"
     assert s["qb_td_points"] == 6.0
+
+
+def test_cbs_unrecognized_keys_logs_warning_with_observed_keys(caplog):
+    """Acceptance criterion (issue #769): a CBS scoring payload where NONE of
+    _CBS_RECEPTION_KEYS/_CBS_PASS_TD_KEYS match must log a warning that lists the
+    actual scoring keys, so a real payload can be captured and the constants
+    fixed instead of silently linking the standard/4.0 defaults."""
+    raw = {"scoring": {"receptions": {"value": "1.0"}, "pass_touchdown": {"value": "6"}}}
+    with caplog.at_level(logging.WARNING, logger="app.integrations.scoring_mappers"):
+        s = cbs_to_settings(raw, league_size=12)
+    # Still degrades to defaults (no crash) — the warning is the only new behaviour.
+    assert s["scoring_format"] == "standard"
+    assert s["qb_td_points"] == 4.0
+    assert len(caplog.records) == 1
+    msg = caplog.records[0].getMessage()
+    assert "receptions" in msg and "pass_touchdown" in msg
+
+
+def test_cbs_empty_scoring_still_logs_warning(caplog):
+    """An empty scoring payload is also a fall-through to defaults — warn with an
+    empty observed-keys list rather than silently accepting the defaults."""
+    with caplog.at_level(logging.WARNING, logger="app.integrations.scoring_mappers"):
+        cbs_to_settings({}, league_size=12)
+    assert len(caplog.records) == 1
+
+
+def test_cbs_recognized_keys_do_not_log_warning(caplog):
+    """When a real key matches (even a standard, no-PPR league where `rec` is
+    legitimately absent), no diagnostic warning should fire — passTD matching is
+    enough to confirm the naming convention is right."""
+    raw = {"scoring": {"passTD": {"value": "4"}}}
+    with caplog.at_level(logging.WARNING, logger="app.integrations.scoring_mappers"):
+        s = cbs_to_settings(raw, league_size=12)
+    assert s["scoring_format"] == "standard"
+    assert caplog.records == []
+
+
+def test_cbs_unparseable_recognized_key_does_not_log_warning(caplog):
+    """A recognized key whose value is unparseable falls back to the default but
+    must NOT warn — the key naming is confirmed present, only the value is bad,
+    which is a different (non-diagnostic) condition."""
+    raw = {"scoring": {"rec": {"value": "n/a"}, "passTD": {"value": "n/a"}}}
+    with caplog.at_level(logging.WARNING, logger="app.integrations.scoring_mappers"):
+        cbs_to_settings(raw, league_size=12)
+    assert caplog.records == []
 
 
 def test_nfl_empty_scoring_emits_only_league_size():
