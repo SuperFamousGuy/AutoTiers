@@ -76,7 +76,11 @@ export function ManageProfilesDialog({ open, onOpenChange, profiles, activeProfi
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogTitle>Manage Profiles</DialogTitle>
-        {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
+        {error && (
+          <p role="alert" className="text-xs text-red-600 mb-2">
+            {error}
+          </p>
+        )}
         {confirmDeleteId !== null && confirmDeleteId === activeProfileId && (
           <p className="text-xs text-muted-foreground mb-2">
             Deleting your active profile will clear it from Settings until you pick another.

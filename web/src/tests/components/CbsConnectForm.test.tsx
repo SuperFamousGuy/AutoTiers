@@ -114,6 +114,26 @@ describe("CbsConnectForm", () => {
     ).toBeInTheDocument();
   });
 
+  it("announces the connect failure to assistive tech via role=alert", async () => {
+    const { connectCbs } = await import("@/api/linkedLeague");
+    (connectCbs as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ApiError(400, "CBS rejected your email or password — check both and try again."),
+    );
+    render(<CbsConnectForm profile={baseProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    // No alert exists before the form fails.
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await u.type(screen.getByLabelText(/cbs email/i), "fan@example.com");
+    await u.type(screen.getByLabelText(/cbs password/i), "wrong");
+    await u.type(screen.getByLabelText(/league id/i), "999999");
+    await u.click(screen.getByRole("button", { name: /^connect$/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "CBS rejected your email or password — check both and try again.",
+    );
+  });
+
   it("unwraps a raw JSON detail body from an ApiError instead of showing the blob", async () => {
     const { connectCbs } = await import("@/api/linkedLeague");
     // `apiFetch` stores the raw response text as ApiError.message — here the

@@ -305,7 +305,11 @@ export function LinkedAccountsDialog({
       <DialogContent className="gap-0 p-0">
         <div className="px-6 pt-6 pb-4">
           <DialogTitle>Connect Your League</DialogTitle>
-          {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+          {error && (
+            <p role="alert" className="mt-2 text-xs text-red-600">
+              {error}
+            </p>
+          )}
         </div>
 
         {/* Account section — password + Google sign-in */}
