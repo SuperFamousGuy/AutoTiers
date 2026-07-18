@@ -545,6 +545,38 @@ async def test_refresh_cbs_stale_ciphertext_returns_400_reconnect(async_client, 
 
 
 @pytest.mark.asyncio
+async def test_refresh_yahoo_stale_ciphertext_returns_400_reconnect(async_client, test_db):
+    """A stored Yahoo access/refresh token that no longer decrypts must surface
+    as a 400 reconnect prompt, not the generic 502 "try again later" the Yahoo
+    branch would otherwise fall through to — no HTTP call is attempted and every
+    retry fails identically until the user reconnects (issue #792). Parallels the
+    ESPN/CBS stale-ciphertext tests above; the guard lives in
+    yahoo_fantasy._with_refresh, translating InvalidCiphertext to the existing
+    YahooReauthRequired reconnect branch."""
+    from datetime import datetime, timezone
+    u, p = await _make_user_and_profile(test_db)
+    # The Yahoo refresh path reads the token off the User, so plant a
+    # non-decryptable ciphertext there (not on the LinkedLeague credentials).
+    u.yahoo_subject = "ysub-stale"
+    u.yahoo_access_token = "not-a-valid-fernet-token"
+    u.yahoo_refresh_token = "not-a-valid-fernet-token"
+    await _login(async_client)
+    ll = LinkedLeague(
+        profile_id=p.id, provider="yahoo", league_id="423.l.99",
+        username_or_swid="",
+        league_metadata_json={"name": "Old", "season": 2024},
+        keepers_json=[], adp_json=None,
+        last_synced_at=datetime.now(timezone.utc),
+    )
+    test_db.add(ll)
+    await test_db.commit()
+    r = await async_client.post(f"/api/profiles/{p.id}/link/refresh")
+    assert r.status_code == 400
+    detail = r.json()["detail"].lower()
+    assert "yahoo" in detail and "reconnect" in detail
+
+
+@pytest.mark.asyncio
 async def test_post_espn_returns_502_when_espn_responds_5xx(async_client, test_db):
     """ESPN returning a 5xx should surface as 502 with a useful message (not a raw 500)."""
     u, p = await _make_user_and_profile(test_db)

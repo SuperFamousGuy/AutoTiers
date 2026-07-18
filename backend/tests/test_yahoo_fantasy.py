@@ -198,6 +198,42 @@ def test_parse_leagues_logs_on_drift(caplog):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("bad_field", ["yahoo_access_token", "yahoo_refresh_token"])
+async def test_with_refresh_raises_reauth_on_undecryptable_token(respx_mock, bad_field):
+    """A stored Yahoo token that no longer decrypts (SECRET_KEY rotation or a
+    corrupted ciphertext) surfaces as YahooReauthRequired — NOT a raw
+    InvalidCiphertext that the endpoint would fall through to a generic 502.
+    Retrying can't fix an undecryptable ciphertext; the user must reconnect
+    (issue #792). Parametrized over the access token (decrypted first, before
+    any HTTP call) and the refresh token (decrypted only after a 401)."""
+    from app.security.fernet import InvalidCiphertext
+
+    league_key = "423.l.12345"
+    url = f"https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/settings"
+    # Force the refresh path so the refresh-token decrypt is exercised too.
+    respx_mock.get(url).mock(return_value=httpx.Response(401, text="Unauthorized"))
+
+    db = AsyncMock()
+    user = _make_user()
+
+    def fake_decrypt(ciphertext):
+        # Raise only for the field under test; the other decrypts normally so
+        # the failure is attributable to exactly one undecryptable token.
+        if ciphertext == getattr(user, bad_field):
+            raise InvalidCiphertext("stale")
+        return ciphertext
+
+    with pytest.MonkeyPatch().context() as m:
+        m.setattr("app.integrations.yahoo_fantasy.decrypt", fake_decrypt)
+        m.setattr("app.integrations.yahoo_fantasy.encrypt", lambda x: x)
+        with pytest.raises(YahooReauthRequired):
+            await fetch_league(league_key, user, db)
+
+    # An undecryptable token must not be overwritten by a (never-reached) commit.
+    db.commit.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_list_user_leagues_raises_on_malformed_response(respx_mock):
     """End-to-end at the client boundary: a 200 with a malformed body raises
     YahooLeaguesParseError rather than returning []."""
@@ -720,3 +756,79 @@ async def test_refresh_yahoo_reauth_returns_400(async_client, test_db, respx_moc
 
     assert resp.status_code == 400
     assert _REAUTH_SUBSTR in resp.json()["detail"]
+
+
+# --- Undecryptable-credential reconnect-prompt endpoint tests ------------------
+#
+# Parallel to the refresh-token-revoked tests above, but for the OTHER failure
+# mode: a stored yahoo_access_token / yahoo_refresh_token that no longer decrypts
+# (SECRET_KEY rotation, corrupted ciphertext). No HTTP call is even attempted, so
+# without the guard in _with_refresh the InvalidCiphertext falls through
+# _provider_http_error to a generic 502 "try again later" — misleading, because
+# every retry fails identically until the user reconnects. Each endpoint must
+# return 400 with the reconnect detail instead (issue #792). Asserting the detail
+# string specifically fails if the 502 fallback path returns.
+
+
+async def _make_yahoo_user_with_bad_ciphertext(test_db):
+    """A Yahoo-connected user whose stored tokens are non-decryptable ciphertext
+    (simulating a SECRET_KEY rotation / corruption)."""
+    from app.models import User, Profile
+
+    user = User(
+        email="badcipher@example.com",
+        yahoo_subject="ysub-badcipher",
+        yahoo_access_token="not-a-valid-fernet-token",
+        yahoo_refresh_token="not-a-valid-fernet-token",
+    )
+    test_db.add(user)
+    await test_db.flush()
+    profile = Profile(user_id=user.id, name="P", settings_json={}, rules_json=[])
+    test_db.add(profile)
+    await test_db.commit()
+    await test_db.refresh(profile)
+    return user, profile
+
+
+@pytest.mark.asyncio
+async def test_get_yahoo_leagues_undecryptable_token_returns_400(async_client, test_db):
+    user, profile = await _make_yahoo_user_with_bad_ciphertext(test_db)
+    from app.auth.jwt import encode_jwt
+    jwt = encode_jwt(str(user.id))
+
+    resp = await async_client.get(
+        f"/api/profiles/{profile.id}/link/yahoo/leagues",
+        cookies={"autotiers_session": jwt},
+    )
+
+    from app.api.linked_league import _YAHOO_REAUTH_DETAIL
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == _YAHOO_REAUTH_DETAIL
+
+
+@pytest.mark.asyncio
+async def test_refresh_yahoo_undecryptable_token_returns_400(async_client, test_db):
+    from app.models import LinkedLeague
+
+    user, profile = await _make_yahoo_user_with_bad_ciphertext(test_db)
+    ll = LinkedLeague(
+        profile_id=profile.id,
+        provider="yahoo",
+        username_or_swid="",
+        league_id="423.l.99",
+        league_metadata_json={"name": "Test League", "season": 2024},
+    )
+    test_db.add(ll)
+    await test_db.commit()
+
+    from app.auth.jwt import encode_jwt
+    jwt = encode_jwt(str(user.id))
+
+    resp = await async_client.post(
+        f"/api/profiles/{profile.id}/link/refresh",
+        cookies={"autotiers_session": jwt},
+    )
+
+    from app.api.linked_league import _YAHOO_REAUTH_DETAIL
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == _YAHOO_REAUTH_DETAIL

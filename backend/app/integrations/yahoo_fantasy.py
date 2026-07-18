@@ -13,7 +13,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.yahoo import refresh_access_token
-from app.security.fernet import encrypt, decrypt
+from app.security.fernet import encrypt, decrypt, InvalidCiphertext
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,16 @@ async def _with_refresh(url: str, user, db: AsyncSession) -> dict:
     stale) refresh token would guarantee the next refresh 401s and force an
     avoidable reconnect. See issue #762.
     """
-    access_token = decrypt(user.yahoo_access_token)
+    # A stored token that no longer decrypts (e.g. after a SECRET_KEY rotation,
+    # or a corrupted ciphertext) is not a transient provider outage — no HTTP
+    # call has been attempted and every retry fails identically until the user
+    # reconnects Yahoo. Translate it to YahooReauthRequired so the endpoints'
+    # existing reconnect branch returns a 400 prompt rather than letting it fall
+    # through _provider_http_error's generic "try again later" 502 (issue #792).
+    try:
+        access_token = decrypt(user.yahoo_access_token)
+    except InvalidCiphertext as e:
+        raise YahooReauthRequired from e
     try:
         return await _get(url, access_token)
     except httpx.HTTPStatusError as e:
@@ -85,9 +94,13 @@ async def _with_refresh(url: str, user, db: AsyncSession) -> dict:
     # revoked/expired Yahoo returns 401 (or 400); that is not something the
     # user can fix by "verifying credentials" — they must reconnect Yahoo.
     try:
-        new_token, new_refresh_token = await refresh_access_token(
-            decrypt(user.yahoo_refresh_token)
-        )
+        refresh_token = decrypt(user.yahoo_refresh_token)
+    except InvalidCiphertext as e:
+        # Same as the access-token case above: an undecryptable refresh token
+        # can't be renewed by retrying — the user must reconnect Yahoo.
+        raise YahooReauthRequired from e
+    try:
+        new_token, new_refresh_token = await refresh_access_token(refresh_token)
     except httpx.HTTPStatusError as e:
         # Only a revoked/expired refresh token (Yahoo returns 400/401) means the
         # user must reconnect. Other statuses (429 rate-limit, 5xx) are transient
