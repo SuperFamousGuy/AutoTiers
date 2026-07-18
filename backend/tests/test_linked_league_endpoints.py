@@ -496,6 +496,55 @@ async def test_refresh_502_on_espn_error(async_client, test_db):
 
 
 @pytest.mark.asyncio
+async def test_refresh_espn_stale_ciphertext_returns_400_reconnect(async_client, test_db):
+    """A stored ESPN ciphertext that no longer decrypts (e.g. after a
+    SECRET_KEY rotation) must surface as a 400 reconnect prompt, not an
+    uncaught 500 — the decrypt() call is guarded before any ESPN fetch, so
+    no provider request is made (issue #768)."""
+    from datetime import datetime, timezone
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    ll = LinkedLeague(
+        profile_id=p.id, provider="espn", league_id="12345",
+        username_or_swid="{swid-123}",
+        credentials_encrypted="not-a-valid-fernet-token",
+        league_metadata_json={"name": "Old", "season": 2026},
+        keepers_json=[], adp_json=None,
+        last_synced_at=datetime.now(timezone.utc),
+    )
+    test_db.add(ll)
+    await test_db.commit()
+    r = await async_client.post(f"/api/profiles/{p.id}/link/refresh")
+    assert r.status_code == 400
+    detail = r.json()["detail"].lower()
+    assert "espn" in detail and "reconnect" in detail
+
+
+@pytest.mark.asyncio
+async def test_refresh_cbs_stale_ciphertext_returns_400_reconnect(async_client, test_db):
+    """A stored CBS ciphertext that no longer decrypts must surface as a 400
+    reconnect prompt, not an uncaught 500 — the decrypt() call is guarded
+    before any CBS fetch (issue #768)."""
+    from datetime import datetime, timezone
+    u, p = await _make_user_and_profile(test_db)
+    await _login(async_client)
+    ll = LinkedLeague(
+        profile_id=p.id, provider="cbs", league_id="999999",
+        username_or_swid="fan@example.com",
+        credentials_encrypted="not-a-valid-fernet-token",
+        league_metadata_json={"name": "Old", "season": 2026},
+        keepers_json=[], adp_json=None,
+        last_synced_at=datetime.now(timezone.utc),
+    )
+    test_db.add(ll)
+    await test_db.commit()
+    r = await async_client.post(f"/api/profiles/{p.id}/link/refresh")
+    assert r.status_code == 400
+    detail = r.json()["detail"].lower()
+    assert "cbs" in detail and "reconnect" in detail
+
+
+@pytest.mark.asyncio
 async def test_post_espn_returns_502_when_espn_responds_5xx(async_client, test_db):
     """ESPN returning a 5xx should surface as 502 with a useful message (not a raw 500)."""
     u, p = await _make_user_and_profile(test_db)

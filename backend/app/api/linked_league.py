@@ -40,7 +40,7 @@ from app.integrations.scoring_mappers import (
     sleeper_to_settings, espn_to_settings, yahoo_to_settings, cbs_to_settings,
     nfl_to_settings,
 )
-from app.security.fernet import encrypt, decrypt
+from app.security.fernet import encrypt, decrypt, InvalidCiphertext
 from app.schemas.linked_league import LinkedLeagueOut
 from app.schemas.auth import ProfileOut
 
@@ -51,6 +51,11 @@ router = APIRouter(prefix="/profiles/{profile_id}/link", tags=["linked_league"])
 # The user can't fix this by re-checking a league id or credentials — the only
 # remedy is re-running the Yahoo OAuth flow, so say exactly that.
 _YAHOO_REAUTH_DETAIL = "Your Yahoo authorization has expired — reconnect Yahoo to continue."
+# Shown when ESPN cookies (SWID/espn_s2) are rejected or can't be decrypted — the
+# only remedy is re-linking, so keep one string for every reconnect prompt.
+_ESPN_REAUTH_DETAIL = "ESPN cookies expired — please reconnect."
+# Shown when a CBS session is rejected or its stored token can't be decrypted.
+_CBS_REAUTH_DETAIL = "CBS session expired — reconnect your CBS account."
 
 
 class SleeperLeagueSummaryOut(BaseModel):
@@ -464,10 +469,7 @@ async def post_cbs(
     try:
         data = await fetch_cbs_league(league_id, access_token)
     except CbsAuthRequired:
-        raise HTTPException(
-            status_code=400,
-            detail="CBS session expired — reconnect your CBS account.",
-        )
+        raise HTTPException(status_code=400, detail=_CBS_REAUTH_DETAIL)
     except Exception as e:
         raise _provider_http_error("CBS", e)
 
@@ -567,14 +569,19 @@ async def refresh(
             raise _provider_http_error("Sleeper", e)
         mapped = sleeper_to_settings(data.raw_scoring, league_size=data.league_size)
     elif ll.provider == "espn":
-        espn_s2 = decrypt(ll.credentials_encrypted) if ll.credentials_encrypted else None
+        try:
+            espn_s2 = decrypt(ll.credentials_encrypted) if ll.credentials_encrypted else None
+        except InvalidCiphertext:
+            # Stale ciphertext (e.g. SECRET_KEY rotation) — surface as a reconnect
+            # prompt, matching the EspnAuthRequired branch, not an uncaught 500.
+            raise HTTPException(status_code=400, detail=_ESPN_REAUTH_DETAIL)
         try:
             data = await fetch_espn_league(
                 ll.league_id, stored_season,
                 ll.username_or_swid or None, espn_s2,
             )
         except EspnAuthRequired:
-            raise HTTPException(status_code=400, detail="ESPN cookies expired — please reconnect.")
+            raise HTTPException(status_code=400, detail=_ESPN_REAUTH_DETAIL)
         except Exception as e:
             raise _provider_http_error("ESPN", e)
         mapped = espn_to_settings(data.raw_scoring, league_size=data.league_size)
@@ -589,7 +596,12 @@ async def refresh(
             raise _provider_http_error("Yahoo", e)
         mapped = yahoo_to_settings(data.raw_scoring, league_size=data.league_size)
     elif ll.provider == "cbs":
-        access_token = decrypt(ll.credentials_encrypted) if ll.credentials_encrypted else None
+        try:
+            access_token = decrypt(ll.credentials_encrypted) if ll.credentials_encrypted else None
+        except InvalidCiphertext:
+            # Stale ciphertext (e.g. SECRET_KEY rotation) — surface as a reconnect
+            # prompt, matching the CbsAuthRequired branch, not an uncaught 500.
+            raise HTTPException(status_code=400, detail=_CBS_REAUTH_DETAIL)
         if not access_token:
             raise HTTPException(status_code=400, detail="CBS access token missing — please reconnect.")
         try:
@@ -599,7 +611,7 @@ async def refresh(
             # flip league_metadata_json.season with no underlying change.
             data = await fetch_cbs_league(ll.league_id, access_token, stored_season)
         except CbsAuthRequired:
-            raise HTTPException(status_code=400, detail="CBS session expired — reconnect your CBS account.")
+            raise HTTPException(status_code=400, detail=_CBS_REAUTH_DETAIL)
         except Exception as e:
             raise _provider_http_error("CBS", e)
         mapped = cbs_to_settings(data.raw_scoring, league_size=data.league_size)
