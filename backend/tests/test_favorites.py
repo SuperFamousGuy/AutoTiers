@@ -5,7 +5,11 @@ test_favorites_auto_enable.py.
 """
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.player import Player
+from app.models.user_favorites import UserFavorites
 from app.schemas.favorites import (
     _MAX_PLAYER_IDS,
     _MAX_PLAYER_ID_LEN,
@@ -20,6 +24,17 @@ async def _signup_and_login(async_client: AsyncClient, email: str = "fav@example
     await async_client.post("/api/auth/signup", json={
         "email": email, "password": "password-long-enough",
     })
+
+
+async def _seed_players(test_db: AsyncSession, *player_ids: str) -> None:
+    """Seed real Player rows so favorite_player_ids referencing them validate.
+
+    PUT /favorites now rejects (422) any favorite player ID absent from the
+    Player table, so CRUD tests must seed the IDs they expect to persist.
+    """
+    for pid in player_ids:
+        test_db.add(Player(id=pid, name=f"Player {pid}", position="WR", team="KC"))
+    await test_db.commit()
 
 
 @pytest.mark.asyncio
@@ -40,6 +55,7 @@ async def test_get_favorites_requires_auth(async_client: AsyncClient):
 @pytest.mark.asyncio
 async def test_put_favorites_persists(async_client: AsyncClient, test_db):
     await _signup_and_login(async_client)
+    await _seed_players(test_db, "4046", "7564")
     r = await async_client.put("/api/favorites", json={
         "favorite_player_ids": ["4046", "7564"],
         "favorite_teams": ["KC", "BUF"],
@@ -60,6 +76,7 @@ async def test_put_favorites_persists(async_client: AsyncClient, test_db):
 async def test_put_favorites_replaces_existing(async_client: AsyncClient, test_db):
     """Subsequent PUT fully replaces — not a merge."""
     await _signup_and_login(async_client)
+    await _seed_players(test_db, "4046", "9999")
     await async_client.put("/api/favorites", json={
         "favorite_player_ids": ["4046"], "favorite_teams": ["KC"],
     })
@@ -100,6 +117,40 @@ async def test_put_favorites_rejects_unknown_team(async_client: AsyncClient, tes
     })
     assert r.status_code == 422
     assert "XYZ" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_put_favorites_rejects_unknown_player_id(async_client: AsyncClient, test_db):
+    """An ID absent from the Player table is rejected (422) naming the bad ID,
+    mirroring the unknown-team guard — not persisted as an arbitrary string."""
+    await _signup_and_login(async_client)
+    r = await async_client.put("/api/favorites", json={
+        "favorite_player_ids": ["nope-not-a-player"], "favorite_teams": [],
+    })
+    assert r.status_code == 422, r.text
+    assert "nope-not-a-player" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_put_favorites_rejects_partially_unknown_player_ids(async_client: AsyncClient, test_db):
+    """A mix of valid and invalid IDs is rejected wholesale (422), naming only
+    the unknown one; the valid ID is not silently persisted."""
+    await _signup_and_login(async_client)
+    await _seed_players(test_db, "4046")
+    r = await async_client.put("/api/favorites", json={
+        "favorite_player_ids": ["4046", "bogus"], "favorite_teams": [],
+    })
+    assert r.status_code == 422, r.text
+    detail = r.json()["detail"]
+    assert "bogus" in detail
+    assert "4046" not in detail
+    # Nothing persisted: the row must not have been created.
+    r = await async_client.get("/api/favorites")
+    assert r.json() == {"favorite_player_ids": [], "favorite_teams": []}
+    # Assert at the DB layer directly — the GET response above is identical
+    # whether the row is absent or present-but-empty, so prove no row exists.
+    rows = (await test_db.execute(select(UserFavorites))).scalars().all()
+    assert rows == []
 
 
 @pytest.mark.asyncio
@@ -172,6 +223,7 @@ async def test_put_favorites_modestly_over_cap_still_returns_domain_409(async_cl
 @pytest.mark.asyncio
 async def test_put_favorites_deduplicates(async_client: AsyncClient, test_db):
     await _signup_and_login(async_client)
+    await _seed_players(test_db, "4046", "7564")
     r = await async_client.put("/api/favorites", json={
         "favorite_player_ids": ["4046", "4046", "7564"],
         "favorite_teams": ["KC", "KC"],

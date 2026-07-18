@@ -10,6 +10,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import User, Profile
+from app.models.player import Player
+
+
+async def _seed_players(test_db: AsyncSession, *player_ids: str) -> None:
+    """Seed real Player rows so favorite_player_ids referencing them validate.
+
+    PUT /favorites rejects (422) any favorite player ID absent from the Player
+    table, so these tests seed the IDs they add.
+    """
+    for pid in player_ids:
+        test_db.add(Player(id=pid, name=f"Player {pid}", position="WR", team="KC"))
+    await test_db.commit()
 
 
 async def _signup_and_make_active_profile(async_client, test_db: AsyncSession) -> tuple[User, Profile]:
@@ -40,6 +52,7 @@ async def test_first_favorite_does_not_corrupt_rules_json(async_client, test_db)
     # Capture dict shape before the favorite is added.
     initial_rules = dict(profile.rules_json)
 
+    await _seed_players(test_db, "4046")
     r = await async_client.put("/api/favorites", json={
         "favorite_player_ids": ["4046"], "favorite_teams": [],
     })
@@ -63,6 +76,7 @@ async def test_multiple_favorites_do_not_corrupt_rules_json(async_client, test_d
 
     initial_rules = dict(profile.rules_json)
 
+    await _seed_players(test_db, "4046", "7564")
     # Add first favorite.
     await async_client.put("/api/favorites", json={
         "favorite_player_ids": ["4046"], "favorite_teams": [],
@@ -86,6 +100,7 @@ async def test_no_duplicate_favorites_entries_after_add(async_client, test_db):
     """No duplicate Favorites entries appear anywhere in rules_json after adding a favorite."""
     user, profile = await _signup_and_make_active_profile(async_client, test_db)
 
+    await _seed_players(test_db, "4046")
     await async_client.put("/api/favorites", json={
         "favorite_player_ids": ["4046"], "favorite_teams": [],
     })
@@ -112,6 +127,7 @@ async def test_add_favorite_preserves_existing_position_overrides(async_client, 
     await test_db.commit()
     await test_db.refresh(profile)
 
+    await _seed_players(test_db, "4046")
     r = await async_client.put("/api/favorites", json={
         "favorite_player_ids": ["4046"], "favorite_teams": [],
     })
