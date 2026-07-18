@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { LinkedAccountsDialog } from "@/components/LinkedAccountsDialog";
-import type { User, Profile } from "@/api/types";
+import type { User, Profile, LinkedLeague } from "@/api/types";
 
 // unlinkGoogle is mocked so the Google tests can assert at the api-module level.
 // unlinkYahoo is deliberately left as the REAL implementation so the Yahoo
@@ -395,6 +395,131 @@ describe("LinkedAccountsDialog", () => {
     );
     expect(await screen.findByLabelText(/sleeper username/i)).toBeInTheDocument();
     expect(screen.queryByLabelText(/league id/i)).not.toBeInTheDocument();
+  });
+
+  // --- Default tab follows the already-linked provider (issue #788) ---
+  // Reopening "Connect Your League" to check/refresh/disconnect an existing
+  // connection should land on that provider's tab, not the unrelated Sleeper
+  // one. The default is recomputed on each open from the active profile's
+  // linked provider, falling back to Sleeper when nothing is linked.
+  const linkedLeague = (
+    provider: LinkedLeague["provider"],
+  ): LinkedLeague => ({
+    profile_id: "p1",
+    provider,
+    league_id: "L1",
+    league_metadata_json: { name: "My League", season: 2024 },
+    keepers_json: null,
+    adp_json: null,
+    last_synced_at: "",
+  });
+
+  it("opens on the ESPN tab when the active profile has a linked ESPN league", () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null}
+        activeProfile={{ ...activeProfile, linked_league: linkedLeague("espn") }} />,
+    );
+    expect(
+      screen.getByRole("tab", { name: /^espn, league connected$/i }),
+    ).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: /^sleeper$/i })).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
+    // The ESPN panel shows its Connected state (Disconnect action) without any
+    // click — the whole point of landing on the linked provider's tab.
+    expect(screen.getByRole("button", { name: /disconnect espn/i })).toBeInTheDocument();
+  });
+
+  it("opens on the CBS tab when a CBS league is linked", () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null}
+        activeProfile={{ ...activeProfile, linked_league: linkedLeague("cbs") }} />,
+    );
+    expect(
+      screen.getByRole("tab", { name: /^cbs, league connected$/i }),
+    ).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("opens on the NFL tab when an NFL league is linked", () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null}
+        activeProfile={{ ...activeProfile, linked_league: linkedLeague("nfl") }} />,
+    );
+    expect(
+      screen.getByRole("tab", { name: /^nfl fantasy, league connected$/i }),
+    ).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("still defaults to Sleeper when nothing is linked", () => {
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} activeProfile={activeProfile} />,
+    );
+    expect(screen.getByRole("tab", { name: /^sleeper$/i })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByLabelText(/sleeper username/i)).toBeInTheDocument();
+  });
+
+  it("defaults to Sleeper when the linked provider isn't one of the tabs (defensive)", () => {
+    // A provider value outside the five tabs (e.g. a future/legacy platform)
+    // must not leave the dialog with no selected tab — fall back to Sleeper.
+    const unknownLeague = {
+      ...linkedLeague("espn"),
+      provider: "draftkings",
+    } as unknown as LinkedLeague;
+    render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null}
+        activeProfile={{ ...activeProfile, linked_league: unknownLeague }} />,
+    );
+    expect(screen.getByRole("tab", { name: /^sleeper$/i })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("reflects the newly-active profile's provider after switching profiles while closed", async () => {
+    const espnProfile: Profile = {
+      ...activeProfile, id: "p1", linked_league: linkedLeague("espn"),
+    };
+    const cbsProfile: Profile = {
+      ...activeProfile, id: "p2", linked_league: linkedLeague("cbs"),
+    };
+    const { rerender } = render(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} activeProfile={espnProfile} />,
+    );
+    expect(
+      screen.getByRole("tab", { name: /^espn, league connected$/i }),
+    ).toHaveAttribute("aria-selected", "true");
+
+    // Close, switch the active profile to the CBS one, then reopen.
+    rerender(
+      <LinkedAccountsDialog open={false} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} activeProfile={espnProfile} />,
+    );
+    rerender(
+      <LinkedAccountsDialog open={false} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} activeProfile={cbsProfile} />,
+    );
+    rerender(
+      <LinkedAccountsDialog open={true} onOpenChange={noop} user={baseUser}
+        onRefresh={noop} initialError={null} activeProfile={cbsProfile} />,
+    );
+    // Lands on the newly-active CBS provider, not the stale ESPN one.
+    expect(
+      await screen.findByRole("tab", { name: /^cbs, league connected$/i }),
+    ).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: /^espn$/i })).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
   });
 
   it("Yahoo tab onLinked callback calls onRefresh", async () => {

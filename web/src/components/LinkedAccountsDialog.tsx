@@ -181,8 +181,21 @@ export function LinkedAccountsDialog({
     setError(initialError);
   }, [initialError]);
 
+  // On open, land on the provider the active profile already has linked, so the
+  // most common reason to reopen this dialog — checking, refreshing, or
+  // disconnecting an existing connection — takes no extra click. Fall back to
+  // Sleeper when nothing is linked or the linked provider isn't one of the tabs
+  // (defensive against an unexpected provider value) (#788). Keyed on `open`
+  // alone so switching profiles mid-session doesn't yank the user off the tab
+  // they're on; the fresh activeProfile is read on the next open.
   useEffect(() => {
-    if (!open) setActiveTab("sleeper");
+    if (!open) return;
+    const linkedProvider = activeProfile?.linked_league?.provider;
+    const defaultTab = TABS.some((t) => t.id === linkedProvider)
+      ? (linkedProvider as PlatformTab)
+      : "sleeper";
+    setActiveTab(defaultTab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   async function handleGoogleDisconnect() {
