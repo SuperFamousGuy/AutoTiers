@@ -204,10 +204,21 @@ export function EspnConnectForm({ profile, onLinked, onRefresh }: Props) {
               Firefox uses <strong>Storage → Cookies → fantasy.espn.com</strong>.
               Copy the values for <code>SWID</code> and <code>espn_s2</code>.
             </p>
+            {/*
+              SWID and espn_s2 are long opaque cookie strings the user pastes
+              out of devtools — not typed secrets. Rendering them as visible
+              text (rather than masked type="password") lets the user verify
+              they pasted the full value without clipping a brace off {XXXX...}
+              or leaving a trailing space. spellCheck/autoComplete are off so
+              the browser doesn't squiggle or reformat the opaque value.
+              (CbsConnectForm's real password stays type="password".)
+            */}
             <label className="block text-xs">
               <span>SWID</span>
               <input
-                type="password"
+                type="text"
+                spellCheck={false}
+                autoComplete="off"
                 className="mt-1 block w-full rounded border px-2 py-1 text-sm"
                 value={swid}
                 onChange={(e) => setSwid(e.target.value)}
@@ -218,7 +229,9 @@ export function EspnConnectForm({ profile, onLinked, onRefresh }: Props) {
             <label className="block text-xs">
               <span>espn_s2</span>
               <input
-                type="password"
+                type="text"
+                spellCheck={false}
+                autoComplete="off"
                 className="mt-1 block w-full rounded border px-2 py-1 text-sm"
                 value={espnS2}
                 onChange={(e) => setEspnS2(e.target.value)}
