@@ -149,9 +149,9 @@ def test_builtin_rules_is_nonempty_list_of_rules():
         assert rule.conditions
 
 
-def test_builtin_rules_count_is_26():
-    """Splitting flat '370 Touches' into two age bands and adding TE Year-3 Leap rule (was 24)."""
-    assert len(BUILTIN_RULES) == 26
+def test_builtin_rules_count_is_27():
+    """Adding 'Rookie RB Draft Capital' (was 26 after the 370-split + TE Year-3 Leap)."""
+    assert len(BUILTIN_RULES) == 27
 
 
 def test_opportunity_rules_categorized_as_regression():
@@ -1122,3 +1122,83 @@ def test_cold_weather_kicker_rule_has_k_position():
     """Cold-Weather Kicker must carry positions=["K"]."""
     rule = next(r for r in BUILTIN_RULES if r.name == "Cold-Weather Kicker")
     assert rule.positions == ["K"]
+
+
+# --- Rookie RB Draft Capital (#770) ------------------------------------------
+
+
+def _rookie_rb_rule():
+    import dataclasses
+    return dataclasses.replace(
+        next(r for r in BUILTIN_RULES if r.name == "Rookie RB Draft Capital"),
+        enabled=True,
+    )
+
+
+def test_rookie_rb_draft_capital_fires_round_1():
+    ctx = _ctx(position="RB", years_exp=0, draft_round=1)
+    result = apply_rules(200.0, ctx, [_rookie_rb_rule()])
+    assert "Rookie RB Draft Capital" in result.rules_applied
+    assert result.adjusted_score == pytest.approx(216.0)  # 200 * 1.08
+
+
+def test_rookie_rb_draft_capital_fires_round_2():
+    ctx = _ctx(position="RB", years_exp=0, draft_round=2)
+    result = apply_rules(200.0, ctx, [_rookie_rb_rule()])
+    assert "Rookie RB Draft Capital" in result.rules_applied
+    assert result.adjusted_score == pytest.approx(216.0)
+
+
+def test_rookie_rb_draft_capital_does_not_fire_when_round_none():
+    """UDFA / unmatched draft record (draft_round is None) must NOT fire.
+
+    Locks the engine's 'unknown field = no match' convention for this rule so a
+    future edit can't silently start boosting undrafted rookies. (#770)
+    """
+    ctx = _ctx(position="RB", years_exp=0, draft_round=None)
+    result = apply_rules(200.0, ctx, [_rookie_rb_rule()])
+    assert "Rookie RB Draft Capital" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(200.0)
+
+
+def test_rookie_rb_draft_capital_does_not_fire_when_round_gt_2():
+    """Day-3 backs (draft_round 3+) must NOT fire — draft capital gate is <=2."""
+    ctx = _ctx(position="RB", years_exp=0, draft_round=3)
+    result = apply_rules(200.0, ctx, [_rookie_rb_rule()])
+    assert "Rookie RB Draft Capital" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(200.0)
+
+
+def test_rookie_rb_draft_capital_does_not_fire_for_sophomore():
+    """A 2nd-year (years_exp=1) early-round RB must NOT fire — rookie-only gate."""
+    ctx = _ctx(position="RB", years_exp=1, draft_round=1)
+    result = apply_rules(200.0, ctx, [_rookie_rb_rule()])
+    assert "Rookie RB Draft Capital" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(200.0)
+
+
+def test_rookie_rb_draft_capital_does_not_fire_for_non_rb():
+    """A first-round rookie WR must NOT fire — this rule is RB-scoped.
+
+    Guards both the condition (position==RB) and the positions=["RB"] gate.
+    """
+    ctx = make_ctx(position="WR", years_exp=0, draft_round=1)
+    result = apply_rules(200.0, ctx, [_rookie_rb_rule()])
+    assert "Rookie RB Draft Capital" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(200.0)
+
+
+def test_rookie_rb_draft_capital_has_rb_position():
+    rule = next(r for r in BUILTIN_RULES if r.name == "Rookie RB Draft Capital")
+    assert rule.positions == ["RB"]
+
+
+def test_rookie_rb_draft_capital_categorized_as_situation():
+    from app.api.rules import _categorize
+    assert _categorize("Rookie RB Draft Capital") == "Situation"
+
+
+def test_player_context_accepts_draft_capital_fields():
+    ctx = _ctx(draft_round=1, draft_pick=12)
+    assert ctx.draft_round == 1
+    assert ctx.draft_pick == 12

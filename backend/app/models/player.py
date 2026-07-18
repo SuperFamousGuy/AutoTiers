@@ -18,6 +18,12 @@ class Player(Base):
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
     gsis_id: Mapped[Optional[str]] = mapped_column(String(20), index=True)
     espn_id: Mapped[Optional[str]] = mapped_column(String(20), index=True)
+    # Draft capital (nfl_data_py import_draft_picks). Round is 1–7; pick is the
+    # overall selection number. Both NULL for undrafted (UDFA) players and for
+    # anyone whose draft record didn't match during ingestion. Feeds the
+    # "Rookie RB Draft Capital" rule via PlayerContext.draft_round.
+    draft_round: Mapped[Optional[int]] = mapped_column(Integer)
+    draft_pick: Mapped[Optional[int]] = mapped_column(Integer)
 
     stats: Mapped[list["PlayerStat"]] = relationship(back_populates="player", cascade="all, delete-orphan")
     projections: Mapped[list["Projection"]] = relationship(back_populates="player", cascade="all, delete-orphan")

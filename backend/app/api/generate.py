@@ -324,6 +324,8 @@ class _PlayerSnapshot:
     team: Optional[str]
     age: Optional[int]
     years_exp: Optional[int]
+    draft_round: Optional[int]
+    draft_pick: Optional[int]
     # Immutable sequences so the frozen snapshot is thread-safe by construction:
     # a worker thread can't mutate them in-place (shallow-freeze gap, #577).
     stats: tuple[_StatSnapshot, ...]
@@ -369,6 +371,8 @@ def _snapshot_player(p: Player) -> _PlayerSnapshot:
         team=p.team,
         age=p.age,
         years_exp=p.years_exp,
+        draft_round=p.draft_round,
+        draft_pick=p.draft_pick,
         stats=tuple(_snapshot_stat(s) for s in p.stats),
         projections=tuple(
             _ProjSnapshot(pr.source, pr.scoring_format, pr.projected_points)
@@ -697,6 +701,12 @@ def _compute_ranked_players(
             plays_in_dome=plays_in_dome,
             is_denver_kicker=is_denver_kicker,
             cold_weather_kicker=cold_weather_kicker,
+            # Draft capital passes through for every position — it's a general
+            # player attribute, not position-scoped context. The "Rookie RB
+            # Draft Capital" rule gates on position==RB itself; a None round
+            # (UDFA / unmatched) is a non-match under the engine's convention.
+            draft_round=player.draft_round,
+            draft_pick=player.draft_pick,
         )
 
         rules_for_player = position_rules_cache[player.position]
