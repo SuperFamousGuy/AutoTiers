@@ -84,6 +84,26 @@ export function RulesPanel({
     return Object.fromEntries(overrides.map((o) => [o.name, o]));
   }, [positionRules, activePosition]);
 
+  // Which position tabs carry at least one *customized* override — i.e. an
+  // override whose enabled/weight differs from the canonical rule's default.
+  // Autosave can persist a no-op override that matches the default in both
+  // fields; that does not count as customized, so the tab stays unmarked.
+  const customizedPositions = useMemo<Set<Position>>(() => {
+    const byName = new Map(canonicalRules.map((r) => [r.name, r]));
+    const marked = new Set<Position>();
+    for (const pos of POSITIONS) {
+      const overrides = positionRules[pos] ?? [];
+      const hasCustom = overrides.some((o) => {
+        const canonical = byName.get(o.name);
+        // No canonical to compare against → can't call it customized.
+        if (!canonical) return false;
+        return o.enabled !== canonical.enabled || o.weight !== canonical.weight;
+      });
+      if (hasCustom) marked.add(pos);
+    }
+    return marked;
+  }, [canonicalRules, positionRules]);
+
   function updateRule(positionName: string, updated: PositionRuleOverride) {
     const current = positionRules[positionName] ?? [];
     const existsIdx = current.findIndex((r) => r.name === updated.name);
@@ -133,12 +153,17 @@ export function RulesPanel({
       <div role="tablist" aria-label="Position" className="flex gap-1 flex-nowrap overflow-x-auto pb-1">
         {POSITIONS.map((pos) => {
           const isActive = pos === activePosition;
+          const isCustomized = customizedPositions.has(pos);
           return (
             <button
               key={pos}
               role="tab"
               aria-selected={isActive}
               aria-controls="rules-tabpanel"
+              // The dot is aria-hidden, so a customized tab would otherwise
+              // announce identically to an untouched one. Fold the state into
+              // the accessible name (mirrors LinkedAccountsDialog's #665 fix).
+              aria-label={isCustomized ? `${pos}, customized` : pos}
               id={`tab-${pos}`}
               onClick={() => setActivePosition(pos)}
               onKeyDown={(e) => {
@@ -154,13 +179,19 @@ export function RulesPanel({
                 }
               }}
               className={cn(
-                "rounded px-2.5 py-1 text-xs font-semibold font-mono flex-shrink-0 transition-colors",
+                "inline-flex items-center rounded px-2.5 py-1 text-xs font-semibold font-mono flex-shrink-0 transition-colors",
                 isActive
                   ? "bg-primary text-primary-foreground"
                   : "bg-muted text-muted-foreground hover:bg-muted/80",
               )}
             >
               {pos}
+              {isCustomized && (
+                <span
+                  className="ml-1 h-1.5 w-1.5 rounded-full bg-green-500"
+                  aria-hidden="true"
+                />
+              )}
             </button>
           );
         })}
