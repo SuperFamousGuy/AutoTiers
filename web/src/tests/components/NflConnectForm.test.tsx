@@ -186,15 +186,29 @@ describe("NflConnectForm", () => {
     );
   });
 
-  it("Disconnect calls disconnectLink then onRefresh in the connected state", async () => {
+  it("Disconnect confirms before calling disconnectLink, then calls onRefresh", async () => {
     const { disconnectLink } = await import("@/api/linkedLeague");
     (disconnectLink as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
     const onRefresh = vi.fn().mockResolvedValue(undefined);
     render(<NflConnectForm profile={nflLinkedProfile} onLinked={vi.fn()} onRefresh={onRefresh} />);
     const u = userEvent.setup();
     await u.click(screen.getByRole("button", { name: /disconnect nfl/i }));
+    expect(disconnectLink).not.toHaveBeenCalled();
+    const confirm = screen.getByRole("button", { name: /^confirm disconnect$/i });
+    expect(confirm).toHaveFocus();
+    await u.click(confirm);
     await waitFor(() => expect(disconnectLink).toHaveBeenCalledWith("p1"));
     expect(onRefresh).toHaveBeenCalled();
+  });
+
+  it("Disconnect Cancel restores the plain row with no network call", async () => {
+    const { disconnectLink } = await import("@/api/linkedLeague");
+    render(<NflConnectForm profile={nflLinkedProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /disconnect nfl/i }));
+    await u.click(screen.getByRole("button", { name: /^cancel$/i }));
+    expect(disconnectLink).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /disconnect nfl/i })).toBeInTheDocument();
   });
 
   it("Disconnect shows a generic message on a non-ApiError failure", async () => {
@@ -203,6 +217,7 @@ describe("NflConnectForm", () => {
     render(<NflConnectForm profile={nflLinkedProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
     const u = userEvent.setup();
     await u.click(screen.getByRole("button", { name: /disconnect nfl/i }));
+    await u.click(screen.getByRole("button", { name: /^confirm disconnect$/i }));
     await waitFor(() =>
       expect(screen.getByText("Disconnect failed.")).toBeInTheDocument(),
     );

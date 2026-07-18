@@ -277,7 +277,7 @@ describe("EspnConnectForm", () => {
     );
   });
 
-  it("Disconnect calls disconnectLink then onRefresh", async () => {
+  it("Disconnect confirms before calling disconnectLink, then calls onRefresh", async () => {
     const { disconnectLink } = await import("@/api/linkedLeague");
     (disconnectLink as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
     const onRefresh = vi.fn().mockResolvedValueOnce(undefined);
@@ -286,8 +286,24 @@ describe("EspnConnectForm", () => {
     );
     const u = userEvent.setup();
     await u.click(screen.getByRole("button", { name: /disconnect espn/i }));
+    expect(disconnectLink).not.toHaveBeenCalled();
+    const confirm = screen.getByRole("button", { name: /^confirm disconnect$/i });
+    expect(confirm).toHaveFocus();
+    await u.click(confirm);
     await waitFor(() => expect(disconnectLink).toHaveBeenCalledWith("p1"));
     await waitFor(() => expect(onRefresh).toHaveBeenCalled());
+  });
+
+  it("Disconnect Cancel restores the plain row with no network call", async () => {
+    const { disconnectLink } = await import("@/api/linkedLeague");
+    render(
+      <EspnConnectForm profile={espnLinkedProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />,
+    );
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /disconnect espn/i }));
+    await u.click(screen.getByRole("button", { name: /^cancel$/i }));
+    expect(disconnectLink).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /disconnect espn/i })).toBeInTheDocument();
   });
 
   it("Disconnect unwraps a raw JSON detail body from an ApiError", async () => {
@@ -300,6 +316,7 @@ describe("EspnConnectForm", () => {
     );
     const u = userEvent.setup();
     await u.click(screen.getByRole("button", { name: /disconnect espn/i }));
+    await u.click(screen.getByRole("button", { name: /^confirm disconnect$/i }));
     await waitFor(() =>
       expect(screen.getByText("Couldn't unlink right now. Try again shortly.")).toBeInTheDocument(),
     );
