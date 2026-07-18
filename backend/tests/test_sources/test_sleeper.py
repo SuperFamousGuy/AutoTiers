@@ -94,6 +94,112 @@ async def test_sleeper_normalizes_def_to_dst(test_db, mock_sleeper):
     assert bills.position == "DST", f"Expected DST, got {bills.position}"
 
 
+def _one_player_payload(team):
+    """Sleeper feed with a single active player whose team we control."""
+    return {
+        "4017": {
+            "player_id": "4017", "first_name": "Josh", "last_name": "Allen",
+            "full_name": "Josh Allen", "position": "QB", "team": team,
+            "age": 29, "years_exp": 7, "active": True,
+            "gsis_id": "00-0034796", "espn_id": 3918298,
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_sleeper_free_agent_survives_and_keeps_history(test_db):
+    """A player who becomes a free agent (team X -> None) is NOT deleted, and his
+    FK-linked PlayerStat/Projection/ADPData rows survive the second sync (#791)."""
+    from app.models import PlayerStat, Projection, ADPData
+    from datetime import date
+
+    fetcher = SleeperFetcher()
+
+    # First sync: player is rostered on BUF.
+    with respx.mock(base_url="https://api.sleeper.app") as router:
+        router.get("/v1/players/nfl").mock(
+            return_value=Response(200, json=_one_player_payload("BUF")))
+        await fetcher.fetch(test_db)
+
+    allen = await test_db.scalar(select(Player).where(Player.id == "4017"))
+    assert allen is not None and allen.team == "BUF"
+
+    # Seed history that the cascade would wipe on a hard-delete.
+    test_db.add(PlayerStat(player_id="4017", season=2025, pass_yards=4000))
+    test_db.add(Projection(
+        player_id="4017", source="espn", scoring_format="ppr",
+        projected_points=300.0, last_updated=date.today(),
+    ))
+    test_db.add(ADPData(
+        player_id="4017", format="ppr", adp=12.0,
+        adp_source="fantasypros", last_updated=date.today(),
+    ))
+    await test_db.commit()
+
+    # Second sync: player is now a free agent (team=None) but still active.
+    with respx.mock(base_url="https://api.sleeper.app") as router:
+        router.get("/v1/players/nfl").mock(
+            return_value=Response(200, json=_one_player_payload(None)))
+        await fetcher.fetch(test_db)
+
+    allen = await test_db.scalar(select(Player).where(Player.id == "4017"))
+    assert allen is not None, "free agent must not be hard-deleted"
+    assert allen.team is None
+    # History survived — no cascade fired.
+    assert await test_db.scalar(select(PlayerStat).where(PlayerStat.player_id == "4017")) is not None
+    assert await test_db.scalar(select(Projection).where(Projection.player_id == "4017")) is not None
+    assert await test_db.scalar(select(ADPData).where(ADPData.player_id == "4017")) is not None
+
+
+@pytest.mark.asyncio
+async def test_sleeper_free_agent_resigns_resumes_team_context(test_db):
+    """A re-signed free agent (team None -> real team) resumes normal team data
+    without re-seeding, because the row was never destroyed (#791)."""
+    from app.models import PlayerStat
+
+    fetcher = SleeperFetcher()
+
+    # Sync as a free agent first, with history attached.
+    with respx.mock(base_url="https://api.sleeper.app") as router:
+        router.get("/v1/players/nfl").mock(
+            return_value=Response(200, json=_one_player_payload(None)))
+        await fetcher.fetch(test_db)
+    test_db.add(PlayerStat(player_id="4017", season=2025, pass_yards=4000))
+    await test_db.commit()
+
+    # Re-signs to KC.
+    with respx.mock(base_url="https://api.sleeper.app") as router:
+        router.get("/v1/players/nfl").mock(
+            return_value=Response(200, json=_one_player_payload("KC")))
+        await fetcher.fetch(test_db)
+
+    allen = await test_db.scalar(select(Player).where(Player.id == "4017"))
+    assert allen is not None and allen.team == "KC"
+    # Pre-existing history is still attached — no blank-slate re-creation.
+    assert await test_db.scalar(select(PlayerStat).where(PlayerStat.player_id == "4017")) is not None
+
+
+@pytest.mark.asyncio
+async def test_sleeper_inactive_player_still_pruned(test_db):
+    """A player Sleeper marks inactive (retired) is still hard-deleted — only
+    unrostered-but-active free agents are preserved (#791)."""
+    test_db.add(Player(id="retired_guy", name="Old Guy", position="WR", team="DEN", active=True))
+    await test_db.commit()
+
+    payload = {
+        "retired_guy": {
+            "player_id": "retired_guy", "full_name": "Old Guy", "position": "WR",
+            "team": None, "active": False,
+        },
+    }
+    with respx.mock(base_url="https://api.sleeper.app") as router:
+        router.get("/v1/players/nfl").mock(return_value=Response(200, json=payload))
+        fetcher = SleeperFetcher()
+        await fetcher.fetch(test_db)
+
+    assert await test_db.scalar(select(Player).where(Player.id == "retired_guy")) is None
+
+
 @pytest.mark.asyncio
 async def test_sleeper_handles_http_error(test_db):
     with respx.mock(base_url="https://api.sleeper.app") as router:
