@@ -6,6 +6,7 @@ import {
   disconnectLink,
   type LinkedLeagueResponse,
 } from "@/api/linkedLeague";
+import { DisconnectLeagueButton } from "@/components/DisconnectLeagueButton";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { currentSeason } from "@/lib/season";
 import type { Profile } from "@/api/types";
@@ -72,15 +73,7 @@ function EspnConnectedState({ linked, profileId, onRefresh }: ConnectedStateProp
             Refresh
           </Button>
         )}
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={busy}
-          aria-label="Disconnect ESPN"
-          onClick={handleDisconnect}
-        >
-          Disconnect
-        </Button>
+        <DisconnectLeagueButton provider="ESPN" busy={busy} onDisconnect={handleDisconnect} />
       </div>
     </div>
   );

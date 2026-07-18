@@ -6,6 +6,7 @@ import {
   disconnectLink,
   type LinkedLeagueResponse,
 } from "@/api/linkedLeague";
+import { DisconnectLeagueButton } from "@/components/DisconnectLeagueButton";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import type { Profile } from "@/api/types";
 
@@ -71,15 +72,7 @@ function CbsConnectedState({ linked, profileId, onRefresh }: ConnectedStateProps
             Refresh
           </Button>
         )}
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={busy}
-          aria-label="Disconnect CBS"
-          onClick={handleDisconnect}
-        >
-          Disconnect
-        </Button>
+        <DisconnectLeagueButton provider="CBS" busy={busy} onDisconnect={handleDisconnect} />
       </div>
     </div>
   );

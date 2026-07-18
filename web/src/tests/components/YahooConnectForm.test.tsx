@@ -265,7 +265,7 @@ describe("YahooConnectForm", () => {
     await waitFor(() => expect(screen.getByText("Refresh failed.")).toBeInTheDocument());
   });
 
-  it("Disconnect button calls disconnectLink and onRefresh", async () => {
+  it("Disconnect button confirms before calling disconnectLink, then calls onRefresh", async () => {
     vi.spyOn(linkedLeagueApi, "disconnectLink").mockResolvedValue(undefined);
     const onRefresh = vi.fn().mockResolvedValue(undefined);
 
@@ -287,11 +287,41 @@ describe("YahooConnectForm", () => {
     );
 
     await userEvent.click(screen.getByRole("button", { name: /disconnect yahoo/i }));
+    expect(linkedLeagueApi.disconnectLink).not.toHaveBeenCalled();
+    const confirm = screen.getByRole("button", { name: /^confirm disconnect$/i });
+    expect(confirm).toHaveFocus();
+    await userEvent.click(confirm);
 
     await waitFor(() => {
       expect(linkedLeagueApi.disconnectLink).toHaveBeenCalledWith("prof-1");
       expect(onRefresh).toHaveBeenCalled();
     });
+  });
+
+  it("Disconnect Cancel restores the plain row with no network call", async () => {
+    vi.spyOn(linkedLeagueApi, "disconnectLink").mockResolvedValue(undefined);
+
+    const profile: Profile = {
+      ...baseProfile,
+      linked_league: {
+        profile_id: "prof-1",
+        provider: "yahoo",
+        league_id: "423.l.1",
+        league_metadata_json: { name: "My League", season: 2024 },
+        keepers_json: null,
+        adp_json: null,
+        last_synced_at: "",
+      },
+    };
+
+    render(
+      <YahooConnectForm profile={profile} user={baseUser} onLinked={vi.fn()} onRefresh={vi.fn()} />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /disconnect yahoo/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^cancel$/i }));
+    expect(linkedLeagueApi.disconnectLink).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /disconnect yahoo/i })).toBeInTheDocument();
   });
 
   it("Disconnect error shows 'Disconnect failed.' message", async () => {
@@ -315,6 +345,7 @@ describe("YahooConnectForm", () => {
     );
 
     await userEvent.click(screen.getByRole("button", { name: /disconnect yahoo/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^confirm disconnect$/i }));
     await waitFor(() => expect(screen.getByText("Disconnect failed.")).toBeInTheDocument());
   });
 

@@ -8,6 +8,7 @@ import {
   type LinkedLeagueResponse,
 } from "@/api/linkedLeague";
 import { ApiError } from "@/api/client";
+import { DisconnectLeagueButton } from "@/components/DisconnectLeagueButton";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import type { SleeperLeagueSummary, Profile } from "@/api/types";
 import { currentSeason } from "@/lib/season";
@@ -108,15 +109,7 @@ function SleeperConnectedState({ linked, profileId, onRefresh }: ConnectedStateP
             Refresh
           </Button>
         )}
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={busy}
-          aria-label="Disconnect Sleeper"
-          onClick={handleDisconnect}
-        >
-          Disconnect
-        </Button>
+        <DisconnectLeagueButton provider="Sleeper" busy={busy} onDisconnect={handleDisconnect} />
       </div>
     </div>
   );

@@ -9,6 +9,7 @@ import {
   type YahooLeagueSummary,
 } from "@/api/linkedLeague";
 import { yahooAuthorizeUrl } from "@/api/auth";
+import { DisconnectLeagueButton } from "@/components/DisconnectLeagueButton";
 import { useAsyncAction, toActionErrorMessage } from "@/hooks/useAsyncAction";
 import type { Profile, User } from "@/api/types";
 
@@ -75,15 +76,7 @@ function YahooConnectedState({ linked, profileId, onRefresh }: ConnectedStatePro
             Refresh
           </Button>
         )}
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={busy}
-          aria-label="Disconnect Yahoo"
-          onClick={handleDisconnect}
-        >
-          Disconnect
-        </Button>
+        <DisconnectLeagueButton provider="Yahoo" busy={busy} onDisconnect={handleDisconnect} />
       </div>
     </div>
   );
