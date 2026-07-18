@@ -214,6 +214,10 @@ describe("CbsConnectForm", () => {
     render(<CbsConnectForm profile={cbsLinkedProfile} onLinked={vi.fn()} onRefresh={vi.fn()} />);
     expect(screen.getByText(/connected!/i)).toBeInTheDocument();
     expect(screen.getByText("CBS Champs")).toBeInTheDocument();
+    // Import summary reflects the empty keepers_json / null adp_json on the fixture.
+    expect(
+      screen.getByText("No keepers detected · No ADP data for this league"),
+    ).toBeInTheDocument();
     // No password field ever renders in the connected state.
     expect(screen.queryByLabelText(/cbs password/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/league id/i)).not.toBeInTheDocument();

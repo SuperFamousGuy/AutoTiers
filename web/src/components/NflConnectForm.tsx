@@ -10,6 +10,7 @@ import { DisconnectLeagueButton } from "@/components/DisconnectLeagueButton";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { currentSeason } from "@/lib/season";
 import type { Profile } from "@/api/types";
+import { LeagueImportSummary } from "@/components/LeagueImportSummary";
 
 interface Props {
   profile: Profile;
@@ -66,6 +67,7 @@ function NflConnectedState({ linked, profileId, onRefresh }: ConnectedStateProps
         <p className="text-xs text-muted-foreground">
           NFL Fantasy{linked.league_metadata_json ? ` · ${linked.league_metadata_json.season}` : ""}
         </p>
+        <LeagueImportSummary linked={linked} />
       </div>
       <div className="flex gap-2">
         {linked.league_id && (

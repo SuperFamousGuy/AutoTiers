@@ -12,6 +12,7 @@ import { yahooAuthorizeUrl } from "@/api/auth";
 import { DisconnectLeagueButton } from "@/components/DisconnectLeagueButton";
 import { useAsyncAction, toActionErrorMessage } from "@/hooks/useAsyncAction";
 import type { Profile, User } from "@/api/types";
+import { LeagueImportSummary } from "@/components/LeagueImportSummary";
 
 interface Props {
   profile: Profile;
@@ -69,6 +70,7 @@ function YahooConnectedState({ linked, profileId, onRefresh }: ConnectedStatePro
         <p className="text-xs text-muted-foreground">
           Yahoo{linked.league_metadata_json ? ` · ${linked.league_metadata_json.season}` : ""}
         </p>
+        <LeagueImportSummary linked={linked} />
       </div>
       <div className="flex gap-2">
         {linked.league_id && (

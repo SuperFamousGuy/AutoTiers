@@ -234,6 +234,10 @@ describe("SleeperConnectForm", () => {
     );
     expect(screen.getByText(/connected!/i)).toBeInTheDocument();
     expect(screen.getByText("Best League")).toBeInTheDocument();
+    // Import summary reflects the empty keepers_json / null adp_json on the fixture.
+    expect(
+      screen.getByText("No keepers detected · No ADP data for this league"),
+    ).toBeInTheDocument();
     expect(screen.queryByLabelText(/sleeper username/i)).not.toBeInTheDocument();
   });
 
