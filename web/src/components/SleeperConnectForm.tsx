@@ -12,6 +12,7 @@ import { useAsyncAction } from "@/hooks/useAsyncAction";
 import type { SleeperLeagueSummary, Profile } from "@/api/types";
 import { currentSeason } from "@/lib/season";
 import { cn } from "@/lib/utils";
+import { LeagueImportSummary } from "@/components/LeagueImportSummary";
 
 interface Props {
   profile: Profile;
@@ -101,6 +102,7 @@ function SleeperConnectedState({ linked, profileId, onRefresh }: ConnectedStateP
         <p className="text-xs text-muted-foreground">
           Sleeper{linked.league_metadata_json ? ` · ${linked.league_metadata_json.season}` : ""}
         </p>
+        <LeagueImportSummary linked={linked} />
       </div>
       <div className="flex gap-2">
         {linked.league_id && (

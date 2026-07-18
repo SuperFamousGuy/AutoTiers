@@ -178,6 +178,41 @@ describe("YahooConnectForm", () => {
 
     expect(screen.getByText("Connected!")).toBeInTheDocument();
     expect(screen.getByText("My League")).toBeInTheDocument();
+    // Import summary reflects the null keepers_json / null adp_json on the fixture.
+    expect(
+      screen.getByText("No keepers detected · No ADP data for this league"),
+    ).toBeInTheDocument();
+  });
+
+  it("import summary reflects the keepers and ADP actually pulled for the league", () => {
+    const profile: Profile = {
+      ...baseProfile,
+      linked_league: {
+        profile_id: "prof-1",
+        provider: "yahoo",
+        league_id: "423.l.1",
+        league_metadata_json: { name: "My League", season: 2024 },
+        keepers_json: [
+          { player_name: "Justin Jefferson", position: "WR", team: "MIN" },
+          { player_name: "Bijan Robinson", position: "RB", team: "ATL" },
+        ],
+        adp_json: { "Justin Jefferson": 1.0 },
+        last_synced_at: "",
+      },
+    };
+
+    render(
+      <YahooConnectForm
+        profile={profile}
+        user={baseUser}
+        onLinked={vi.fn()}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText("2 keepers detected · League ADP available"),
+    ).toBeInTheDocument();
   });
 
   it("shows reconnect prompt when yahoo_fantasy_connected is false", () => {

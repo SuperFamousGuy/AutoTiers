@@ -151,6 +151,10 @@ describe("NflConnectForm", () => {
     expect(screen.getByText("Connected!")).toBeInTheDocument();
     expect(screen.getByText("NFL Champs")).toBeInTheDocument();
     expect(screen.getByText(/NFL Fantasy · 2025/)).toBeInTheDocument();
+    // Import summary reflects the empty keepers_json / null adp_json on the fixture.
+    expect(
+      screen.getByText("No keepers detected · No ADP data for this league"),
+    ).toBeInTheDocument();
     expect(screen.queryByLabelText("League ID")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /disconnect nfl/i })).toBeInTheDocument();
   });
