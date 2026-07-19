@@ -38,13 +38,22 @@ export function DisconnectLeagueButton({ provider, busy, onDisconnect }: Disconn
           // Land focus on Confirm the moment the pair appears so the destructive
           // action is keyboard-reachable without a Tab hunt, mirroring #731.
           autoFocus
-          onClick={() => {
-            // Flip back to the plain button immediately: on success the parent
-            // unmounts this (the league is gone); on failure it re-renders the
-            // Connected state, and we want the plain Disconnect back — not a
-            // stale Confirm/Cancel pair — alongside the role=alert error.
-            setConfirming(false);
-            void onDisconnect();
+          onClick={async () => {
+            // Keep the Confirm/Cancel pair mounted until the unlink actually
+            // resolves — don't flip back to a plain, disabled "Disconnect"
+            // while the request is in flight (#812). `busy` (owned by the
+            // parent) disables both buttons meanwhile. On success the parent
+            // unmounts this component (the league is gone), so no success-path
+            // reset is needed; on failure it re-renders the Connected state
+            // with its role=alert error and we deliberately leave
+            // "Confirm Disconnect" armed, so a single click retries rather than
+            // forcing the user back through arm-then-confirm.
+            try {
+              await onDisconnect();
+            } catch {
+              // The parent surfaces the failure in its role=alert line; the
+              // confirm state stays armed for a one-click retry.
+            }
           }}
         >
           Confirm Disconnect
