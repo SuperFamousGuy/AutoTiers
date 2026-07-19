@@ -30,6 +30,24 @@ describe("DisconnectLeagueButton", () => {
     expect(onDisconnect).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps 'Confirm Disconnect' armed after a rejected disconnect so retry is one click (#812)", async () => {
+    // The parent owns the error line; here we drive the button directly with a
+    // rejecting handler to prove the confirm/busy state survives the failure.
+    const onDisconnect = vi.fn().mockRejectedValue(new Error("Disconnect failed."));
+    render(<DisconnectLeagueButton provider="Sleeper" busy={false} onDisconnect={onDisconnect} />);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /disconnect sleeper/i }));
+    await u.click(screen.getByRole("button", { name: /^confirm disconnect$/i }));
+    expect(onDisconnect).toHaveBeenCalledTimes(1);
+    // Immediately after the rejection the pair is still shown — NOT a re-armed
+    // plain "Disconnect" that would demand two clicks to retry.
+    expect(screen.getByRole("button", { name: /^confirm disconnect$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^disconnect sleeper$/i })).not.toBeInTheDocument();
+    // A single additional click retries the unlink — no re-arming needed.
+    await u.click(screen.getByRole("button", { name: /^confirm disconnect$/i }));
+    expect(onDisconnect).toHaveBeenCalledTimes(2);
+  });
+
   it("Cancel returns to the plain trigger without calling onDisconnect", async () => {
     const onDisconnect = vi.fn();
     render(<DisconnectLeagueButton provider="NFL" busy={false} onDisconnect={onDisconnect} />);
