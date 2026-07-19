@@ -1,7 +1,9 @@
-"""Auth-gated player-by-name search. Powers the favorites picker UI.
+"""Auth-gated player lookup. Powers the favorites picker UI.
 
-Distinct from `app.api.players.list_players` (anonymous full list) — this
-endpoint requires auth and supports an `?q=` substring match.
+Every route here requires auth and is capped: `?q=` substring search returns
+at most 25 rows and `/batch` accepts at most 20 ids. There is no unbounded
+full-table dump endpoint — the old anonymous `GET /players` was removed as an
+unauthenticated scrape/DoS surface (#807).
 """
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query

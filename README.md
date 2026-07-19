@@ -149,7 +149,7 @@ pytest -v
 |---|---|---|
 | `POST` | `/api/generate` | Generate tier list; returns ranked JSON |
 | `GET` | `/api/rules` | All built-in rules with defaults |
-| `GET` | `/api/players` | All cached players |
+| `GET` | `/api/players/search?q=` | Auth-gated player search (≤25 results) |
 | `GET` | `/api/data/status` | Data freshness per source |
 | `POST` | `/api/data/refresh` | Trigger manual data refresh (admin-gated) |
 | `GET` | `/health` | Health check |

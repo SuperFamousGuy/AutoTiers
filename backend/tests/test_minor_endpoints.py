@@ -1,4 +1,4 @@
-"""Tests for the smaller endpoint files (players, data, main lifespan).
+"""Tests for the smaller endpoint files (data router, main lifespan).
 
 These fill in coverage gaps for thin routers and the app lifespan.
 """
@@ -11,30 +11,21 @@ from app.api.data import require_admin
 from fastapi import HTTPException
 
 
-# ---------------------- players router ----------------------
+# ---------------------- removed players full-dump endpoint ----------------------
 
 @pytest.mark.asyncio
-async def test_list_players_returns_empty_when_db_empty(async_client):
-    resp = await async_client.get("/api/players")
-    assert resp.status_code == 200
-    assert resp.json() == []
+async def test_unbounded_players_dump_endpoint_is_gone(async_client, test_db):
+    """The unauthenticated full-table `GET /api/players` dump was removed (#807).
 
-
-@pytest.mark.asyncio
-async def test_list_players_returns_seeded_players_alpha_sorted(async_client, test_db):
+    Seed rows so a lingering handler would return data rather than an empty
+    list, then assert the collection route no longer exists. `/players/search`
+    and `/players/batch` remain the only (auth-gated, capped) player routes.
+    """
     test_db.add(Player(id="b_id", name="Bijan Robinson", position="RB", team="ATL", age=23))
-    test_db.add(Player(id="a_id", name="Amon-Ra St. Brown", position="WR", team="DET", age=26))
     await test_db.commit()
 
     resp = await async_client.get("/api/players")
-    assert resp.status_code == 200
-    body = resp.json()
-    assert len(body) == 2
-    # Sorted alphabetically by name
-    assert body[0]["name"] == "Amon-Ra St. Brown"
-    assert body[1]["name"] == "Bijan Robinson"
-    # Each row has the documented shape
-    assert set(body[0].keys()) == {"id", "name", "position", "team", "age"}
+    assert resp.status_code == 404
 
 
 # ---------------------- data router ----------------------

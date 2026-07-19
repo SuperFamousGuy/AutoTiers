@@ -6,7 +6,7 @@ from app.api import generate, rules, data
 from app.api import auth as auth_api
 from app.api import profiles_api
 from app.api import favorites_api
-from app.api import players, players_search
+from app.api import players_search
 from app.api import feedback
 from app.api.linked_league import router as linked_league_router
 from app.scheduler import setup_scheduler, scheduler
@@ -49,7 +49,6 @@ app.include_router(data.router, prefix="/api")
 app.include_router(auth_api.router, prefix="/api")
 app.include_router(profiles_api.router, prefix="/api")
 app.include_router(favorites_api.router, prefix="/api")
-app.include_router(players.router, prefix="/api")
 app.include_router(players_search.router, prefix="/api")
 app.include_router(linked_league_router, prefix="/api")
 app.include_router(feedback.router, prefix="/api")
