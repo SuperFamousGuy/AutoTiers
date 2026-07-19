@@ -178,13 +178,21 @@ describe("YahooConnectForm", () => {
 
     expect(screen.getByText("Connected!")).toBeInTheDocument();
     expect(screen.getByText("My League")).toBeInTheDocument();
-    // Import summary reflects the null keepers_json / null adp_json on the fixture.
+    // The Yahoo backend never queries keepers/ADP (hard-coded empty), so the
+    // summary must state detection isn't available rather than assert absence.
     expect(
-      screen.getByText("No keepers detected · No ADP data for this league"),
+      screen.getByText(
+        "Keeper detection isn't available for Yahoo leagues yet · League ADP isn't available for Yahoo leagues yet",
+      ),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/No keepers detected/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No ADP data for this league/)).not.toBeInTheDocument();
   });
 
-  it("import summary reflects the keepers and ADP actually pulled for the league", () => {
+  it("shows the 'not available' summary for Yahoo even if a payload carried keepers/ADP", () => {
+    // The Yahoo import path can't populate these (yahoo_fantasy.py hard-codes
+    // keepers=[]/adp_json=None), but even a hypothetical populated payload must
+    // not flip the copy to an assertive "detected"/"available" claim.
     const profile: Profile = {
       ...baseProfile,
       linked_league: {
@@ -211,8 +219,10 @@ describe("YahooConnectForm", () => {
     );
 
     expect(
-      screen.getByText("2 keepers detected · League ADP available"),
+      screen.getByText(/Keeper detection isn't available for Yahoo leagues yet/),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/keepers detected/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/League ADP available/)).not.toBeInTheDocument();
   });
 
   it("shows reconnect prompt when yahoo_fantasy_connected is false", () => {

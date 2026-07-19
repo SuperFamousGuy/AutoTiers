@@ -151,10 +151,15 @@ describe("NflConnectForm", () => {
     expect(screen.getByText("Connected!")).toBeInTheDocument();
     expect(screen.getByText("NFL Champs")).toBeInTheDocument();
     expect(screen.getByText(/NFL Fantasy · 2025/)).toBeInTheDocument();
-    // Import summary reflects the empty keepers_json / null adp_json on the fixture.
+    // The NFL backend never queries keepers/ADP (hard-coded empty), so the
+    // summary must state detection isn't available rather than assert absence.
     expect(
-      screen.getByText("No keepers detected · No ADP data for this league"),
+      screen.getByText(
+        "Keeper detection isn't available for NFL leagues yet · League ADP isn't available for NFL leagues yet",
+      ),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/No keepers detected/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No ADP data for this league/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText("League ID")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /disconnect nfl/i })).toBeInTheDocument();
   });

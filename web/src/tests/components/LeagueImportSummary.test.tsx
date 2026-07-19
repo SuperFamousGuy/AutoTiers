@@ -70,6 +70,49 @@ describe("LeagueImportSummary", () => {
     expect(screen.getByText("1 keeper detected · League ADP available")).toBeInTheDocument();
   });
 
+  it.each(["yahoo", "nfl"] as const)(
+    "renders neutral 'not available' copy for %s regardless of keepers_json/adp_json content",
+    (provider) => {
+      // Yahoo/NFL backends hard-code keepers=[]/adp_json=None and never query
+      // detection, so even a populated payload must not produce an assertive
+      // negative — and never the assertive negatives at all.
+      const { rerender } = render(
+        <LeagueImportSummary
+          linked={{ ...base, provider, keepers_json: [], adp_json: null }}
+        />,
+      );
+      expect(
+        screen.getByText(/Keeper detection isn't available for .* leagues yet/),
+      ).toBeInTheDocument();
+      expect(screen.getByText(/League ADP isn't available for .* leagues yet/)).toBeInTheDocument();
+      expect(screen.queryByText(/No keepers detected/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/No ADP data for this league/)).not.toBeInTheDocument();
+
+      // A populated payload doesn't flip it to an assertive detected/available
+      // claim either — the backend never populates these for Yahoo/NFL.
+      rerender(
+        <LeagueImportSummary
+          linked={{
+            ...base,
+            provider,
+            keepers_json: [keeper("A")],
+            adp_json: { A: 1 },
+          }}
+        />,
+      );
+      expect(
+        screen.getByText(/Keeper detection isn't available for .* leagues yet/),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/keeper detected/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/League ADP available/)).not.toBeInTheDocument();
+    },
+  );
+
+  it("names the provider in the not-available copy", () => {
+    render(<LeagueImportSummary linked={{ ...base, provider: "yahoo" }} />);
+    expect(screen.getByText(/Yahoo leagues yet/)).toBeInTheDocument();
+  });
+
   it("renders nothing when no league is linked (account-only link)", () => {
     const { container } = render(
       <LeagueImportSummary
