@@ -5,7 +5,7 @@ test_favorites_auto_enable.py.
 """
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.player import Player
@@ -151,6 +151,57 @@ async def test_put_favorites_rejects_partially_unknown_player_ids(async_client: 
     # whether the row is absent or present-but-empty, so prove no row exists.
     rows = (await test_db.execute(select(UserFavorites))).scalars().all()
     assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_put_favorites_allows_edit_when_a_stored_id_went_stale(
+    async_client: AsyncClient, test_db
+):
+    """Regression for #809: a full-replace PUT re-sends the whole stored list on
+    every edit. Once a previously-favorited player's Player row disappears (e.g.
+    Sleeper hard-deletes a free agent), re-validating the entire list would 422
+    and brick every future add/toggle. An already-stored stale ID must degrade
+    gracefully — kept, not rejected — so an unrelated add still succeeds."""
+    await _signup_and_login(async_client)
+    await _seed_players(test_db, "stale-1", "4046")
+    # Persist the soon-to-be-stale id while its Player row still exists.
+    r = await async_client.put("/api/favorites", json={
+        "favorite_player_ids": ["stale-1"], "favorite_teams": [],
+    })
+    assert r.status_code == 200, r.text
+    # The player is hard-deleted out from under the stored favorite.
+    await test_db.execute(delete(Player).where(Player.id == "stale-1"))
+    await test_db.commit()
+    # Adding a DIFFERENT, valid player must still succeed and keep the stale id.
+    r = await async_client.put("/api/favorites", json={
+        "favorite_player_ids": ["stale-1", "4046"], "favorite_teams": [],
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["favorite_player_ids"] == ["stale-1", "4046"]
+
+
+@pytest.mark.asyncio
+async def test_put_favorites_still_rejects_newly_added_unknown_id_with_stale_stored(
+    async_client: AsyncClient, test_db
+):
+    """The stale-ID grace applies ONLY to already-stored IDs. A brand-new
+    unknown ID in the same request is still rejected (422), naming only the new
+    one — so typos are caught even when the stored list already has a stale id."""
+    await _signup_and_login(async_client)
+    await _seed_players(test_db, "stale-1")
+    r = await async_client.put("/api/favorites", json={
+        "favorite_player_ids": ["stale-1"], "favorite_teams": [],
+    })
+    assert r.status_code == 200, r.text
+    await test_db.execute(delete(Player).where(Player.id == "stale-1"))
+    await test_db.commit()
+    r = await async_client.put("/api/favorites", json={
+        "favorite_player_ids": ["stale-1", "brand-new-bogus"], "favorite_teams": [],
+    })
+    assert r.status_code == 422, r.text
+    detail = r.json()["detail"]
+    assert "brand-new-bogus" in detail
+    assert "stale-1" not in detail
 
 
 @pytest.mark.asyncio

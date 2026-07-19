@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { FavoritesPanel } from "@/components/FavoritesPanel";
+import { ApiError } from "@/api/client";
 import type { FavoritesOut, PlayerSearchResult } from "@/api/types";
 
 const makeFav = (overrides: Partial<FavoritesOut> = {}): FavoritesOut => ({
@@ -297,6 +298,28 @@ describe("FavoritesPanel", () => {
     const addButton = await screen.findByRole("button", { name: /add saquon barkley/i });
     await userEvent.click(addButton);
     expect(await screen.findByRole("alert")).toHaveTextContent(/reverted/i);
+  });
+
+  it("surfaces the backend's specific detail when a save is rejected (#809)", async () => {
+    // FastAPI rejections arrive as an ApiError whose message is the JSON body.
+    const onSave = vi.fn(async () => {
+      throw new ApiError(422, JSON.stringify({ detail: "Unknown player ID(s): stale-1" }));
+    });
+    const search = vi.fn(async () => sampleSearchResults);
+    render(
+      <FavoritesPanel
+        favorites={makeFav()}
+        onSave={onSave}
+        searchPlayers={search}
+        batchPlayers={defaultBatch}
+      />
+    );
+    await userEvent.type(screen.getByPlaceholderText(/search players/i), "barkley");
+    const addButton = await screen.findByRole("button", { name: /add saquon barkley/i });
+    await userEvent.click(addButton);
+    const alert = await screen.findByRole("alert");
+    // The actionable, specific detail is shown — not just the generic fallback.
+    expect(alert).toHaveTextContent(/unknown player id\(s\): stale-1/i);
   });
 
   it("at-cap disables Add and shows tooltip text", async () => {

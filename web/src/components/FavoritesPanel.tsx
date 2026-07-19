@@ -6,10 +6,35 @@ import { PlayerHeadshot } from "@/components/PlayerHeadshot";
 import { TeamLogo } from "@/components/TeamLogo";
 import type { FavoritesOut, FavoritesUpdate, PlayerSearchResult } from "@/api/types";
 import { NFL_CONFERENCES } from "@/lib/teams";
+import { ApiError } from "@/api/client";
 
 const PLAYER_CAP = 20;
 const TEAM_CAP = 4;
 const SEARCH_DEBOUNCE_MS = 300;
+
+const GENERIC_SAVE_ERROR =
+  "Couldn't save your change — it was reverted. Please try again.";
+
+/**
+ * Turn a rejected save into user-facing copy. The backend returns actionable
+ * details for domain rejections (e.g. `Unknown player ID(s): X`) as a FastAPI
+ * `{"detail": "..."}` body carried on `ApiError.message`; surface that so the
+ * user knows *which* player to remove instead of a generic fallback. Anything
+ * without a usable detail falls back to the generic revert message.
+ */
+function saveErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    try {
+      const parsed = JSON.parse(err.message) as { detail?: unknown };
+      if (typeof parsed.detail === "string" && parsed.detail.trim()) {
+        return `Couldn't save your change — it was reverted. ${parsed.detail}`;
+      }
+    } catch {
+      // Non-JSON body (e.g. a plain status text) — fall through to the generic.
+    }
+  }
+  return GENERIC_SAVE_ERROR;
+}
 
 interface FavoritesPanelProps {
   favorites: FavoritesOut;
@@ -91,8 +116,8 @@ export function FavoritesPanel({
 
   const commit = (next: FavoritesUpdate) => {
     setSaveError(null);
-    onSave(next).catch(() => {
-      setSaveError("Couldn't save your change — it was reverted. Please try again.");
+    onSave(next).catch((err) => {
+      setSaveError(saveErrorMessage(err));
     });
   };
 
