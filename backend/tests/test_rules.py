@@ -520,6 +520,33 @@ def test_builtin_370_touches_bands_have_rb_position():
         assert rule.positions == ["RB"]
 
 
+def test_builtin_flat_370_touches_rule_no_longer_exists():
+    # The flat "370 Touches" rule was split into age bands (issue #498 / PR #514).
+    # Guards the knowledge-base claim that the flat rule "no longer exists".
+    assert all(r.name != "370 Touches" for r in BUILTIN_RULES)
+
+
+def test_ff_knowledge_370_entry_reflects_merged_split():
+    """The autotiers-ff-knowledge '370 Touches' entry must describe the shipped,
+    merged state — not the stale 'PR #514 open/unmerged' pre-merge caveat that
+    told readers main still had the flat rule (issue #803)."""
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+    skill = repo_root / ".claude" / "skills" / "autotiers-ff-knowledge" / "SKILL.md"
+    text = skill.read_text(encoding="utf-8")
+
+    # Acceptance criterion: the stale pre-merge caveat is gone.
+    assert "PR #514 is open/unmerged" not in text
+    assert "still ships the single flat `370 Touches`" not in text
+
+    # The entry names both shipped band rules that live in builtin_rules.py.
+    shipped_bands = {"370 Touches (Young RB)", "370 Touches (Veteran RB)"}
+    assert shipped_bands.issubset(set(r.name for r in BUILTIN_RULES))
+    for name in shipped_bands:
+        assert name in text
+
+
 def test_builtin_handcuff_rb_has_rb_position():
     rule = next(r for r in BUILTIN_RULES if r.name == "Handcuff RB")
     assert rule.positions == ["RB"]
