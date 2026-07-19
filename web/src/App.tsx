@@ -446,6 +446,19 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen">
+      {/* Skip link — the first focusable element on the page so keyboard and
+          screen-reader users can jump straight to the panels without tabbing
+          through every header control (WCAG 2.4.1 Bypass Blocks, #811). Kept
+          visually hidden via `sr-only` until focused, at which point
+          `focus:not-sr-only` brings it on-screen. Targets the <main> region,
+          which carries id="main-content" and tabIndex={-1} so focus can land
+          there programmatically. */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-background focus:px-4 focus:py-2 focus:text-foreground focus:shadow-lg focus:ring-2 focus:ring-ring"
+      >
+        Skip to main content
+      </a>
       <Header
         generateDisabled={!canGenerate}
         generateIsPending={generate.isPending}
@@ -534,7 +547,11 @@ export default function App() {
         onChange={setMobilePanel}
         generateIsPending={generate.isPending}
       />
-      <main className="flex-1 grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_minmax(0,1.5fr)] lg:grid-rows-1 overflow-hidden">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="flex-1 grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_minmax(0,1.5fr)] lg:grid-rows-1 overflow-hidden outline-none"
+      >
         <div
           id="panel-settings"
           role="tabpanel"
