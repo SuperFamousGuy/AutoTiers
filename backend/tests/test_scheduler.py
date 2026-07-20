@@ -3,6 +3,15 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from unittest.mock import patch, AsyncMock
 from app.scheduler import _refresh_job, setup_scheduler, scheduler
+from app.data.fetcher import fetcher
+
+
+@pytest.fixture(autouse=True)
+def _reset_refresh_flag():
+    # Keep the process-global refresh slot hermetic (issue #827).
+    fetcher.end_refresh()
+    yield
+    fetcher.end_refresh()
 
 
 @pytest.mark.asyncio
@@ -18,6 +27,23 @@ async def test_refresh_job_calls_fetcher():
         await _refresh_job()
         mock_sl.assert_called_once()
         mock_refresh.assert_called_once_with(mock_db)
+    # The job must release the slot when it finishes (issue #827).
+    assert fetcher.is_refreshing is False
+
+
+@pytest.mark.asyncio
+async def test_refresh_job_skips_when_refresh_in_progress():
+    """A scheduler tick that lands while a refresh is already in flight must
+    skip rather than launch a duplicate refresh_all run (issue #827)."""
+    assert fetcher.try_begin_refresh() is True  # simulate an in-flight admin refresh
+    with patch("app.scheduler.AsyncSessionLocal") as mock_sl, \
+         patch("app.scheduler.fetcher.refresh_all", new_callable=AsyncMock) as mock_refresh:
+        await _refresh_job()
+        mock_sl.assert_not_called()
+        mock_refresh.assert_not_called()
+    # The skip must NOT release the slot the other run still owns.
+    assert fetcher.is_refreshing is True
+    fetcher.end_refresh()
 
 
 @pytest.mark.asyncio

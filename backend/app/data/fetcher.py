@@ -24,6 +24,35 @@ class DataFetcher:
     def __init__(self, prior_season: int, current_season: int):
         self.prior_season = prior_season
         self.current_season = current_season
+        # Guards against concurrent refresh_all runs (issue #827). refresh_all
+        # is not concurrency-idempotent: two runs double the outbound scraping
+        # load and write-race the same DataSourceStatus/Player/Projection rows.
+        # asyncio is single-threaded and cooperative, so the check-and-set in
+        # try_begin_refresh() (no await between read and write) is atomic —
+        # a plain flag is sufficient; no Lock is needed. Callers (the admin
+        # endpoint and the scheduler) claim the slot before starting a run and
+        # release it in a finally block so a failed run doesn't wedge it.
+        self._refresh_in_progress = False
+
+    @property
+    def is_refreshing(self) -> bool:
+        return self._refresh_in_progress
+
+    def try_begin_refresh(self) -> bool:
+        """Atomically claim the refresh slot.
+
+        Returns True if the caller now owns the slot and must run the refresh
+        (then call :meth:`end_refresh` in a finally block). Returns False if a
+        refresh is already in progress and the caller should not start another.
+        """
+        if self._refresh_in_progress:
+            return False
+        self._refresh_in_progress = True
+        return True
+
+    def end_refresh(self) -> None:
+        """Release the refresh slot. Safe to call even if not currently held."""
+        self._refresh_in_progress = False
 
     async def refresh_all(self, db: AsyncSession) -> dict[str, dict]:
         # 0. Drop stale status rows for retired sources (e.g. spotrac, issue

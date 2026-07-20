@@ -15,11 +15,17 @@ router = APIRouter()
 
 
 async def _run_refresh() -> None:
-    async with AsyncSessionLocal() as db:
-        try:
-            await fetcher.refresh_all(db)
-        except Exception:
-            logger.exception("Background data refresh failed")
+    # The refresh slot is claimed synchronously by data_refresh() before this
+    # task is scheduled (issue #827); release it here so a subsequent refresh
+    # can run once this one finishes, whether it succeeded or failed.
+    try:
+        async with AsyncSessionLocal() as db:
+            try:
+                await fetcher.refresh_all(db)
+            except Exception:
+                logger.exception("Background data refresh failed")
+    finally:
+        fetcher.end_refresh()
 
 
 @router.get("/data/status")
@@ -50,6 +56,16 @@ async def data_health(db: AsyncSession = Depends(get_db)) -> JSONResponse:
 async def data_refresh(
     background_tasks: BackgroundTasks,
     _: None = Depends(require_admin),
-) -> dict:
+) -> JSONResponse:
+    # Claim the refresh slot synchronously (issue #827). BackgroundTasks run
+    # after the response is sent, so claiming inside _run_refresh would let two
+    # rapid POSTs both pass the check before either task starts. If a refresh
+    # (admin- or scheduler-triggered) is already in flight, return 409 and
+    # schedule nothing rather than launching a duplicate scraper run.
+    if not fetcher.try_begin_refresh():
+        return JSONResponse(
+            status_code=409,
+            content={"detail": "A data refresh is already in progress."},
+        )
     background_tasks.add_task(_run_refresh)
-    return {"status": "refresh started"}
+    return JSONResponse(status_code=200, content={"status": "refresh started"})
