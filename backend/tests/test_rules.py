@@ -1287,12 +1287,25 @@ def test_rookie_wr_draft_capital_does_not_fire_for_sophomore():
 def test_rookie_wr_draft_capital_does_not_fire_for_non_wr():
     """A first-round rookie RB must NOT fire — this rule is WR-scoped.
 
-    Guards both the condition (position==WR) and the positions=["WR"] gate.
+    Guards both gates *independently*: the positions=["WR"] gate (checked first
+    in apply_rules) and the position==WR condition. Because the positions gate
+    short-circuits before conditions are evaluated, we also strip it and prove
+    the condition alone still rejects a non-WR context — so neither guard can be
+    removed silently. (#824)
     """
+    import dataclasses
+
+    # positions=["WR"] gate blocks the non-WR context
     ctx = make_ctx(position="RB", years_exp=0, draft_round=1)
     result = apply_rules(200.0, ctx, [_rookie_wr_rule()])
     assert "Rookie WR Draft Capital" not in result.rules_applied
     assert result.adjusted_score == pytest.approx(200.0)
+
+    # with the positions gate removed, the position==WR condition still blocks it
+    rule_no_gate = dataclasses.replace(_rookie_wr_rule(), positions=None)
+    result_no_gate = apply_rules(200.0, ctx, [rule_no_gate])
+    assert "Rookie WR Draft Capital" not in result_no_gate.rules_applied
+    assert result_no_gate.adjusted_score == pytest.approx(200.0)
 
 
 def test_rookie_wr_draft_capital_has_wr_position():
