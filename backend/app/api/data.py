@@ -56,7 +56,7 @@ async def data_health(db: AsyncSession = Depends(get_db)) -> JSONResponse:
 async def data_refresh(
     background_tasks: BackgroundTasks,
     _: None = Depends(require_admin),
-) -> JSONResponse:
+) -> dict:
     # Claim the refresh slot synchronously (issue #827). BackgroundTasks run
     # after the response is sent, so claiming inside _run_refresh would let two
     # rapid POSTs both pass the check before either task starts. If a refresh
@@ -68,4 +68,6 @@ async def data_refresh(
             content={"detail": "A data refresh is already in progress."},
         )
     background_tasks.add_task(_run_refresh)
-    return JSONResponse(status_code=200, content={"status": "refresh started"})
+    # Plain dict on the 200 path so FastAPI infers the OpenAPI response schema
+    # (the 409 branch keeps JSONResponse for its custom status code).
+    return {"status": "refresh started"}

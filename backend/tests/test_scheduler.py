@@ -32,6 +32,25 @@ async def test_refresh_job_calls_fetcher():
 
 
 @pytest.mark.asyncio
+async def test_refresh_job_releases_slot_on_failure():
+    """A failing scheduled run must release the slot via finally so it doesn't
+    wedge every future refresh (issue #827). Guards against a regression that
+    drops the finally-block release.
+    """
+    mock_db = AsyncMock()
+    mock_session_cm = AsyncMock()
+    mock_session_cm.__aenter__ = AsyncMock(return_value=mock_db)
+    mock_session_cm.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("app.scheduler.AsyncSessionLocal", return_value=mock_session_cm), \
+         patch("app.scheduler.fetcher.refresh_all", side_effect=RuntimeError("boom")):
+        with pytest.raises(RuntimeError):
+            await _refresh_job()
+    # The slot must be freed even though the job errored.
+    assert fetcher.is_refreshing is False
+
+
+@pytest.mark.asyncio
 async def test_refresh_job_skips_when_refresh_in_progress():
     """A scheduler tick that lands while a refresh is already in flight must
     skip rather than launch a duplicate refresh_all run (issue #827)."""
