@@ -100,8 +100,6 @@ export interface TieredPlayer {
   flags: string[];
   rules_applied: string[];
   rule_applications: RuleApplication[];
-  is_favorite_player: boolean | null;
-  is_favorite_team: boolean | null;
 }
 
 export interface GenerateResponse {
@@ -122,61 +120,7 @@ export interface DataSourceStatus {
 
 export type DataStatusResponse = Record<string, DataSourceStatus>;
 
-// ---------- accounts & profiles ----------
-
-export interface User {
-  id: string;
-  email: string | null;
-  yahoo_subject: string | null;
-  yahoo_fantasy_connected: boolean;
-  google_subject: string | null;
-  last_active_profile_id: string | null;
-  has_password: boolean;
-  email_verified: boolean;
-  password_changed_at: string | null;  // ISO 8601
-}
-
-export interface LinkedLeague {
-  profile_id: string;
-  provider: "sleeper" | "espn" | "yahoo" | "cbs" | "nfl";
-  // Null when the user pre-linked a provider account without selecting a league.
-  league_id: string | null;
-  league_metadata_json: { name: string; season: number } | null;
-  keepers_json: Array<{ player_name: string; position: string; team: string }> | null;
-  adp_json: Record<string, number> | null;
-  last_synced_at: string;
-}
-
-export interface SleeperLeagueSummary {
-  id: string;
-  name: string;
-  season: number;
-}
-
-export interface Profile {
-  id: string;
-  name: string;
-  settings_json: Record<string, unknown>;
-  rules_json: Record<string, Array<{ name: string; enabled: boolean; weight: number }>>;
-  linked_league: LinkedLeague | null;
-}
-
-export interface MeResponse {
-  user: User;
-  profiles: Profile[];
-}
-
-export interface ProfilesListResponse {
-  profiles: Profile[];
-  active_profile_id: string | null;
-}
-
-export interface FavoritesOut {
-  favorite_player_ids: string[];
-  favorite_teams: string[];
-}
-
-export type FavoritesUpdate = FavoritesOut;  // same shape
+// ---------- player search (favorites) ----------
 
 export interface PlayerSearchResult {
   id: string;

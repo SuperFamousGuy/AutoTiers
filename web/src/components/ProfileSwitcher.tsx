@@ -2,10 +2,10 @@ import { Check, ChevronDown } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { Profile } from "@/api/types";
+import type { LocalProfile } from "@/hooks/useLocalProfiles";
 
-interface ProfilePickerProps {
-  profiles: Profile[];
+interface ProfileSwitcherProps {
+  profiles: LocalProfile[];
   activeId: string | null;
   onSelect: (id: string) => void;
   onNew: () => void;
@@ -13,7 +13,14 @@ interface ProfilePickerProps {
   canCreate: boolean;
 }
 
-export function ProfilePicker({ profiles, activeId, onSelect, onNew, onManage, canCreate }: ProfilePickerProps) {
+/**
+ * Desktop profile switcher — a dropdown backed entirely by localStorage
+ * (`useLocalProfiles`). Replaces the deleted server-backed `ProfilePicker`;
+ * same trigger label / list / "+ New Profile" affordance so switching profiles
+ * doesn't relearn muscle memory, just the data source underneath changed.
+ * Rename/delete live in `ProfileManagerDialog`, opened via "Manage Profiles…".
+ */
+export function ProfileSwitcher({ profiles, activeId, onSelect, onNew, onManage, canCreate }: ProfileSwitcherProps) {
   const active = profiles.find((p) => p.id === activeId);
   const label = active?.name ?? "No profile";
 

@@ -8,7 +8,6 @@ import { Input } from "@/components/ui/input";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { RotateCcw, ChevronDown, ChevronUp } from "lucide-react";
 import { ScoreWeights } from "./ScoreWeights";
-import { LinkedLeagueChip } from "@/components/LinkedLeagueChip";
 import { getTierLabel, getCustomTierLabel } from "@/lib/tiers";
 import type { TierLabelOverrides, TierLabelsByFormat } from "@/lib/tiers";
 import type { ScoringFormat, LeagueSize, QbTdPoints } from "@/api/types";
@@ -46,9 +45,6 @@ export interface SettingsState {
 interface SettingsPanelProps {
   value: SettingsState;
   onChange: (next: SettingsState) => void;
-  linkedLeague?: { provider: "sleeper" | "espn" | "yahoo" | "cbs" | "nfl"; leagueName: string } | null;
-  profileId?: string | null;
-  onRefreshLink?: () => Promise<void> | void;
 }
 
 // Scope of the Tier Labels editor (#164): the global set, or one scoring format.
@@ -77,7 +73,7 @@ export const DEFAULT_PRIOR_YEAR_RAMP = "linear" as const;
 export const TE_PREMIUM_OPTIONS = [0, 0.5, 1, 1.5, 2] as const;
 export const DEFAULT_TE_PREMIUM = 0;
 
-export function SettingsPanel({ value, onChange, linkedLeague, profileId, onRefreshLink }: SettingsPanelProps) {
+export function SettingsPanel({ value, onChange }: SettingsPanelProps) {
   const set = <K extends keyof SettingsState>(key: K, v: SettingsState[K]) =>
     onChange({ ...value, [key]: v });
 
@@ -150,14 +146,6 @@ export function SettingsPanel({ value, onChange, linkedLeague, profileId, onRefr
 
   return (
     <aside className="space-y-6 border-r bg-card p-6 overflow-y-auto min-h-0">
-      {linkedLeague && profileId && (
-        <LinkedLeagueChip
-          profileId={profileId}
-          provider={linkedLeague.provider}
-          leagueName={linkedLeague.leagueName}
-          onRefreshed={async () => { await onRefreshLink?.(); }}
-        />
-      )}
       <h2 className="text-lg font-semibold">Settings</h2>
 
       <div className="space-y-2">
