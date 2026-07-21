@@ -87,7 +87,13 @@ class CBSFetcher:
         match_index: PositionMatchIndex | None = None,
     ) -> int:
         soup = BeautifulSoup(html, "lxml")
-        table = soup.find("table", class_="TableBase") or soup.find("table")
+        # Only match CBS's known projections-table selector. A bare
+        # ``soup.find("table")`` fallback was deliberately dropped (matching the
+        # sibling cbs_rankings._parse_rankings fix): on CBS's client-side-rendered
+        # marketing shell it can latch onto an unrelated <table> (nav, footer,
+        # related-content grid) and emit bogus rows, making fetch() report
+        # success=True with garbage projected_points persisted.
+        table = soup.find("table", class_="TableBase")
         if table is None:
             logger.warning("[cbs] no projection table found for %s %s", position, scoring_format)
             return 0
