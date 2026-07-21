@@ -29,12 +29,14 @@ interface TiersPanelProps {
    * A synchronous handler is still accepted (awaiting a non-promise is a no-op).
    */
   onDownloadXlsx: () => void | Promise<void>;
-  keepers?: Array<{ player_name: string; position: string; team: string }>;
   scoringFormat?: ScoringFormat;
   tierLabelOverrides?: Partial<Record<number, string>>;
   /** When true, surfaces the dev-only "Download debug CSV" button (?debug=1). */
   debugMode?: boolean;
   onDownloadDebugCsv?: () => void;
+  /** localStorage favorites lookups (useLocalFavorites), forwarded down to each PlayerCard. */
+  isFavoritePlayer?: (id: string) => boolean;
+  isFavoriteTeam?: (code: string) => boolean;
   /** Stable id for the linked league (or "default"), used to scope Draft Mode persistence per league + scoring format. */
   leagueKey?: string;
   /** True when settings/rules changed since this list was generated — surfaces the staleness banner (#523). */
@@ -45,7 +47,7 @@ interface TiersPanelProps {
   canRegenerate?: boolean;
 }
 
-export function TiersPanel({ result, isPending, isError, error, onDownloadXlsx, keepers, scoringFormat, tierLabelOverrides, debugMode, onDownloadDebugCsv, leagueKey, isStale, onRegenerate, canRegenerate }: TiersPanelProps) {
+export function TiersPanel({ result, isPending, isError, error, onDownloadXlsx, scoringFormat, tierLabelOverrides, debugMode, onDownloadDebugCsv, leagueKey, isStale, onRegenerate, canRegenerate, isFavoritePlayer, isFavoriteTeam }: TiersPanelProps) {
   const [filter, setFilter] = useState<PositionFilterValue>("ALL");
   // Live player-name lookup. With 150-200+ ranked players the position chips
   // alone don't answer "is Player X still on the board / what tier are they in"
@@ -255,11 +257,6 @@ export function TiersPanel({ result, isPending, isError, error, onDownloadXlsx, 
           </Button>
         </div>
       )}
-      {keepers && keepers.length > 0 && (
-        <div className="border-b px-3 py-2 text-xs text-muted-foreground">
-          Excluded Keepers: {keepers.map((k) => k.player_name).join(", ")}
-        </div>
-      )}
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
@@ -406,6 +403,8 @@ export function TiersPanel({ result, isPending, isError, error, onDownloadXlsx, 
                 draftMode={draftMode}
                 isDrafted={isDrafted}
                 onToggleDraft={toggleDrafted}
+                isFavoritePlayer={isFavoritePlayer}
+                isFavoriteTeam={isFavoriteTeam}
               />
             ))}
           </div>

@@ -2,13 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { FavoritesPanel } from "@/components/FavoritesPanel";
-import type { FavoritesOut, PlayerSearchResult } from "@/api/types";
-
-const makeFav = (overrides: Partial<FavoritesOut> = {}): FavoritesOut => ({
-  favorite_player_ids: [],
-  favorite_teams: [],
-  ...overrides,
-});
+import type { PlayerSearchResult } from "@/api/types";
 
 const sampleSearchResults: PlayerSearchResult[] = [
   { id: "1", name: "Saquon Barkley", position: "RB", team: "PHI", espn_id: "3054211" },
@@ -21,8 +15,10 @@ describe("FavoritesPanel", () => {
   it("renders empty state for both sections", () => {
     render(
       <FavoritesPanel
-        favorites={makeFav()}
-        onSave={vi.fn()}
+        favoritePlayerIds={[]}
+        favoriteTeams={[]}
+        onTogglePlayer={vi.fn()}
+        onToggleTeam={vi.fn()}
         searchPlayers={vi.fn(async () => [])}
         batchPlayers={defaultBatch}
       />
@@ -34,8 +30,10 @@ describe("FavoritesPanel", () => {
   it("shows count badges", () => {
     render(
       <FavoritesPanel
-        favorites={makeFav({ favorite_player_ids: ["1"], favorite_teams: ["KC", "BUF"] })}
-        onSave={vi.fn()}
+        favoritePlayerIds={["1"]}
+        favoriteTeams={["KC", "BUF"]}
+        onTogglePlayer={vi.fn()}
+        onToggleTeam={vi.fn()}
         searchPlayers={vi.fn(async () => [])}
         batchPlayers={defaultBatch}
       />
@@ -44,45 +42,16 @@ describe("FavoritesPanel", () => {
     expect(screen.getByText("2 / 4")).toBeInTheDocument();
   });
 
-  it("renders a loading spinner while loading", () => {
-    render(
-      <FavoritesPanel
-        favorites={makeFav()}
-        loading
-        onSave={vi.fn()}
-        searchPlayers={vi.fn(async () => [])}
-        batchPlayers={defaultBatch}
-      />
-    );
-    expect(screen.getByText(/loading favorites/i)).toBeInTheDocument();
-    expect(screen.queryByText(/favorite players/i)).not.toBeInTheDocument();
-  });
-
-  it("renders an inline error with a working retry button", async () => {
-    const onRetry = vi.fn();
-    render(
-      <FavoritesPanel
-        favorites={makeFav()}
-        error="Failed to load favorites"
-        onRetry={onRetry}
-        onSave={vi.fn()}
-        searchPlayers={vi.fn(async () => [])}
-        batchPlayers={defaultBatch}
-      />
-    );
-    expect(screen.getByText(/failed to load favorites/i)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /retry/i }));
-    expect(onRetry).toHaveBeenCalledTimes(1);
-  });
-
   it("shows favorite players as persistent cards independent of search", async () => {
     const batch = vi.fn(async () => [
       { id: "1", name: "Saquon Barkley", position: "RB", team: "PHI", espn_id: "3054211" },
     ]);
     render(
       <FavoritesPanel
-        favorites={makeFav({ favorite_player_ids: ["1"] })}
-        onSave={vi.fn()}
+        favoritePlayerIds={["1"]}
+        favoriteTeams={[]}
+        onTogglePlayer={vi.fn()}
+        onToggleTeam={vi.fn()}
         searchPlayers={vi.fn(async () => [])}
         batchPlayers={batch}
       />
@@ -96,8 +65,10 @@ describe("FavoritesPanel", () => {
     const batch = vi.fn(async () => []);
     render(
       <FavoritesPanel
-        favorites={makeFav({ favorite_player_ids: ["42", "99"] })}
-        onSave={vi.fn()}
+        favoritePlayerIds={["42", "99"]}
+        favoriteTeams={[]}
+        onTogglePlayer={vi.fn()}
+        onToggleTeam={vi.fn()}
         searchPlayers={vi.fn(async () => [])}
         batchPlayers={batch}
       />
@@ -112,8 +83,10 @@ describe("FavoritesPanel", () => {
     );
     render(
       <FavoritesPanel
-        favorites={makeFav({ favorite_player_ids: ["1"] })}
-        onSave={vi.fn()}
+        favoritePlayerIds={["1"]}
+        favoriteTeams={[]}
+        onTogglePlayer={vi.fn()}
+        onToggleTeam={vi.fn()}
         searchPlayers={vi.fn(async () => [])}
         batchPlayers={batch}
       />
@@ -132,8 +105,10 @@ describe("FavoritesPanel", () => {
     );
     const { rerender } = render(
       <FavoritesPanel
-        favorites={makeFav({ favorite_player_ids: ["1", "2"] })}
-        onSave={vi.fn()}
+        favoritePlayerIds={["1", "2"]}
+        favoriteTeams={[]}
+        onTogglePlayer={vi.fn()}
+        onToggleTeam={vi.fn()}
         searchPlayers={vi.fn(async () => [])}
         batchPlayers={batch}
       />
@@ -145,8 +120,10 @@ describe("FavoritesPanel", () => {
     // Remove all favorites while batch still pending
     rerender(
       <FavoritesPanel
-        favorites={makeFav({ favorite_player_ids: [] })}
-        onSave={vi.fn()}
+        favoritePlayerIds={[]}
+        favoriteTeams={[]}
+        onTogglePlayer={vi.fn()}
+        onToggleTeam={vi.fn()}
         searchPlayers={vi.fn(async () => [])}
         batchPlayers={batch}
       />
@@ -164,8 +141,10 @@ describe("FavoritesPanel", () => {
     ]);
     render(
       <FavoritesPanel
-        favorites={makeFav({ favorite_player_ids: ["1"] })}
-        onSave={vi.fn()}
+        favoritePlayerIds={["1"]}
+        favoriteTeams={[]}
+        onTogglePlayer={vi.fn()}
+        onToggleTeam={vi.fn()}
         searchPlayers={vi.fn(async () => [])}
         batchPlayers={batch}
       />
@@ -179,8 +158,10 @@ describe("FavoritesPanel", () => {
     const batch = vi.fn(async () => []);
     render(
       <FavoritesPanel
-        favorites={makeFav({ favorite_player_ids: ["unknown-id"] })}
-        onSave={vi.fn()}
+        favoritePlayerIds={["unknown-id"]}
+        favoriteTeams={[]}
+        onTogglePlayer={vi.fn()}
+        onToggleTeam={vi.fn()}
         searchPlayers={vi.fn(async () => [])}
         batchPlayers={batch}
       />
@@ -190,16 +171,18 @@ describe("FavoritesPanel", () => {
     );
   });
 
-  it("removing a card calls onSave without that player", async () => {
-    const onSave = vi.fn(async () => {});
+  it("removing a card calls onTogglePlayer with that player's id", async () => {
+    const onTogglePlayer = vi.fn();
     const batch = vi.fn(async () => [
       { id: "1", name: "Saquon Barkley", position: "RB", team: "PHI", espn_id: null },
       { id: "2", name: "Christian McCaffrey", position: "RB", team: "SF", espn_id: null },
     ]);
     render(
       <FavoritesPanel
-        favorites={makeFav({ favorite_player_ids: ["1", "2"] })}
-        onSave={onSave}
+        favoritePlayerIds={["1", "2"]}
+        favoriteTeams={[]}
+        onTogglePlayer={onTogglePlayer}
+        onToggleTeam={vi.fn()}
         searchPlayers={vi.fn(async () => [])}
         batchPlayers={batch}
       />
@@ -208,18 +191,17 @@ describe("FavoritesPanel", () => {
       expect(screen.getByRole("button", { name: /remove saquon barkley/i })).toBeInTheDocument()
     );
     await userEvent.click(screen.getByRole("button", { name: /remove saquon barkley/i }));
-    expect(onSave).toHaveBeenCalledWith({
-      favorite_player_ids: ["2"],
-      favorite_teams: [],
-    });
+    expect(onTogglePlayer).toHaveBeenCalledWith("1");
   });
 
   it("debounced search input triggers searchPlayers callback", async () => {
     const search = vi.fn(async () => sampleSearchResults);
     render(
       <FavoritesPanel
-        favorites={makeFav()}
-        onSave={vi.fn()}
+        favoritePlayerIds={[]}
+        favoriteTeams={[]}
+        onTogglePlayer={vi.fn()}
+        onToggleTeam={vi.fn()}
         searchPlayers={search}
         batchPlayers={defaultBatch}
       />
@@ -233,8 +215,10 @@ describe("FavoritesPanel", () => {
     const search = vi.fn(async () => sampleSearchResults);
     render(
       <FavoritesPanel
-        favorites={makeFav()}
-        onSave={vi.fn()}
+        favoritePlayerIds={[]}
+        favoriteTeams={[]}
+        onTogglePlayer={vi.fn()}
+        onToggleTeam={vi.fn()}
         searchPlayers={search}
         batchPlayers={defaultBatch}
       />
@@ -249,8 +233,10 @@ describe("FavoritesPanel", () => {
     const search = vi.fn(async () => []);
     render(
       <FavoritesPanel
-        favorites={makeFav()}
-        onSave={vi.fn()}
+        favoritePlayerIds={[]}
+        favoriteTeams={[]}
+        onTogglePlayer={vi.fn()}
+        onToggleTeam={vi.fn()}
         searchPlayers={search}
         batchPlayers={defaultBatch}
       />
@@ -259,13 +245,15 @@ describe("FavoritesPanel", () => {
     expect(await screen.findByText(/no players match "zzz"/i)).toBeInTheDocument();
   });
 
-  it("clicking Add invokes onSave with the new player ID", async () => {
-    const onSave = vi.fn(async () => {});
+  it("clicking Add invokes onTogglePlayer with the new player ID", async () => {
+    const onTogglePlayer = vi.fn();
     const search = vi.fn(async () => sampleSearchResults);
     render(
       <FavoritesPanel
-        favorites={makeFav()}
-        onSave={onSave}
+        favoritePlayerIds={[]}
+        favoriteTeams={[]}
+        onTogglePlayer={onTogglePlayer}
+        onToggleTeam={vi.fn()}
         searchPlayers={search}
         batchPlayers={defaultBatch}
       />
@@ -274,38 +262,18 @@ describe("FavoritesPanel", () => {
     await userEvent.type(input, "barkley");
     const addButton = await screen.findByRole("button", { name: /add saquon barkley/i });
     await userEvent.click(addButton);
-    expect(onSave).toHaveBeenCalledWith({
-      favorite_player_ids: ["1"],
-      favorite_teams: [],
-    });
+    expect(onTogglePlayer).toHaveBeenCalledWith("1");
   });
 
-  it("shows a save-revert message when onSave rejects", async () => {
-    const onSave = vi.fn(async () => {
-      throw new Error("server down");
-    });
-    const search = vi.fn(async () => sampleSearchResults);
-    render(
-      <FavoritesPanel
-        favorites={makeFav()}
-        onSave={onSave}
-        searchPlayers={search}
-        batchPlayers={defaultBatch}
-      />
-    );
-    await userEvent.type(screen.getByPlaceholderText(/search players/i), "barkley");
-    const addButton = await screen.findByRole("button", { name: /add saquon barkley/i });
-    await userEvent.click(addButton);
-    expect(await screen.findByRole("alert")).toHaveTextContent(/reverted/i);
-  });
-
-  it("at-cap disables Add and shows tooltip text", async () => {
+  it("at-cap disables Add", async () => {
     const tooManyPlayers = Array.from({ length: 20 }, (_, i) => `p${i}`);
     const search = vi.fn(async () => sampleSearchResults);
     render(
       <FavoritesPanel
-        favorites={makeFav({ favorite_player_ids: tooManyPlayers })}
-        onSave={vi.fn()}
+        favoritePlayerIds={tooManyPlayers}
+        favoriteTeams={[]}
+        onTogglePlayer={vi.fn()}
+        onToggleTeam={vi.fn()}
         searchPlayers={search}
         batchPlayers={defaultBatch}
       />
@@ -320,8 +288,10 @@ describe("FavoritesPanel", () => {
   it("team grid renders 32 teams with full-name aria-labels grouped by conference and division", () => {
     render(
       <FavoritesPanel
-        favorites={makeFav()}
-        onSave={vi.fn()}
+        favoritePlayerIds={[]}
+        favoriteTeams={[]}
+        onTogglePlayer={vi.fn()}
+        onToggleTeam={vi.fn()}
         searchPlayers={vi.fn(async () => [])}
         batchPlayers={defaultBatch}
       />
@@ -338,29 +308,30 @@ describe("FavoritesPanel", () => {
     expect(teamButtons.length).toBeGreaterThanOrEqual(32);
   });
 
-  it("toggling a team calls onSave with the team added", async () => {
-    const onSave = vi.fn(async () => {});
+  it("toggling a team calls onToggleTeam with the team code", async () => {
+    const onToggleTeam = vi.fn();
     render(
       <FavoritesPanel
-        favorites={makeFav()}
-        onSave={onSave}
+        favoritePlayerIds={[]}
+        favoriteTeams={[]}
+        onTogglePlayer={vi.fn()}
+        onToggleTeam={onToggleTeam}
         searchPlayers={vi.fn(async () => [])}
         batchPlayers={defaultBatch}
       />
     );
     const kc = screen.getByRole("button", { name: "Kansas City Chiefs" });
     await userEvent.click(kc);
-    expect(onSave).toHaveBeenCalledWith({
-      favorite_player_ids: [],
-      favorite_teams: ["KC"],
-    });
+    expect(onToggleTeam).toHaveBeenCalledWith("KC");
   });
 
   it("teams-at-cap disables unselected team buttons (unified disabled treatment)", () => {
     render(
       <FavoritesPanel
-        favorites={makeFav({ favorite_teams: ["KC", "BUF", "PHI", "SF"] })}
-        onSave={vi.fn()}
+        favoritePlayerIds={[]}
+        favoriteTeams={["KC", "BUF", "PHI", "SF"]}
+        onTogglePlayer={vi.fn()}
+        onToggleTeam={vi.fn()}
         searchPlayers={vi.fn(async () => [])}
         batchPlayers={defaultBatch}
       />

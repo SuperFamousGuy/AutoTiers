@@ -32,8 +32,6 @@ function makePlayer(overrides: Partial<TieredPlayer> = {}): TieredPlayer {
     flags: [],
     rules_applied: [],
     rule_applications: [],
-    is_favorite_player: null,
-    is_favorite_team: null,
     ...overrides,
   };
 }
