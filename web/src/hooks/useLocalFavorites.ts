@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 const KEY = "autotiers.favorites.v1";
 const MAX_PLAYERS = 20;
@@ -6,7 +6,7 @@ const MAX_TEAMS = 4;
 
 interface Favorites { players: string[]; teams: string[]; }
 
-function load(): Favorites {
+function read(): Favorites {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return { players: [], teams: [] };
@@ -17,37 +17,71 @@ function load(): Favorites {
   }
 }
 
+// localStorage is the single source of truth. Every hook instance subscribes to
+// this shared listener set, and every write re-notifies all instances to re-read
+// — so two independent `useLocalFavorites()` callers (e.g. App's tier-list star
+// badges and the Favorites dialog) never drift out of sync within a session.
+// We deliberately do NOT cache the value in a module-level variable: reading
+// straight from localStorage keeps test isolation intact (a test's
+// `localStorage.clear()` is immediately observed by the next mount, with no
+// stale singleton to reset).
+const listeners = new Set<() => void>();
+
+function notify(): void {
+  listeners.forEach((l) => l());
+}
+
+function persist(next: Favorites): void {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(next));
+  } catch {
+    // Storage full / disabled (private mode) — favorites are best-effort.
+  }
+  notify();
+}
+
 export function useLocalFavorites() {
-  const [fav, setFav] = useState<Favorites>(load);
+  const [fav, setFav] = useState<Favorites>(read);
 
   useEffect(() => {
-    localStorage.setItem(KEY, JSON.stringify(fav));
-  }, [fav]);
+    const refresh = () => setFav(read());
+    listeners.add(refresh);
+    // Cross-tab sync: another tab's write fires a `storage` event here.
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === KEY || e.key === null) refresh();
+    };
+    window.addEventListener("storage", onStorage);
+    // Re-sync on mount in case another instance wrote before this one mounted.
+    refresh();
+    return () => {
+      listeners.delete(refresh);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
 
   const togglePlayer = useCallback((id: string) => {
-    setFav((prev) => {
-      if (prev.players.includes(id)) return { ...prev, players: prev.players.filter((x) => x !== id) };
-      if (prev.players.length >= MAX_PLAYERS) return prev;
-      return { ...prev, players: [...prev.players, id] };
-    });
+    const cur = read();
+    if (cur.players.includes(id)) {
+      persist({ ...cur, players: cur.players.filter((x) => x !== id) });
+    } else if (cur.players.length < MAX_PLAYERS) {
+      persist({ ...cur, players: [...cur.players, id] });
+    }
   }, []);
 
   const toggleTeam = useCallback((abbr: string) => {
-    setFav((prev) => {
-      if (prev.teams.includes(abbr)) return { ...prev, teams: prev.teams.filter((x) => x !== abbr) };
-      if (prev.teams.length >= MAX_TEAMS) return prev;
-      return { ...prev, teams: [...prev.teams, abbr] };
-    });
+    const cur = read();
+    if (cur.teams.includes(abbr)) {
+      persist({ ...cur, teams: cur.teams.filter((x) => x !== abbr) });
+    } else if (cur.teams.length < MAX_TEAMS) {
+      persist({ ...cur, teams: [...cur.teams, abbr] });
+    }
   }, []);
-
-  const playerSet = useMemo(() => new Set(fav.players), [fav.players]);
-  const teamSet = useMemo(() => new Set(fav.teams), [fav.teams]);
 
   return {
     players: fav.players,
     teams: fav.teams,
-    isFavoritePlayer: (id: string) => playerSet.has(id),
-    isFavoriteTeam: (abbr: string) => teamSet.has(abbr),
+    isFavoritePlayer: (id: string) => fav.players.includes(id),
+    isFavoriteTeam: (abbr: string) => fav.teams.includes(abbr),
     togglePlayer,
     toggleTeam,
   };

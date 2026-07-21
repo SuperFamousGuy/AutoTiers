@@ -22,4 +22,20 @@ describe("useLocalFavorites", () => {
     act(() => ["BUF", "KC", "SF", "DAL", "PHI"].forEach((t) => result.current.toggleTeam(t)));
     expect(result.current.teams.length).toBeLessThanOrEqual(4);
   });
+
+  it("keeps independent hook instances in sync within a session", () => {
+    // Mirrors the real app: App.tsx reads favorites for the tier-list star
+    // badges while FavoritesDialog toggles them from a separate hook instance.
+    const reader = renderHook(() => useLocalFavorites());
+    const toggler = renderHook(() => useLocalFavorites());
+
+    act(() => toggler.result.current.togglePlayer("p1"));
+    expect(reader.result.current.isFavoritePlayer("p1")).toBe(true);
+
+    act(() => toggler.result.current.toggleTeam("KC"));
+    expect(reader.result.current.isFavoriteTeam("KC")).toBe(true);
+
+    act(() => toggler.result.current.togglePlayer("p1"));
+    expect(reader.result.current.isFavoritePlayer("p1")).toBe(false);
+  });
 });

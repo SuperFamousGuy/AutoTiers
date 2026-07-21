@@ -24,17 +24,31 @@ export function ProfileManagerDialog({ open, onOpenChange, profiles, activeProfi
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
+  const [renameError, setRenameError] = useState<string | null>(null);
+
+  const trimmedDraft = draftName.trim();
+  // A rename to a name already used by a *different* profile is rejected by
+  // useLocalProfiles.rename(); surface it inline (and pre-disable Save) rather
+  // than letting the throw bubble.
+  const isDuplicateDraft = profiles.some((p) => p.id !== editingId && p.name === trimmedDraft);
 
   function startRename(p: LocalProfile) {
     setEditingId(p.id);
     setDraftName(p.name);
+    setRenameError(null);
   }
 
   function commitRename(id: string) {
     const trimmed = draftName.trim();
-    if (!trimmed) return;
-    onRename(id, trimmed);
+    if (!trimmed || isDuplicateDraft) return;
+    try {
+      onRename(id, trimmed);
+    } catch {
+      setRenameError("A profile with that name already exists.");
+      return;
+    }
     setEditingId(null);
+    setRenameError(null);
   }
 
   function commitDelete(id: string) {
@@ -49,6 +63,7 @@ export function ProfileManagerDialog({ open, onOpenChange, profiles, activeProfi
         if (!next) {
           setEditingId(null);
           setConfirmDeleteId(null);
+          setRenameError(null);
         }
         onOpenChange(next);
       }}
@@ -70,17 +85,29 @@ export function ProfileManagerDialog({ open, onOpenChange, profiles, activeProfi
                   <>
                     <Input
                       value={draftName}
-                      onChange={(e) => setDraftName(e.target.value)}
+                      onChange={(e) => {
+                        setDraftName(e.target.value);
+                        setRenameError(null);
+                      }}
                       className="flex-1"
                       autoFocus
                       aria-label={`Rename ${p.name}`}
                     />
-                    <Button size="sm" onClick={() => commitRename(p.id)} disabled={draftName.trim() === ""}>
+                    <Button
+                      size="sm"
+                      onClick={() => commitRename(p.id)}
+                      disabled={trimmedDraft === "" || isDuplicateDraft}
+                    >
                       Save
                     </Button>
                     <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>
                       Cancel
                     </Button>
+                    {(isDuplicateDraft || renameError) && (
+                      <p className="w-full text-xs text-destructive" role="alert">
+                        A profile with that name already exists.
+                      </p>
+                    )}
                   </>
                 ) : (
                   <>

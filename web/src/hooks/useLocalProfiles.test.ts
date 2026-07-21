@@ -30,4 +30,18 @@ describe("useLocalProfiles", () => {
     act(() => result.current.create("A", {}, {}));
     expect(() => act(() => result.current.create("A", {}, {}))).toThrow();
   });
+
+  it("rejects renaming onto another profile's name but allows a self-rename", () => {
+    const { result } = renderHook(() => useLocalProfiles());
+    let aId = "";
+    act(() => { aId = result.current.create("A", {}, {}); });
+    act(() => { result.current.create("B", {}, {}); });
+
+    // A -> "B" collides with the other profile: rejected.
+    expect(() => act(() => result.current.rename(aId, "B"))).toThrow();
+    expect(result.current.profiles.find((p) => p.id === aId)?.name).toBe("A");
+
+    // Renaming A to its own current name is allowed (no-op-safe).
+    expect(() => act(() => result.current.rename(aId, "A"))).not.toThrow();
+  });
 });

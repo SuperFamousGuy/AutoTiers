@@ -63,11 +63,19 @@ export function useLocalProfiles() {
     [],
   );
 
-  const rename = useCallback(
-    (id: string, name: string) =>
-      setProfiles((prev) => prev.map((p) => (p.id === id ? { ...p, name: name.trim() } : p))),
-    [],
-  );
+  const rename = useCallback((id: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) throw new Error("Profile name required");
+    // Reject collision with a *different* profile; renaming to the current
+    // name (or same after trim) is a no-op-safe allow. Mirrors create()'s
+    // duplicate guard so the two entry points can't drift.
+    if (profilesRef.current.some((p) => p.id !== id && p.name === trimmed)) {
+      throw new Error("Duplicate profile name");
+    }
+    const next = profilesRef.current.map((p) => (p.id === id ? { ...p, name: trimmed } : p));
+    profilesRef.current = next;
+    setProfiles(next);
+  }, []);
 
   const remove = useCallback((id: string) => {
     setProfiles((prev) => prev.filter((p) => p.id !== id));
