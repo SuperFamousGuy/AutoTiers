@@ -2,41 +2,22 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from httpx import AsyncClient, ASGITransport
-from app.auth.rate_limit import login_rate_limiter, reset_rate_limiter, verify_rate_limiter, feedback_rate_limiter
-from app.integrations.sleeper import clear_players_cache
-from app.config import settings
+from app.auth.rate_limit import feedback_rate_limiter
 from app.database import Base, get_db
-from app.email.fake_sender import FakeSender
 from app.main import app
 
 
 @pytest.fixture(autouse=True)
 def _reset_rate_limiters():
-    """Hermetic per-test reset of all in-process rate limiters.
+    """Hermetic per-test reset of the in-process feedback rate limiter.
 
     Without this, tests that submit failed requests accumulate attempts
     across the test run and a future test can spuriously hit 429.
     """
-    login_rate_limiter._attempts.clear()
-    reset_rate_limiter._attempts.clear()
-    verify_rate_limiter._attempts.clear()
     feedback_rate_limiter._attempts.clear()
-    # The Sleeper players-dict cache (issue #560) is process-local and global;
-    # clear it so a fixture from one test can't satisfy another's fetch_league.
-    clear_players_cache()
     yield
-    login_rate_limiter._attempts.clear()
-    reset_rate_limiter._attempts.clear()
-    verify_rate_limiter._attempts.clear()
     feedback_rate_limiter._attempts.clear()
-    clear_players_cache()
 
-# Tests run over plain HTTP (http://test). The auth cookie defaults to
-# secure=True when settings.debug=False, which would cause httpx to drop
-# the cookie on non-HTTPS — making any test that hits an authenticated
-# endpoint after signup/login spuriously fail with 401. Force debug=True
-# so set_auth_cookie issues insecure cookies for the test environment.
-settings.debug = True
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -60,18 +41,7 @@ async def test_db(test_engine):
 
 
 @pytest_asyncio.fixture
-async def fake_sender() -> FakeSender:
-    """A FakeSender wired into app.state for the duration of the test."""
-    sender = FakeSender()
-    app.state.email_sender = sender
-    yield sender
-    # Clean up so state doesn't leak between test files.
-    if hasattr(app.state, "email_sender"):
-        del app.state.email_sender
-
-
-@pytest_asyncio.fixture
-async def async_client(test_engine, fake_sender):
+async def async_client(test_engine):
     session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
 
     async def override_get_db():

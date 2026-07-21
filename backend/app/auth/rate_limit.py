@@ -1,7 +1,11 @@
-"""In-memory sliding-window rate limiter for login attempts.
+"""In-memory sliding-window rate limiter.
 
 NOT process-safe. Acceptable for single-process FastAPI dev and the v1
 single-container Railway deploy. Move to Redis when we go multi-instance.
+
+Only ``feedback_rate_limiter`` survives the accounts/auth teardown — the
+login/password-reset/email-verification limiters were removed with
+``api/auth.py``.
 """
 import time
 from collections import defaultdict, deque
@@ -32,18 +36,8 @@ class LoginRateLimiter:
         return True
 
 
-# Module-level singleton used by the auth router.
-login_rate_limiter = LoginRateLimiter()
-
-# Rate limiter for password-reset requests — keyed by email address.
-# 3 requests per hour per email prevents inbox flooding.
-reset_rate_limiter = LoginRateLimiter(max_attempts=3, window_seconds=3600)
-
-# Rate limiter for email-verification resend requests — keyed by user ID.
-# 3 resends per hour per user.
-verify_rate_limiter = LoginRateLimiter(max_attempts=3, window_seconds=3600)
-
-# Rate limiter for in-app feedback submissions — keyed by client IP (or user id
-# when authenticated). 5 submissions per 10 minutes prevents inbox flooding while
-# leaving room for a user who hits a couple of bugs in one session.
+# Rate limiter for in-app feedback submissions — keyed by client IP (there is
+# no account to key on; submissions are always anonymous). 5 submissions per
+# 10 minutes prevents abuse while leaving room for a user who hits a couple of
+# bugs in one session.
 feedback_rate_limiter = LoginRateLimiter(max_attempts=5, window_seconds=600)
