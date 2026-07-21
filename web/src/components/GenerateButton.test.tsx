@@ -37,4 +37,39 @@ describe("GenerateButton", () => {
     expect(button).toHaveAttribute("aria-busy", "true");
     expect(button).toBeDisabled();
   });
+
+  it("surfaces the disabled reason as a title and via aria-describedby (#838)", () => {
+    const reason = "Scoring weights must add up to 100%.";
+    render(
+      <GenerateButton disabled={true} isPending={false} onClick={vi.fn()} disabledReason={reason} />,
+    );
+    const button = screen.getByRole("button", { name: /generate/i });
+    expect(button).toHaveAttribute("title", reason);
+    // aria-describedby points at an sr-only span carrying the same text, so
+    // keyboard/screen-reader users get parity with the desktop hover tooltip.
+    expect(button).toHaveAccessibleDescription(reason);
+  });
+
+  it("adds no title or description when enabled", () => {
+    render(<GenerateButton disabled={false} isPending={false} onClick={vi.fn()} disabledReason={null} />);
+    const button = screen.getByRole("button", { name: /generate/i });
+    expect(button).not.toHaveAttribute("title");
+    expect(button).not.toHaveAttribute("aria-describedby");
+  });
+
+  it("does not surface a stale reason while a generate is pending", () => {
+    // Pending disables the button too, but the reason is a precondition message —
+    // the pending live region owns the in-flight announcement.
+    render(
+      <GenerateButton
+        disabled={false}
+        isPending={true}
+        onClick={vi.fn()}
+        disabledReason="Select or create a profile to generate."
+      />,
+    );
+    const button = screen.getByRole("button", { name: /generate/i });
+    expect(button).not.toHaveAttribute("title");
+    expect(button).not.toHaveAttribute("aria-describedby");
+  });
 });

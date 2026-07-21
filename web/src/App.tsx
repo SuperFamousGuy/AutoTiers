@@ -25,7 +25,7 @@ import { verifyEmail } from "@/api/auth";
 import { createProfile, updateProfile, deleteProfile, activateProfile } from "@/api/profiles";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { describeGenerateError, describeSaveError } from "@/lib/errors";
-import { weightsAreValid } from "@/lib/weights";
+import { generateDisabledReason } from "@/lib/generateGuard";
 import { buildResolvedTierNames, resolveTierLabelOverrides } from "@/lib/tiers";
 import type { Rule, GenerateRequest, PositionRulesState } from "@/api/types";
 
@@ -393,10 +393,18 @@ export default function App() {
   // without this guard Generate would stay enabled and fire buildRequest() with
   // keepers/league_adp silently undefined (profiles.find returns undefined)
   // (#626). Logged-out users have no profiles, so they stay able to generate.
-  const canGenerate =
-    weightsAreValid(settings.weights) &&
-    canonicalRules.length > 0 &&
-    (profiles.length === 0 || activeProfileId !== null);
+  //
+  // When disabled, name the *specific* unmet precondition so the button isn't a
+  // silent grey rectangle for mouse or screen-reader users (#838). The priority
+  // order (profile > weights > rules) lives in `generateDisabledReason`.
+  // `reason === null` is exactly the enabled state.
+  const disabledReason = generateDisabledReason({
+    weights: settings.weights,
+    ruleCount: canonicalRules.length,
+    profileCount: profiles.length,
+    activeProfileId,
+  });
+  const canGenerate = disabledReason === null;
 
   // The request the current settings/rules would send. Recomputed each render so
   // the staleness check below reflects edits within a single render (#523).
@@ -448,6 +456,7 @@ export default function App() {
     <div className="flex flex-col h-screen">
       <Header
         generateDisabled={!canGenerate}
+        generateDisabledReason={disabledReason}
         generateIsPending={generate.isPending}
         onGenerate={handleGenerate}
         currentState={{ settings, rules: positionRules }}

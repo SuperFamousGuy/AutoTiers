@@ -89,6 +89,7 @@ function HamburgerMenu({ currentState, onOpenLinkedAccounts, mobileProfileMenu, 
 
 interface HeaderProps {
   generateDisabled: boolean;
+  generateDisabledReason?: string | null;
   generateIsPending: boolean;
   onGenerate: () => void;
   currentState: { settings: SettingsState; rules: PositionRulesState } | null;
@@ -101,7 +102,7 @@ interface HeaderProps {
 }
 
 export function Header({
-  generateDisabled, generateIsPending, onGenerate, currentState, profilePicker, onOpenLinkedAccounts, isDark, onToggleDark, onShowOnboarding, mobileProfileMenu,
+  generateDisabled, generateDisabledReason, generateIsPending, onGenerate, currentState, profilePicker, onOpenLinkedAccounts, isDark, onToggleDark, onShowOnboarding, mobileProfileMenu,
 }: HeaderProps) {
   return (
     <header className="flex items-center justify-between border-b bg-card px-4 py-3 lg:px-6 lg:py-4">
@@ -119,6 +120,7 @@ export function Header({
         </div>
         <GenerateButton
           disabled={generateDisabled}
+          disabledReason={generateDisabledReason}
           isPending={generateIsPending}
           onClick={onGenerate}
         />
