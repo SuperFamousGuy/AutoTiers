@@ -847,6 +847,29 @@ git commit -m "infra: remove SES and OAuth/JWT/Fernet secrets (plan only, not ap
 
 - [ ] **Step 1: Snapshot the prod DB** (RDS/Aurora manual snapshot) and confirm it completed.
 
+- [ ] **Step 1a: Reconcile the alembic chain on prod BEFORE upgrading (do not blind-`upgrade head`).**
+  The repo previously had a duplicate `revision="014"` on two files; this branch
+  linearized them to `014` → `014a`. Prod's `alembic_version` likely records
+  `"014"`. Inspect prod first:
+  - `SELECT version_num FROM alembic_version;`
+  - Check whether BOTH column sets already exist:
+    `\d player_stats` (expect `first_down_rush`/`first_down_rec` from the file
+    now numbered `014a`) and `\d players` (expect `draft_round`/`draft_pick`
+    from `014`).
+  - If prod is at `014` and the `014a` columns already exist (old single-file
+    behavior applied them), a plain `upgrade head` will try to re-add existing
+    columns and error. In that case `alembic stamp 014a` first, then
+    `upgrade head` (which then runs only `015`).
+  - If the `014a` columns are genuinely MISSING (only one of the old dup-014
+    files actually applied), let `upgrade head` apply `014a` then `015`.
+  Decide based on the actual inspected schema — do not assume.
+
+- [ ] **Step 1b: Verify the feedback FK name before running 015.**
+  `015` drops `feedback_user_id_fkey` (Postgres default auto-name, inferred
+  from `012_feedback.py` which used an unnamed inline FK). Confirm on prod with
+  `\d feedback`; if the actual constraint name differs, edit the migration to
+  match before running.
+
 - [ ] **Step 2: Run the migration on prod**
 
 Follow the repo's existing migration-run path (see memory
