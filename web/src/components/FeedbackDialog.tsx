@@ -19,8 +19,6 @@ import { ApiError } from "@/api/client";
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** The logged-in user's email, if any — used only for the reply-disclosure copy. */
-  userEmail?: string | null;
 }
 
 /** Selectable feedback categories, in display order. Default is "idea". */
@@ -70,7 +68,7 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-export function FeedbackDialog({ open, onOpenChange, userEmail }: Props) {
+export function FeedbackDialog({ open, onOpenChange }: Props) {
   const { toast } = useToast();
   const [message, setMessage] = useState("");
   const [category, setCategory] = useState<FeedbackCategory>(DEFAULT_CATEGORY);
@@ -212,9 +210,7 @@ export function FeedbackDialog({ open, onOpenChange, userEmail }: Props) {
             onKeyDown={handleKeyDown}
           />
           <p className="text-[11px] text-muted-foreground">
-            {userEmail
-              ? `We'll include your email (${userEmail}) so we can reply.`
-              : "Sign in if you'd like a reply — otherwise this is anonymous."}
+            This is sent anonymously. If you'd like a reply, mention how to reach you in your message.
           </p>
         </div>
 

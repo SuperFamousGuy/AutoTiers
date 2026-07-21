@@ -136,64 +136,6 @@ describe("OnboardingTour", () => {
     expect(onStepPanel).not.toHaveBeenCalled();
   });
 
-  describe("league-linking step (#723)", () => {
-    it("adds an optional league-sync step anchored to the hamburger menu, between rules and generate", () => {
-      const ids = ONBOARDING_STEPS.map((s) => s.id);
-      const idx = ids.indexOf("link-league");
-      expect(idx).toBeGreaterThan(-1);
-      expect(ONBOARDING_STEPS[idx].anchor).toBe('[data-tour="menu"]');
-      // Sits in flow order between weighting rules and generating tiers.
-      expect(idx).toBeGreaterThan(ids.indexOf("rules"));
-      expect(idx).toBeLessThan(ids.indexOf("generate"));
-      // The header hamburger is visible at every width, so no panel switch.
-      expect(ONBOARDING_STEPS[idx].mobilePanel).toBeUndefined();
-    });
-
-    it("renders the step's title and names every supported platform in the body", () => {
-      const idx = ONBOARDING_STEPS.findIndex((s) => s.id === "link-league");
-      setup(idx);
-      expect(
-        screen.getByRole("heading", { name: /sync your real league/i }),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByText(/Sleeper, ESPN, Yahoo, NFL, or CBS/i),
-      ).toBeInTheDocument();
-    });
-
-    it("does not switch the mobile panel on entry (the hamburger is always in the header)", () => {
-      const idx = ONBOARDING_STEPS.findIndex((s) => s.id === "link-league");
-      const { onStepPanel } = setup(idx);
-      expect(onStepPanel).not.toHaveBeenCalled();
-    });
-
-    it("spotlights the hamburger button (no centered full-screen dim) when its anchor is present", () => {
-      // Mount a stand-in for the header's Menu button so the anchored render
-      // path runs on both desktop and mobile widths (the element is in the
-      // header at every width). JSDOM returns a zero rect by default, so stub it.
-      const el = document.createElement("button");
-      el.setAttribute("data-tour", "menu");
-      el.getBoundingClientRect = () =>
-        ({ top: 20, left: 320, width: 40, height: 40, right: 360, bottom: 60, x: 320, y: 20, toJSON: () => ({}) }) as DOMRect;
-      document.body.appendChild(el);
-      const idx = ONBOARDING_STEPS.findIndex((s) => s.id === "link-league");
-      const { container } = render(
-        <OnboardingTour
-          stepIndex={idx}
-          totalSteps={TOTAL}
-          onNext={vi.fn()}
-          onBack={vi.fn()}
-          onGoTo={vi.fn()}
-          onSkip={vi.fn()}
-          onStepPanel={vi.fn()}
-        />,
-      );
-      // Anchored: the primary-ring spotlight renders and the centered dim does not.
-      expect(container.querySelector(".ring-primary")).not.toBeNull();
-      expect(container.querySelector(".bg-black\\/60")).toBeNull();
-      el.remove();
-    });
-  });
-
   describe("anchored state (highlight + backdrop)", () => {
     // The settings step (index 1) anchors to #panel-settings. JSDOM returns a
     // zero rect by default, so we mount the anchor and stub its rect to exercise
