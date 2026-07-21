@@ -33,6 +33,17 @@ class FantasyProsFetcher:
         # Shared across projections (position × format) and ADP so fuzzy_match
         # issues one position query + one normalization pass for the whole run.
         match_index = PositionMatchIndex()
+        # Per-request isolation (parity with cbs.py / cbs_rankings.py, issue #834).
+        # Previously the whole 21-request loop was wrapped in one try/except that
+        # returned rows_upserted=0 on the first failure WITHOUT rolling back. But
+        # each parse runs a SELECT that autoflushes the prior iterations' db.add()s
+        # into the open transaction, and the orchestrator's single end-of-run
+        # commit then persisted those "phantom" rows even though the SourceResult
+        # claimed zero — a status/reality mismatch. Now every sub-fetch is isolated:
+        # a transient failure on request N is logged and skipped, whatever succeeded
+        # is committed, and rows_upserted/success stay consistent with what actually
+        # persisted (success is False iff any sub-fetch failed).
+        fetch_errors: list[str] = []
 
         try:
             async with httpx.AsyncClient(base_url=self.base_url, timeout=30.0, follow_redirects=True,
@@ -40,22 +51,47 @@ class FantasyProsFetcher:
                 # Projections: position × scoring_format
                 for position in _POSITIONS:
                     for ff_format, ff_param in [("standard", "STD"), ("half_ppr", "HALF"), ("ppr", "PPR")]:
-                        resp = await client.get(f"/nfl/projections/{position}.php", params={"scoring": ff_param, "week": "draft"})
-                        resp.raise_for_status()
-                        upserted += await self._parse_projections(
-                            db, resp.text, position.upper(), ff_format, today, match_index
-                        )
+                        try:
+                            resp = await client.get(f"/nfl/projections/{position}.php", params={"scoring": ff_param, "week": "draft"})
+                            resp.raise_for_status()
+                            upserted += await self._parse_projections(
+                                db, resp.text, position.upper(), ff_format, today, match_index
+                            )
+                        except Exception as e:  # noqa: BLE001 — isolate per-request failures
+                            logger.warning("[fantasypros] failed to fetch %s %s projections: %s",
+                                           position, ff_format, e)
+                            fetch_errors.append(f"projections {position}/{ff_format}: {e}")
+                            continue
 
                 # ADP per format
                 for adp_format, slug in _ADP_FORMATS.items():
-                    resp = await client.get(f"/nfl/adp/{slug}.php")
-                    resp.raise_for_status()
-                    upserted += await self._parse_adp(db, resp.text, adp_format, today, match_index)
+                    try:
+                        resp = await client.get(f"/nfl/adp/{slug}.php")
+                        resp.raise_for_status()
+                        upserted += await self._parse_adp(db, resp.text, adp_format, today, match_index)
+                    except Exception as e:  # noqa: BLE001 — isolate per-request failures
+                        logger.warning("[fantasypros adp] failed to fetch %s adp: %s", adp_format, e)
+                        fetch_errors.append(f"adp {adp_format}: {e}")
+                        continue
         except Exception as e:
+            # Client construction / unexpected failure outside a per-request guard.
+            # Roll back so we never leave earlier iterations' autoflushed writes in
+            # the session for the orchestrator's final commit to persist while we
+            # report rows_upserted=0 (the exact mismatch #834 guards against).
+            await db.rollback()
             return SourceResult(source=self.name, rows_upserted=0,
                                 last_attempted=attempted, success=False, error=str(e))
 
         await db.commit()
+
+        if fetch_errors:
+            # Partial run: some sub-fetches succeeded and are now committed, others
+            # failed. Report the true committed count and success=False so status
+            # and reality agree.
+            return SourceResult(source=self.name, rows_upserted=upserted,
+                                last_attempted=attempted, success=False,
+                                error="; ".join(fetch_errors))
+
         return SourceResult(source=self.name, rows_upserted=upserted,
                             last_attempted=attempted, success=True, error=None)
 
