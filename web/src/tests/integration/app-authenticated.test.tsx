@@ -304,8 +304,13 @@ describe("App (authenticated integration)", () => {
     });
     expect(within(screen.getByRole("tabpanel", { name: "Tiers" })).queryByText("Ja'Marr Chase")).not.toBeInTheDocument();
 
-    // Generate is disabled: profiles still exist (p2) but none is active.
-    expect(screen.getByRole("button", { name: /^generate$/i })).toBeDisabled();
+    // Generate is disabled: profiles still exist (p2) but none is active. The
+    // button uses aria-disabled (not native disabled) so its reason stays
+    // discoverable to hover/screen-reader users (#838).
+    expect(screen.getByRole("button", { name: /^generate$/i })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
   });
 
   it("Undo button appears after a save lands and rewinds to the prior save point", async () => {

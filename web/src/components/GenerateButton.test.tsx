@@ -50,6 +50,27 @@ describe("GenerateButton", () => {
     expect(button).toHaveAccessibleDescription(reason);
   });
 
+  it("uses aria-disabled (not native disabled) so the reason stays discoverable (#838)", async () => {
+    // A natively-disabled button gets `pointer-events-none` and drops out of the
+    // tab order, so its title/aria-describedby are never surfaced. aria-disabled
+    // keeps it focusable/hoverable while we block the click ourselves.
+    const user = userEvent.setup();
+    const onClick = vi.fn();
+    render(
+      <GenerateButton
+        disabled={true}
+        isPending={false}
+        onClick={onClick}
+        disabledReason="Select or create a profile to generate."
+      />,
+    );
+    const button = screen.getByRole("button", { name: /generate/i });
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    expect(button).not.toBeDisabled();
+    await user.click(button);
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
   it("adds no title or description when enabled", () => {
     render(<GenerateButton disabled={false} isPending={false} onClick={vi.fn()} disabledReason={null} />);
     const button = screen.getByRole("button", { name: /generate/i });

@@ -24,13 +24,24 @@ export function GenerateButton({ disabled, isPending, onClick, disabledReason }:
     <>
       <Button
         data-tour="generate"
-        onClick={onClick}
-        disabled={disabled || isPending}
+        // Block the click ourselves when disabled/pending: the precondition
+        // path below uses aria-disabled (not native `disabled`), so the browser
+        // no longer suppresses it for us.
+        onClick={disabled || isPending ? undefined : onClick}
+        // Precondition-disabled uses aria-disabled rather than the native
+        // `disabled` attribute so the button stays focusable and hoverable — a
+        // natively disabled button gets `disabled:pointer-events-none` (no hover,
+        // so the `title` tooltip never shows) and leaves the tab order (screen
+        // readers never reach it to announce `aria-describedby`) (#838). Pending
+        // keeps native `disabled`: there's no reason to surface then, and it's
+        // the plainer guard for an in-flight request.
+        disabled={isPending}
+        aria-disabled={disabled || isPending}
         aria-busy={isPending}
         title={showReason ? disabledReason : undefined}
         aria-describedby={showReason ? reasonId : undefined}
         size="default"
-        className="bg-amber-500 hover:bg-amber-600 text-white border-0 disabled:opacity-70 lg:h-11 lg:px-8 lg:text-base"
+        className="bg-amber-500 hover:bg-amber-600 text-white border-0 disabled:opacity-70 aria-disabled:opacity-70 aria-disabled:cursor-not-allowed lg:h-11 lg:px-8 lg:text-base"
       >
         {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
         Generate

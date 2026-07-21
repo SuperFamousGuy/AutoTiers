@@ -37,6 +37,12 @@ describe("generateDisabledReason", () => {
     );
   });
 
+  it("names the rules-failed precondition instead of 'loading' when the fetch errored", () => {
+    expect(generateDisabledReason({ ...valid, ruleCount: 0, rulesError: true })).toBe(
+      "Couldn't load scoring rules — retry from the rules panel.",
+    );
+  });
+
   it("prefers the profile reason over weights and rules when all three fail", () => {
     expect(
       generateDisabledReason({

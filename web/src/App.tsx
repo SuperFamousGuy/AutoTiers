@@ -401,6 +401,7 @@ export default function App() {
   const disabledReason = generateDisabledReason({
     weights: settings.weights,
     ruleCount: canonicalRules.length,
+    rulesError,
     profileCount: profiles.length,
     activeProfileId,
   });

@@ -4,6 +4,12 @@ export interface GenerateGuardState {
   weights: Weights;
   /** Number of scoring rules loaded from the backend (0 while still loading). */
   ruleCount: number;
+  /**
+   * True when the rules fetch failed. Disambiguates a 0 `ruleCount` that is an
+   * error (never seeded because `useRules()` failed) from one that is still
+   * loading, so the copy matches the app's actual state (#838).
+   */
+  rulesError?: boolean;
   /** Profiles the logged-in user owns; empty for logged-out users. */
   profileCount: number;
   /** The active profile id, or null when none is selected. */
@@ -19,7 +25,7 @@ export interface GenerateGuardState {
  * actionable reason wins. A null return is exactly the enabled state.
  */
 export function generateDisabledReason(state: GenerateGuardState): string | null {
-  const { weights, ruleCount, profileCount, activeProfileId } = state;
+  const { weights, ruleCount, rulesError, profileCount, activeProfileId } = state;
   if (profileCount > 0 && activeProfileId === null) {
     return "Select or create a profile to generate.";
   }
@@ -27,7 +33,11 @@ export function generateDisabledReason(state: GenerateGuardState): string | null
     return "Scoring weights must add up to 100%.";
   }
   if (ruleCount === 0) {
-    return "Loading scoring rules — try again in a moment.";
+    // A failed fetch also leaves ruleCount at 0, but "loading" would be wrong
+    // copy then — the rules panel is already showing its error/Retry (#838).
+    return rulesError
+      ? "Couldn't load scoring rules — retry from the rules panel."
+      : "Loading scoring rules — try again in a moment.";
   }
   return null;
 }
