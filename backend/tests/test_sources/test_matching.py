@@ -139,9 +139,13 @@ async def test_fuzzy_match_deterministic_on_same_name_same_team_collision(
     await test_db.commit()
 
     index = PositionMatchIndex() if use_index else None
-    with caplog.at_level("WARNING"):
+    with caplog.at_level("WARNING", logger="app.data.matching"):
+        caplog.clear()
         first = await fuzzy_match(test_db, "Michael Thomas", "NO", "WR", index=index)
-    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    warnings = [
+        r for r in caplog.records
+        if r.levelname == "WARNING" and r.name == "app.data.matching"
+    ]
     assert len(warnings) == 1
     msg = warnings[0].getMessage()
     assert "collision" in msg
@@ -166,9 +170,13 @@ async def test_fuzzy_match_deterministic_on_same_name_any_team_collision(
     await test_db.commit()
 
     index = PositionMatchIndex() if use_index else None
-    with caplog.at_level("WARNING"):
+    with caplog.at_level("WARNING", logger="app.data.matching"):
+        caplog.clear()
         first = await fuzzy_match(test_db, "Mike Davis", "BAL", "RB", index=index)
-    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    warnings = [
+        r for r in caplog.records
+        if r.levelname == "WARNING" and r.name == "app.data.matching"
+    ]
     assert len(warnings) == 1
     msg = warnings[0].getMessage()
     assert "collision" in msg
@@ -185,10 +193,14 @@ async def test_fuzzy_match_single_candidate_emits_no_warning(test_db, caplog):
     """The common single-candidate path is unchanged: a match, no warning."""
     test_db.add(Player(id="wr_1", name="Justin Jefferson", position="WR", team="MIN"))
     await test_db.commit()
-    with caplog.at_level("WARNING"):
+    with caplog.at_level("WARNING", logger="app.data.matching"):
+        caplog.clear()
         match = await fuzzy_match(test_db, "Justin Jefferson", "MIN", "WR")
     assert match is not None and match.id == "wr_1"
-    assert [r for r in caplog.records if r.levelname == "WARNING"] == []
+    assert [
+        r for r in caplog.records
+        if r.levelname == "WARNING" and r.name == "app.data.matching"
+    ] == []
 
 
 @pytest.mark.asyncio
