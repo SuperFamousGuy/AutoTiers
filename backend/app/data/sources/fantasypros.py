@@ -46,39 +46,48 @@ class FantasyProsFetcher:
         fetch_errors: list[str] = []
 
         try:
-            async with httpx.AsyncClient(base_url=self.base_url, timeout=30.0, follow_redirects=True,
-                                          headers={"User-Agent": "Mozilla/5.0 AutoTiers/0.1"}) as client:
-                # Projections: position × scoring_format
-                for position in _POSITIONS:
-                    for ff_format, ff_param in [("standard", "STD"), ("half_ppr", "HALF"), ("ppr", "PPR")]:
-                        try:
-                            resp = await client.get(f"/nfl/projections/{position}.php", params={"scoring": ff_param, "week": "draft"})
-                            resp.raise_for_status()
-                            upserted += await self._parse_projections(
-                                db, resp.text, position.upper(), ff_format, today, match_index
-                            )
-                        except Exception as e:  # noqa: BLE001 — isolate per-request failures
-                            logger.warning("[fantasypros] failed to fetch %s %s projections: %s",
-                                           position, ff_format, e)
-                            fetch_errors.append(f"projections {position}/{ff_format}: {e}")
-                            continue
+            # SAVEPOINT (nested transaction) around all FantasyPros writes. The
+            # outer failure path below must discard THIS source's autoflushed rows
+            # without touching pending work already staged on the shared session by
+            # earlier sources — e.g. a prior source's DataSourceStatus row that
+            # DataFetcher.refresh_all staged via _persist() and hasn't committed
+            # yet. A blanket db.rollback() would clear that unrelated pending work
+            # too; rolling the savepoint back scopes the cleanup to us alone.
+            async with db.begin_nested():
+                async with httpx.AsyncClient(base_url=self.base_url, timeout=30.0, follow_redirects=True,
+                                              headers={"User-Agent": "Mozilla/5.0 AutoTiers/0.1"}) as client:
+                    # Projections: position × scoring_format
+                    for position in _POSITIONS:
+                        for ff_format, ff_param in [("standard", "STD"), ("half_ppr", "HALF"), ("ppr", "PPR")]:
+                            try:
+                                resp = await client.get(f"/nfl/projections/{position}.php", params={"scoring": ff_param, "week": "draft"})
+                                resp.raise_for_status()
+                                upserted += await self._parse_projections(
+                                    db, resp.text, position.upper(), ff_format, today, match_index
+                                )
+                            except Exception as e:  # noqa: BLE001 — isolate per-request failures
+                                logger.warning("[fantasypros] failed to fetch %s %s projections: %s",
+                                               position, ff_format, e)
+                                fetch_errors.append(f"projections {position}/{ff_format}: {e}")
+                                continue
 
-                # ADP per format
-                for adp_format, slug in _ADP_FORMATS.items():
-                    try:
-                        resp = await client.get(f"/nfl/adp/{slug}.php")
-                        resp.raise_for_status()
-                        upserted += await self._parse_adp(db, resp.text, adp_format, today, match_index)
-                    except Exception as e:  # noqa: BLE001 — isolate per-request failures
-                        logger.warning("[fantasypros adp] failed to fetch %s adp: %s", adp_format, e)
-                        fetch_errors.append(f"adp {adp_format}: {e}")
-                        continue
+                    # ADP per format
+                    for adp_format, slug in _ADP_FORMATS.items():
+                        try:
+                            resp = await client.get(f"/nfl/adp/{slug}.php")
+                            resp.raise_for_status()
+                            upserted += await self._parse_adp(db, resp.text, adp_format, today, match_index)
+                        except Exception as e:  # noqa: BLE001 — isolate per-request failures
+                            logger.warning("[fantasypros adp] failed to fetch %s adp: %s", adp_format, e)
+                            fetch_errors.append(f"adp {adp_format}: {e}")
+                            continue
         except Exception as e:
-            # Client construction / unexpected failure outside a per-request guard.
-            # Roll back so we never leave earlier iterations' autoflushed writes in
-            # the session for the orchestrator's final commit to persist while we
-            # report rows_upserted=0 (the exact mismatch #834 guards against).
-            await db.rollback()
+            # Client construction / teardown or any failure outside a per-request
+            # guard. begin_nested() already rolled the SAVEPOINT back as the
+            # exception unwound, so FantasyPros' autoflushed rows are gone while the
+            # orchestrator's other pending rows survive for its final commit. We
+            # report rows_upserted=0 with those phantom writes discarded — the exact
+            # status/reality mismatch #834 guards against.
             return SourceResult(source=self.name, rows_upserted=0,
                                 last_attempted=attempted, success=False, error=str(e))
 
