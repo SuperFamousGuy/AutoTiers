@@ -56,8 +56,17 @@ class SleeperFetcher:
             existing.team = team
             existing.age = raw.get("age")
             existing.years_exp = raw.get("years_exp")
-            existing.gsis_id = raw.get("gsis_id")
-            existing.espn_id = str(raw["espn_id"]) if raw.get("espn_id") is not None else None
+            # Only overwrite cross-IDs when Sleeper explicitly produced a value this
+            # run. Sleeper transiently omits gsis_id/espn_id even for players it has
+            # populated on prior pulls; an unconditional assignment would wipe a
+            # previously-correct id to None and silently drop the player from every
+            # downstream nfl_data_py join (which keys on Player.gsis_id.is_not(None)).
+            # Mirrors the "only overwrite when the source produced a value" pattern in
+            # nfl_data.py. See issue #837.
+            if raw.get("gsis_id") is not None:
+                existing.gsis_id = raw["gsis_id"]
+            if raw.get("espn_id") is not None:
+                existing.espn_id = str(raw["espn_id"])
             existing.active = True
             upserted += 1
 
