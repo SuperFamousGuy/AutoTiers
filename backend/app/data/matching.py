@@ -108,12 +108,20 @@ async def fuzzy_match(
     if any_team:
         return any_team[0]
 
-    # Strategy 3: fuzzy
+    # Strategy 3: fuzzy. Score every candidate above threshold, then pick a
+    # winner by a deterministic key so fuzzy-score ties don't hinge on the
+    # (unordered) DB row-fetch order. A strict ``>`` on score alone let the
+    # first-fetched of two equally-fuzzy names win, so the same scraped row
+    # could resolve to a different Player across runs. Break ties toward the
+    # team-matching candidate first, then by player id for full determinism.
     best: Optional[Player] = None
-    best_score = 0
+    best_key: tuple[float, bool, str] = (0.0, False, "")
     for p, norm in candidates:
         score = fuzz.token_set_ratio(target, norm)
-        if score >= threshold and score > best_score:
+        if score < threshold:
+            continue
+        key = (score, p.team == team, p.id)
+        if best is None or key > best_key:
             best = p
-            best_score = score
+            best_key = key
     return best
