@@ -216,6 +216,16 @@ class NflDataFetcher:
                 schedule_df = None
 
             if schedule_df is not None and not schedule_df.empty:
+                # Only regular-season games count toward a team's season points.
+                # import_schedules() also returns postseason rows (game_type in
+                # {WC, DIV, CON, SB}); including them inflates the totals of teams
+                # with deep playoff runs, which skews the 'Bad Offense' rule's
+                # 3-year average of regular-season points scored (#860). Filter to
+                # REG when the column is present; older/partial feeds without a
+                # game_type column fall through unchanged.
+                if "game_type" in schedule_df.columns:
+                    schedule_df = schedule_df[schedule_df["game_type"] == "REG"]
+
                 points_by_team: dict[str, int] = {}
                 for _, game in schedule_df.iterrows():
                     home, away = game.get("home_team"), game.get("away_team")

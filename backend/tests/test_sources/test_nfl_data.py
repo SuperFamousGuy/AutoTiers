@@ -205,6 +205,47 @@ async def test_nfl_fetcher_populates_team_seasons(test_db, mock_nfl_data_with_sc
     assert by_team["KC"] == 63   # 28 (away) + 35 (home)
 
 
+@pytest.fixture
+def mock_nfl_data_with_postseason(monkeypatch):
+    """Like mock_nfl_data but the schedule mixes REG and postseason rows for KC.
+
+    KC has a regular-season game plus a Super Bowl row; SF only plays the
+    regular season. Only the REG scores should count toward points_scored (#860).
+    """
+    seasonal_df = pd.read_csv(FIXTURES / "nfl_data_seasonal.csv")
+    snap_df = pd.read_csv(FIXTURES / "nfl_data_snap_counts.csv")
+    schedule_df = pd.DataFrame([
+        {"season": 2025, "game_type": "REG", "home_team": "SF", "away_team": "KC",
+         "home_score": 10, "away_score": 28},
+        {"season": 2025, "game_type": "REG", "home_team": "KC", "away_team": "SF",
+         "home_score": 35, "away_score": 21},
+        # Postseason run — must NOT count toward either team's total.
+        {"season": 2025, "game_type": "SB", "home_team": "KC", "away_team": "SF",
+         "home_score": 40, "away_score": 3},
+    ])
+
+    import app.data.sources.nfl_data as mod
+    monkeypatch.setattr(mod, "import_seasonal_data", lambda years: seasonal_df.copy())
+    monkeypatch.setattr(mod, "import_snap_counts", lambda years: snap_df.copy())
+    monkeypatch.setattr(mod, "import_pbp_data", lambda years: pd.DataFrame())
+    monkeypatch.setattr(mod, "import_schedules", lambda years: schedule_df.copy())
+
+
+@pytest.mark.asyncio
+async def test_nfl_fetcher_excludes_postseason_points(test_db, mock_nfl_data_with_postseason):
+    from app.models import TeamSeason
+    fetcher = NflDataFetcher(prior_seasons=1, latest_season=2025)
+    result = await fetcher.fetch(test_db)
+    assert result.success
+
+    rows = (await test_db.scalars(select(TeamSeason))).all()
+    by_team = {r.team: r.points_scored for r in rows}
+    # KC's 40-point Super Bowl is excluded: only 28 (away) + 35 (home) = 63.
+    assert by_team["KC"] == 63
+    # SF likewise excludes its 3-point Super Bowl: 10 (home) + 21 (away) = 31.
+    assert by_team["SF"] == 31
+
+
 @pytest.mark.asyncio
 async def test_nfl_data_computes_pbp_derived_fields(test_db, mock_nfl_data_with_pbp):
     test_db.add(Player(id="8112", name="Bijan Robinson", position="RB", team="ATL", gsis_id="00-0039169"))
