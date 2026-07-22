@@ -61,6 +61,34 @@ describe("App (integration)", () => {
     expect(screen.getByRole("radio", { name: /^Standard$/i })).not.toBeChecked();
   });
 
+  it("first-run auto-create does not throw when crypto.randomUUID is unavailable (#859)", async () => {
+    // Brand-new visitor (no persisted profiles) on a plain-HTTP origin where
+    // `crypto.randomUUID` is undefined — the first-run auto-create effect must
+    // not crash the app on its first paint.
+    localStorage.clear();
+    const desc = Object.getOwnPropertyDescriptor(crypto, "randomUUID");
+    Object.defineProperty(crypto, "randomUUID", {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+    try {
+      expect(() => renderApp()).not.toThrow();
+
+      // The app mounts and the auto-created "My Settings" profile persists,
+      // proving create() ran to completion rather than throwing mid-effect.
+      await waitFor(() => {
+        expect(screen.getByText("AutoTiers")).toBeInTheDocument();
+      });
+      await waitFor(() => {
+        expect(localStorage.getItem("autotiers.profiles.v1")).toContain("My Settings");
+      });
+    } finally {
+      if (desc) Object.defineProperty(crypto, "randomUUID", desc);
+      else delete (crypto as unknown as Record<string, unknown>).randomUUID;
+    }
+  });
+
   it("shows a staleness banner after a settings change and clears it on regenerate", async () => {
     renderApp();
 
