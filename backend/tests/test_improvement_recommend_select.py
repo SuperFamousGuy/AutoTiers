@@ -76,9 +76,38 @@ def test_is_duplicate_unrelated_titles_false():
     assert not _is_duplicate("Upgrade jenkspy clustering", ["Redesign the export modal"])
 
 
-def test_result_shape_is_title_area_body_only():
+def test_result_shape_is_title_area_body_score():
     out = select({"max_issues": 5, "existing": [], "candidates": [_cand("x", 1.0)]})
-    assert set(out[0].keys()) == {"title", "area", "body"}
+    assert set(out[0].keys()) == {"title", "area", "body", "score"}
+
+
+def test_select_carries_score_through_to_output():
+    world = {
+        "max_issues": 5,
+        "existing": [],
+        "candidates": [
+            {"title": "Alpha", "area": "qa", "body": "spec", "score": 8.5},
+            {"title": "Beta", "area": "ux", "body": "spec", "score": 3},
+        ],
+    }
+    kept = select(world)
+    assert [k["title"] for k in kept] == ["Alpha", "Beta"]  # score-desc order
+    assert kept[0]["score"] == 8.5
+    assert kept[1]["score"] == 3.0  # coerced to float
+
+
+def test_select_defaults_missing_or_bad_score_to_zero():
+    world = {
+        "max_issues": 5,
+        "existing": [],
+        "candidates": [
+            {"title": "NoScore", "area": "qa", "body": "spec"},
+            {"title": "BadScore", "area": "qa", "body": "spec", "score": "high"},
+        ],
+    }
+    kept = {k["title"]: k for k in select(world)}
+    assert kept["NoScore"]["score"] == 0.0
+    assert kept["BadScore"]["score"] == 0.0
 
 
 def test_main_reads_files_and_writes_json(tmp_path):

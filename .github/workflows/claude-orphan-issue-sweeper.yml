@@ -60,6 +60,7 @@ env:
   ATTEMPT_LABEL_PREFIX: "implement-attempt-"
   BLOCKED_LABEL: "implement-blocked"
   ORPHAN_STALE_LABEL: "orphan-issue-stale"
+  QUEUED_LABEL: "triage-queued"
 
 jobs:
   sweep:
@@ -128,10 +129,12 @@ jobs:
             --arg max "$MAX_ATTEMPTS" \
             --arg prefix "$ATTEMPT_LABEL_PREFIX" \
             --arg blocked "$BLOCKED_LABEL" \
+            --arg queued "$QUEUED_LABEL" \
             '{
               max_attempts: ($max | tonumber),
               attempt_label_prefix: $prefix,
               blocked_label: $blocked,
+              queued_label: $queued,
               trusted_associations: ["OWNER", "MEMBER", "COLLABORATOR"],
               issues: [
                 $issues[] | . as $i | {

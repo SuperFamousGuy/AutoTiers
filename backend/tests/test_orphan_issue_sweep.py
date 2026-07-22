@@ -172,6 +172,30 @@ def test_non_integer_attempt_suffix_ignored():
     assert d["attempt"] == 1  # unparseable suffix counts as 0 attempts
 
 
+def test_triage_queued_issue_is_skipped_not_dispatched():
+    world = {
+        "max_attempts": 3,
+        "attempt_label_prefix": "implement-attempt-",
+        "blocked_label": "implement-blocked",
+        "queued_label": "triage-queued",
+        "trusted_associations": ["OWNER", "MEMBER", "COLLABORATOR"],
+        "issues": [
+            {
+                "number": 42,
+                "title": "Queued rec",
+                "author_association": "OWNER",
+                "labels": ["recommendation", "triage-queued"],
+                "has_linked_pr": False,
+                "has_branch": False,
+                "in_progress": False,
+            }
+        ],
+    }
+    plan = plan_sweep(world)
+    assert plan["dispatch"] == []
+    assert {"number": 42, "reason": "triage_queued"} in plan["skip"]
+
+
 def test_main_reads_stdin_and_emits_plan(monkeypatch):
     world = _world(_issue(22))
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(world)))

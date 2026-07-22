@@ -14,6 +14,13 @@ name: claude-implement-issue
 # the live evidence contradicts that.)
 # Copilot's reviews are auto-addressed by .github/workflows/claude-address-copilot-review.yml.
 # Design: docs/superpowers/specs/2026-06-16-auto-implement-issues-design.md
+#
+# NOTE: recommendation issues (body carries `<!-- autotiers:rec ... -->`) are
+# deliberately SKIPPED on issues:opened — they are throttled by
+# claude-triage-dispatch.yml, which dispatches them here via workflow_dispatch
+# when a slot is free. The body marker (not the `recommendation` label) is the
+# discriminator because the label is applied post-create and is absent from the
+# opened webhook payload.
 
 on:
   issues:
@@ -45,7 +52,8 @@ jobs:
     # github-actions[bot] resolves to NONE, so the action cannot recurse.
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association)
+      (contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association) &&
+       !contains(github.event.issue.body, '<!-- autotiers:rec'))
     steps:
       # Resolve the issue's number/title/author from EITHER the webhook payload
       # (opened/reopened) OR the workflow_dispatch input, into $GITHUB_ENV so
