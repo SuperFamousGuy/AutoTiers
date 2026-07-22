@@ -13,8 +13,30 @@ describe("positionRulesMap", () => {
     }
   });
 
-  it("RB tab has the most rules (17)", () => {
-    expect(POSITION_RULES_MAP["RB"].length).toBe(17);
+  it("RB tab has the most rules (18)", () => {
+    expect(POSITION_RULES_MAP["RB"].length).toBe(18);
+  });
+
+  it("WR tab has exactly 17 rules", () => {
+    expect(POSITION_RULES_MAP["WR"].length).toBe(17);
+  });
+
+  it("Rookie Draft Capital rules are position-scoped to RB and WR (issue #853)", () => {
+    // Non-flag MULTIPLIER rules with backend positions=['RB'] / ['WR']. If they
+    // are dropped from the map, RulesPanel silently hides them — the bug this
+    // guard locks. The backend cross-boundary guard lives in
+    // backend/tests/test_position_rules_allowlist.py.
+    expect(POSITION_RULES_MAP["RB"]).toContain("Rookie RB Draft Capital");
+    expect(POSITION_RULES_MAP["WR"]).toContain("Rookie WR Draft Capital");
+    // Each rookie rule targets exactly one position; it must not leak elsewhere.
+    for (const pos of POSITIONS) {
+      if (pos !== "RB") {
+        expect(POSITION_RULES_MAP[pos]).not.toContain("Rookie RB Draft Capital");
+      }
+      if (pos !== "WR") {
+        expect(POSITION_RULES_MAP[pos]).not.toContain("Rookie WR Draft Capital");
+      }
+    }
   });
 
   it("K tab has exactly 7 rules incl. the three kicker-specific rules", () => {
