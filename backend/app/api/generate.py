@@ -701,6 +701,7 @@ def _compute_ranked_players(
             fantasypros_projection=fp_pts,
             adp_standard=_get_adp(player.adp_entries, "standard"),
             adp_ppr=_get_adp(player.adp_entries, "ppr"),
+            adp_half_ppr=_get_adp(player.adp_entries, "half_ppr"),
             adp_dynasty=_get_adp(player.adp_entries, "dynasty"),
             flags=rule_result.flags,
             rules_applied=rule_result.rules_applied,
@@ -716,6 +717,8 @@ def _compute_ranked_players(
         tiebreak_adp_attr = "adp_dynasty"
     elif scoring_fmt_str == "ppr":
         tiebreak_adp_attr = "adp_ppr"
+    elif scoring_fmt_str == "half_ppr":
+        tiebreak_adp_attr = "adp_half_ppr"
     else:
         tiebreak_adp_attr = "adp_standard"
 
