@@ -13,7 +13,8 @@ export const POSITION_RULES_MAP: Record<Position, readonly string[]> = {
   ],
   RB: [
     "RB Committee Penalty", "Target Share Premium", "Declining Snap%",
-    "New Team Penalty", "New Head Coach", "Sophomore Leap", "Bad Offense",
+    "New Team Penalty", "New Head Coach", "Sophomore Leap",
+    "Rookie RB Draft Capital", "Bad Offense",
     "Follow the Money", "Injury History", "TD Regression",
     "Opportunity Over-Producer", "Opportunity Under-Producer",
     "Red Zone Usage Premium", "Projection Unavailable",
@@ -21,7 +22,8 @@ export const POSITION_RULES_MAP: Record<Position, readonly string[]> = {
   ],
   WR: [
     "Target Share Premium", "Declining Snap%", "New Team Penalty",
-    "New Head Coach", "Sophomore Leap", "Bad Offense", "Follow the Money",
+    "New Head Coach", "Sophomore Leap", "Rookie WR Draft Capital",
+    "Bad Offense", "Follow the Money",
     "Injury History", "TD Regression", "Opportunity Over-Producer",
     "Opportunity Under-Producer", "Red Zone Usage Premium",
     "Projection Unavailable", "Year After the Year After",

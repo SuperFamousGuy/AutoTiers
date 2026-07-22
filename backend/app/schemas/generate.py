@@ -186,6 +186,7 @@ class TieredPlayerOut(BaseModel):
     avg_projection: Optional[float]
     adp_standard: Optional[float]
     adp_ppr: Optional[float]
+    adp_half_ppr: Optional[float]
     adp_dynasty: Optional[float]
     league_adp: Optional[float] = None
     vbd_score: float

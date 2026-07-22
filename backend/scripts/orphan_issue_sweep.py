@@ -80,6 +80,7 @@ def plan_sweep(world: dict) -> dict:
     max_attempts = int(world["max_attempts"])
     prefix = world["attempt_label_prefix"]
     blocked = world["blocked_label"]
+    queued_label = world.get("queued_label", "triage-queued")
     trusted = set(world["trusted_associations"])
 
     dispatch: list[dict] = []
@@ -101,6 +102,12 @@ def plan_sweep(world: dict) -> dict:
         # property hold by construction rather than by that incidental fact.)
         if issue.get("author_association") not in trusted:
             skip.append({"number": number, "reason": "untrusted_author"})
+            continue
+
+        # Undispatched triage backlog: intentionally waiting for the triage
+        # dispatcher, NOT an orphan. Leave it entirely alone.
+        if queued_label in labels:
+            skip.append({"number": number, "reason": "triage_queued"})
             continue
 
         # A linked (open or merged) PR means the issue is in flight or done:
