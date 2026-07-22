@@ -20,7 +20,11 @@ function loadProfiles(): LocalProfile[] {
 }
 
 function loadActiveId(): string | null {
-  return localStorage.getItem(ACTIVE_KEY);
+  try {
+    return localStorage.getItem(ACTIVE_KEY);
+  } catch {
+    return null;
+  }
 }
 
 // localStorage is the single source of truth. Every hook instance subscribes to
