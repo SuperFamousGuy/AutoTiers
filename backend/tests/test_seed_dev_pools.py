@@ -100,6 +100,7 @@ def _tiered_from_seed() -> list[TieredPlayer]:
                 prior_year_actual=None,
                 adp_standard=p["adp"].get("standard"),
                 adp_ppr=p["adp"].get("ppr"),
+                adp_half_ppr=p["adp"].get("half_ppr"),
                 adp_dynasty=p["adp"].get("dynasty"),
                 flags=[],
                 rules_applied=[],
