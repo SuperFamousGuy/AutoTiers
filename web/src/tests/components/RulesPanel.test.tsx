@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -265,6 +266,95 @@ describe("RulesPanel", () => {
     expect(screen.queryByText("Couldn't load rules.")).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByText("RB Committee Penalty")).toBeInTheDocument();
+  });
+
+  it("marks a position tab as customized when an override differs from the canonical default", () => {
+    // RB Committee Penalty defaults to enabled:true, weight:1.0. This override
+    // disables it → RB is customized.
+    const overrides: PositionRulesState = {
+      RB: [{ name: "RB Committee Penalty", enabled: false, weight: 1.0 }],
+    };
+    render(
+      <RulesPanel canonicalRules={rbOnlyCanonical} positionRules={overrides} onChange={() => {}} />
+    );
+
+    // Accessible name carries the customized suffix…
+    const rbTab = screen.getByRole("tab", { name: "RB, customized" });
+    expect(rbTab).toBeInTheDocument();
+    // …and a visible, non-hover dot is rendered inside it.
+    expect(rbTab.querySelector("span[aria-hidden='true']")).toBeInTheDocument();
+
+    // Untouched positions keep their plain name and no dot.
+    const qbTab = screen.getByRole("tab", { name: "QB" });
+    expect(qbTab.querySelector("span[aria-hidden='true']")).not.toBeInTheDocument();
+  });
+
+  it("marks a tab customized when only the weight differs from the canonical default", () => {
+    const overrides: PositionRulesState = {
+      RB: [{ name: "RB Committee Penalty", enabled: true, weight: 2.0 }],
+    };
+    render(
+      <RulesPanel canonicalRules={rbOnlyCanonical} positionRules={overrides} onChange={() => {}} />
+    );
+    expect(screen.getByRole("tab", { name: "RB, customized" })).toBeInTheDocument();
+  });
+
+  it("does NOT mark a tab when the override matches the canonical default in both fields", () => {
+    // Autosave can persist a no-op override identical to the canonical default.
+    const overrides: PositionRulesState = {
+      RB: [{ name: "RB Committee Penalty", enabled: true, weight: 1.0 }],
+    };
+    render(
+      <RulesPanel canonicalRules={rbOnlyCanonical} positionRules={overrides} onChange={() => {}} />
+    );
+    // No customized suffix; the plain-named tab still exists.
+    expect(screen.queryByRole("tab", { name: "RB, customized" })).not.toBeInTheDocument();
+    const rbTab = screen.getByRole("tab", { name: "RB" });
+    expect(rbTab.querySelector("span[aria-hidden='true']")).not.toBeInTheDocument();
+  });
+
+  it("shows no indicators for a freshly-loaded profile with no overrides", () => {
+    render(<RulesPanel canonicalRules={minimalCanonical} positionRules={{}} onChange={() => {}} />);
+    for (const tab of screen.getAllByRole("tab")) {
+      expect(tab.querySelector("span[aria-hidden='true']")).not.toBeInTheDocument();
+      expect(tab).not.toHaveAttribute("aria-label", expect.stringContaining("customized"));
+    }
+  });
+
+  it("removes the indicator when a rule is toggled back to its default without a reload", async () => {
+    // Start customized (disabled), then re-enable to match the canonical default.
+    // App owns positionRules, so mirror its onChange back into a re-render.
+    function Harness() {
+      const [rules, setRules] = useState<PositionRulesState>({
+        RB: [{ name: "RB Committee Penalty", enabled: false, weight: 1.0 }],
+      });
+      return (
+        <RulesPanel canonicalRules={rbOnlyCanonical} positionRules={rules} onChange={setRules} />
+      );
+    }
+    render(<Harness />);
+    const user = userEvent.setup();
+
+    expect(screen.getByRole("tab", { name: "RB, customized" })).toBeInTheDocument();
+
+    // Re-enable RB Committee Penalty → override now matches the default.
+    await user.click(screen.getByRole("switch"));
+
+    expect(screen.queryByRole("tab", { name: "RB, customized" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "RB" })).toBeInTheDocument();
+  });
+
+  it("does not mark a tab for an override whose rule is absent from canonicalRules", () => {
+    // No canonical entry to compare against → cannot be called customized.
+    const overrides: PositionRulesState = {
+      QB: [{ name: "New Team Penalty", enabled: false, weight: 5.0 }],
+    };
+    // rbOnlyCanonical lacks "New Team Penalty".
+    render(
+      <RulesPanel canonicalRules={rbOnlyCanonical} positionRules={overrides} onChange={() => {}} />
+    );
+    expect(screen.getByRole("tab", { name: "QB" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "QB, customized" })).not.toBeInTheDocument();
   });
 
   it("omits the Retry button in the error state when no onRetry handler is provided", () => {

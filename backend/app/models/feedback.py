@@ -1,17 +1,14 @@
 """Feedback model — persists in-app feedback submissions.
 
-Every POST /api/feedback writes one row BEFORE the email is sent, so a feedback
-submission is never lost if SES bounces (the email send can fail after the row
-is committed; the row is the durable record). user_id is nullable: anonymous
-submissions are valid. submitter_email is a denormalized snapshot of the
-authenticated user's email at submission time so the admin read view does not
-have to join users (and survives a later account deletion via SET NULL).
+Every POST /api/feedback writes one row. Submissions are always anonymous
+(accounts were removed in the v1 teardown): there is no user identity to
+attach and no email is sent — the row is the sole durable record, read by
+admins via the existing X-Api-Key-gated GET route.
 """
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
 
-from sqlalchemy import String, DateTime, ForeignKey, Index, Text
+from sqlalchemy import String, DateTime, Index, Text
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 
@@ -24,15 +21,6 @@ class Feedback(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    # Nullable FK: anonymous submissions have no user. ON DELETE SET NULL keeps
-    # the feedback row (the content is still useful) if the user is later deleted.
-    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    # Snapshot of the submitter's email for admin readability; None for anonymous.
-    submitter_email: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     # Wire enum value: "bug" | "idea" | "other". Stored as a plain string so a
     # future category addition needs no DB migration; the API validates the enum.
     category: Mapped[str] = mapped_column(String, nullable=False, server_default="idea")

@@ -5,8 +5,8 @@ import { MobileProfileMenuItems } from "@/components/MobileProfileMenuItems";
 import { DropdownMenu, DropdownMenuContent } from "@/components/ui/dropdown-menu";
 
 const profiles = [
-  { id: "p1", name: "PPR 12-team", settings_json: {}, rules_json: {}, linked_league: null },
-  { id: "p2", name: "Standard Keeper", settings_json: {}, rules_json: {}, linked_league: null },
+  { id: "p1", name: "PPR 12-team", settings: {}, rules: {} },
+  { id: "p2", name: "Standard Keeper", settings: {}, rules: {} },
 ];
 
 // The items rely on a DropdownMenu Root/Content context (radix). Render them
