@@ -12,9 +12,12 @@ interface TierGroupProps {
   draftMode?: boolean;
   isDrafted?: (id: string) => boolean;
   onToggleDraft?: (id: string) => void;
+  /** localStorage favorites lookups (useLocalFavorites), forwarded to each PlayerCard. */
+  isFavoritePlayer?: (id: string) => boolean;
+  isFavoriteTeam?: (code: string) => boolean;
 }
 
-export function TierGroup({ label, descriptiveLabel, players, draftMode, isDrafted, onToggleDraft }: TierGroupProps) {
+export function TierGroup({ label, descriptiveLabel, players, draftMode, isDrafted, onToggleDraft, isFavoritePlayer, isFavoriteTeam }: TierGroupProps) {
   // Tiers never renumber and drafted players are never removed from the DOM.
   // In Draft Mode, undrafted players float to the top of their tier group —
   // a stable sort so within "undrafted" and within "drafted" the original
@@ -126,6 +129,8 @@ export function TierGroup({ label, descriptiveLabel, players, draftMode, isDraft
             draftMode={draftMode}
             drafted={isDrafted?.(p.player_id) ?? false}
             onToggleDraft={onToggleDraft}
+            isFavPlayer={isFavoritePlayer?.(p.player_id) ?? false}
+            isFavTeam={p.team ? (isFavoriteTeam?.(p.team) ?? false) : false}
           />
         ))}
     </div>

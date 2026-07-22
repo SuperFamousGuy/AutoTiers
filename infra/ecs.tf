@@ -36,12 +36,10 @@ resource "aws_cloudwatch_log_group" "scheduler" {
 }
 
 ###############################################################################
-# Local: resolved backend base URL
-# Prefer var.backend_base_url when set; fall back to the ALB HTTP DNS name.
+# Local: resolved frontend URL / CORS origins
 ###############################################################################
 locals {
-  backend_base_url = var.backend_base_url != "" ? var.backend_base_url : "http://${aws_lb.main.dns_name}"
-  frontend_url     = var.frontend_url != "" ? var.frontend_url : "https://${aws_cloudfront_distribution.frontend.domain_name}"
+  frontend_url = var.frontend_url != "" ? var.frontend_url : "https://${aws_cloudfront_distribution.frontend.domain_name}"
   cors_origins = var.frontend_url != "" ? jsonencode([
     var.frontend_url,
     "https://www.${trimprefix(trimprefix(var.frontend_url, "https://"), "www.")}",
@@ -104,29 +102,6 @@ resource "aws_ecs_task_definition" "backend" {
           name  = "FRONTEND_URL"
           value = local.frontend_url
         },
-        {
-          name  = "YAHOO_REDIRECT_URI"
-          value = "${local.backend_base_url}/api/auth/yahoo/callback"
-        },
-        {
-          name  = "GOOGLE_REDIRECT_URI"
-          value = "${local.backend_base_url}/api/auth/google/callback"
-        },
-        {
-          # "ses" = real sends via SES; "fake" = in-process collector. Flipped
-          # by var.enable_ses once the domain is verified and out of sandbox.
-          name  = "EMAIL_SENDER_BACKEND"
-          value = var.enable_ses ? "ses" : "fake"
-        },
-        {
-          name  = "SES_FROM_ADDRESS"
-          value = local.ses_from_address
-        },
-        {
-          # SES identity is verified in the deployment region (see ses.tf).
-          name  = "SES_REGION"
-          value = var.aws_region
-        },
       ]
 
       # Sensitive values pulled from Secrets Manager at task start.
@@ -140,30 +115,6 @@ resource "aws_ecs_task_definition" "backend" {
         {
           name      = "DATABASE_URL_SYNC"
           valueFrom = aws_secretsmanager_secret.database_url_sync.arn
-        },
-        {
-          name      = "JWT_SECRET"
-          valueFrom = aws_secretsmanager_secret.jwt_secret.arn
-        },
-        {
-          name      = "SECRET_KEY"
-          valueFrom = aws_secretsmanager_secret.secret_key.arn
-        },
-        {
-          name      = "YAHOO_CLIENT_ID"
-          valueFrom = aws_secretsmanager_secret.yahoo_client_id.arn
-        },
-        {
-          name      = "YAHOO_CLIENT_SECRET"
-          valueFrom = aws_secretsmanager_secret.yahoo_client_secret.arn
-        },
-        {
-          name      = "GOOGLE_CLIENT_ID"
-          valueFrom = aws_secretsmanager_secret.google_client_id.arn
-        },
-        {
-          name      = "GOOGLE_CLIENT_SECRET"
-          valueFrom = aws_secretsmanager_secret.google_client_secret.arn
         },
         {
           name      = "ADMIN_API_KEY"
@@ -299,19 +250,11 @@ resource "aws_ecs_task_definition" "scheduler" {
           value = local.cors_origins
         },
         { name = "FRONTEND_URL", value = local.frontend_url },
-        { name = "YAHOO_REDIRECT_URI", value = "${local.backend_base_url}/api/auth/yahoo/callback" },
-        { name = "GOOGLE_REDIRECT_URI", value = "${local.backend_base_url}/api/auth/google/callback" },
       ]
 
       secrets = [
         { name = "DATABASE_URL", valueFrom = aws_secretsmanager_secret.database_url.arn },
         { name = "DATABASE_URL_SYNC", valueFrom = aws_secretsmanager_secret.database_url_sync.arn },
-        { name = "JWT_SECRET", valueFrom = aws_secretsmanager_secret.jwt_secret.arn },
-        { name = "SECRET_KEY", valueFrom = aws_secretsmanager_secret.secret_key.arn },
-        { name = "YAHOO_CLIENT_ID", valueFrom = aws_secretsmanager_secret.yahoo_client_id.arn },
-        { name = "YAHOO_CLIENT_SECRET", valueFrom = aws_secretsmanager_secret.yahoo_client_secret.arn },
-        { name = "GOOGLE_CLIENT_ID", valueFrom = aws_secretsmanager_secret.google_client_id.arn },
-        { name = "GOOGLE_CLIENT_SECRET", valueFrom = aws_secretsmanager_secret.google_client_secret.arn },
         { name = "ADMIN_API_KEY", valueFrom = aws_secretsmanager_secret.admin_api_key.arn },
       ]
 

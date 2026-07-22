@@ -8,36 +8,13 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://localhost/autotiers"
     database_url_sync: str = "postgresql+psycopg2://localhost/autotiers"
     debug: bool = False
-    # Specific origins required — wildcards are incompatible with
-    # credentialed requests (the frontend's fetch sets
-    # `credentials: "include"` so the JWT cookie travels with each request).
-    # Override via CORS_ORIGINS env (JSON array, e.g. '["https://app.example.com"]').
+    # No credentialed cookies travel anymore (accounts/auth were removed), but
+    # explicit origins are still required over a wildcard for a locked-down
+    # CORS policy. Override via CORS_ORIGINS env (JSON array, e.g.
+    # '["https://app.example.com"]').
     cors_origins: list[str] = ["http://localhost:5173"]
     run_scheduler: bool = False
     admin_api_key: str = ""
-    jwt_secret: str = "dev-only-replace-in-prod"
-    # Fernet key — base64-urlsafe 32 bytes. Override in production.
-    # Generate one with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-    secret_key: str = "dKkY-w0jHF6kBE_oTzx7JtAYxHB1yyaJYBNz3X1eYdY="
-    yahoo_client_id: str = ""
-    yahoo_client_secret: str = ""
-    yahoo_redirect_uri: str = "http://localhost:8000/api/auth/yahoo/callback"
-    google_client_id: str = ""
-    google_client_secret: str = ""
-    google_redirect_uri: str = "http://localhost:8000/api/auth/google/callback"
-    frontend_url: str = "http://localhost:5173"
-    # Email sender configuration.
-    # email_sender_backend: "ses" sends via AWS SES (requires ECS task role with ses:SendEmail).
-    #                        "fake" (or any other value) collects emails in-process — used in
-    #                        development and ALL tests.  When debug=True the fake sender is
-    #                        always used regardless of this setting.
-    email_sender_backend: str = "fake"
-    ses_from_address: str = "AutoTiers <noreply@autotiers.example>"
-    ses_region: str = "us-east-1"
-    # Recipient inbox for in-app "Provide Feedback" submissions. Must be a verified
-    # SES recipient while SES is in sandbox (we send to this fixed address, not to the
-    # submitting user). Override via FEEDBACK_RECIPIENT env. Not hardcoded in the route.
-    feedback_recipient: str = "feedback@autotiers.example"
     # Data-freshness alarm threshold (issue #401). The /api/data/health endpoint
     # reports `stale` (and returns HTTP 503) when the oldest source's
     # last_attempted is older than this many hours — catching a scheduler that
@@ -53,19 +30,6 @@ class Settings(BaseSettings):
     # app is directly internet-facing) — then XFF is fully untrusted and only the
     # socket peer is used. Override via TRUSTED_PROXY_COUNT.
     trusted_proxy_count: int = 1
-    # Sleeper's /v1/players/nfl is a multi-megabyte, non-user-specific static
-    # dictionary that Sleeper's own docs ask callers to "cache ... do not call
-    # more than once a day" (issue #560). We cache it process-locally under a
-    # single global key for this many seconds (default 12h, inside Sleeper's
-    # guidance) so repeated league links don't re-download it. Override via
-    # SLEEPER_PLAYERS_CACHE_TTL_SECONDS; set to 0 to disable caching.
-    sleeper_players_cache_ttl_seconds: float = 12 * 60 * 60
-    # The players dict is far larger than the tiny league/rosters/drafts calls,
-    # so it gets its own, larger timeout rather than sharing their blanket 10s
-    # (a slow-but-healthy multi-MB transfer would otherwise time out on the last
-    # call and look like a Sleeper outage). Override via
-    # SLEEPER_PLAYERS_TIMEOUT_SECONDS.
-    sleeper_players_timeout_seconds: float = 30.0
 
     @field_validator("trusted_proxy_count")
     @classmethod
@@ -75,26 +39,6 @@ class Settings(BaseSettings):
         # startup rather than degrade at runtime.
         if v < 0:
             raise ValueError("trusted_proxy_count must be non-negative")
-        return v
-
-    @field_validator("sleeper_players_cache_ttl_seconds")
-    @classmethod
-    def _non_negative_sleeper_cache_ttl(cls, v: float) -> float:
-        # A negative TTL is meaningless (the cache-freshness check compares
-        # elapsed time against it). 0 is valid — it disables caching. Anything
-        # below 0 is a misconfiguration; fail fast at startup.
-        if v < 0:
-            raise ValueError("sleeper_players_cache_ttl_seconds must be non-negative")
-        return v
-
-    @field_validator("sleeper_players_timeout_seconds")
-    @classmethod
-    def _positive_sleeper_timeout(cls, v: float) -> float:
-        # A timeout <= 0 would make the players fetch fail (or behave oddly)
-        # rather than allow the intended slow-but-healthy multi-MB transfer.
-        # Require a positive value; fail fast at startup.
-        if v <= 0:
-            raise ValueError("sleeper_players_timeout_seconds must be positive")
         return v
 
 

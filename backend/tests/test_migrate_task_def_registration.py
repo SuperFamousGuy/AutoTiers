@@ -95,8 +95,10 @@ def test_execution_role_borrowed_from_backend(recipe, backend_task_def):
 def test_secret_value_from_resolved_by_name(recipe, backend_task_def):
     result = _build(recipe, backend_task_def)
     secrets = {s["name"]: s["valueFrom"] for s in result["containerDefinitions"][0]["secrets"]}
-    # Only the four secrets the recipe names — not the backend's full set.
-    assert set(secrets) == {"DATABASE_URL", "DATABASE_URL_SYNC", "JWT_SECRET", "SECRET_KEY"}
+    # Only the secrets the recipe names — not the backend's full set. (JWT_SECRET
+    # / SECRET_KEY were removed with the accounts+SES teardown, so the migrate
+    # recipe now names just the two database URLs.)
+    assert set(secrets) == {"DATABASE_URL", "DATABASE_URL_SYNC"}
     assert "ADMIN_API_KEY" not in secrets
     assert secrets["DATABASE_URL"] == "arn:aws:secretsmanager:us-east-1:1:secret:database_url"
     # No null placeholders survive the merge.
@@ -143,12 +145,14 @@ def test_fargate_shape_is_complete(recipe, backend_task_def):
 
 
 def test_missing_secret_on_backend_raises(recipe, backend_task_def):
+    # Drop a secret the recipe *does* name (DATABASE_URL_SYNC) from the backend
+    # snapshot; the merge must refuse to register a task def that can't resolve it.
     backend_task_def["containerDefinitions"][0]["secrets"] = [
         s
         for s in backend_task_def["containerDefinitions"][0]["secrets"]
-        if s["name"] != "JWT_SECRET"
+        if s["name"] != "DATABASE_URL_SYNC"
     ]
-    with pytest.raises(merge.MergeError, match="JWT_SECRET"):
+    with pytest.raises(merge.MergeError, match="DATABASE_URL_SYNC"):
         _build(recipe, backend_task_def)
 
 

@@ -19,7 +19,7 @@ vi.mock("@/components/ui/toast", () => ({
 function renderDialog(props: Partial<React.ComponentProps<typeof FeedbackDialog>> = {}) {
   const onOpenChange = vi.fn();
   render(
-    <FeedbackDialog open onOpenChange={onOpenChange} userEmail={null} {...props} />,
+    <FeedbackDialog open onOpenChange={onOpenChange} {...props} />,
   );
   return { onOpenChange };
 }
@@ -84,14 +84,9 @@ describe("FeedbackDialog", () => {
     expect(alert.textContent).toMatch(/too quickly/i);
   });
 
-  it("discloses email capture when the user is logged in", () => {
-    renderDialog({ userEmail: "alice@example.com" });
-    expect(screen.getByText(/include your email \(alice@example.com\)/i)).toBeInTheDocument();
-  });
-
-  it("says anonymous when the user is logged out", () => {
-    renderDialog({ userEmail: null });
-    expect(screen.getByText(/this is anonymous/i)).toBeInTheDocument();
+  it("discloses that submission is anonymous", () => {
+    renderDialog();
+    expect(screen.getByText(/sent anonymously/i)).toBeInTheDocument();
   });
 
   it("submits with Cmd/Ctrl+Enter", async () => {
@@ -143,14 +138,14 @@ describe("FeedbackDialog", () => {
   it("resets the category back to Idea each time the dialog re-opens", async () => {
     const onOpenChange = vi.fn();
     const { rerender } = render(
-      <FeedbackDialog open onOpenChange={onOpenChange} userEmail={null} />,
+      <FeedbackDialog open onOpenChange={onOpenChange} />,
     );
     await userEvent.click(screen.getByRole("radio", { name: "Bug" }));
     expect(screen.getByRole("radio", { name: "Bug" })).toBeChecked();
 
     // Close then re-open.
-    rerender(<FeedbackDialog open={false} onOpenChange={onOpenChange} userEmail={null} />);
-    rerender(<FeedbackDialog open onOpenChange={onOpenChange} userEmail={null} />);
+    rerender(<FeedbackDialog open={false} onOpenChange={onOpenChange} />);
+    rerender(<FeedbackDialog open onOpenChange={onOpenChange} />);
 
     expect(screen.getByRole("radio", { name: "Idea" })).toBeChecked();
     expect(screen.getByRole("radio", { name: "Bug" })).not.toBeChecked();

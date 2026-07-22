@@ -3,27 +3,19 @@ import { useState } from "react";
 import { DataFreshness } from "./DataFreshness";
 import { Logo } from "./Logo";
 import { GenerateButton } from "./GenerateButton";
-import { AuthDialog } from "./AuthDialog";
 import { FavoritesDialog } from "./FavoritesDialog";
 import { FeedbackDialog } from "./FeedbackDialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/contexts/AuthContext";
-import type { SettingsState } from "./SettingsPanel";
-import type { PositionRulesState } from "@/api/types";
 
 interface HamburgerProps {
-  currentState: { settings: SettingsState; rules: PositionRulesState } | null;
-  onOpenLinkedAccounts?: () => void;
   mobileProfileMenu?: React.ReactNode;
   isDark?: boolean;
   onToggleDark?: () => void;
   onShowOnboarding?: () => void;
 }
 
-function HamburgerMenu({ currentState, onOpenLinkedAccounts, mobileProfileMenu, isDark, onToggleDark, onShowOnboarding }: HamburgerProps) {
-  const { user, logout } = useAuth();
-  const [authOpen, setAuthOpen] = useState(false);
+function HamburgerMenu({ mobileProfileMenu, isDark, onToggleDark, onShowOnboarding }: HamburgerProps) {
   const [favoritesOpen, setFavoritesOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
@@ -36,27 +28,10 @@ function HamburgerMenu({ currentState, onOpenLinkedAccounts, mobileProfileMenu, 
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent>
-          {user ? (
-            <>
-              <DropdownMenuItem disabled>
-                {user.email ?? (user.google_subject ? "Google account" : "Yahoo account")}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              {/* Profile switch/create/manage — mobile only; desktop uses ProfilePicker (#499). */}
-              {mobileProfileMenu}
-              <DropdownMenuItem onSelect={() => onOpenLinkedAccounts?.()}>
-                Connect Your League
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setFavoritesOpen(true)}>Favorites</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setFeedbackOpen(true)}>Provide Feedback</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => logout()}>Log Out</DropdownMenuItem>
-            </>
-          ) : (
-            <>
-              <DropdownMenuItem onSelect={() => setAuthOpen(true)}>Log In / Sign Up</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setFeedbackOpen(true)}>Provide Feedback</DropdownMenuItem>
-            </>
-          )}
+          {/* Profile switch/create/manage — mobile only; desktop uses ProfileSwitcher (#499). */}
+          {mobileProfileMenu}
+          <DropdownMenuItem onSelect={() => setFavoritesOpen(true)}>Favorites</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setFeedbackOpen(true)}>Provide Feedback</DropdownMenuItem>
           {onShowOnboarding && (
             <DropdownMenuItem className="lg:hidden" onSelect={() => onShowOnboarding()}>
               Getting Started Guide
@@ -80,9 +55,8 @@ function HamburgerMenu({ currentState, onOpenLinkedAccounts, mobileProfileMenu, 
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <AuthDialog open={authOpen} onOpenChange={setAuthOpen} initialState={currentState} />
-      <FavoritesDialog open={favoritesOpen} onOpenChange={setFavoritesOpen} isLoggedIn={!!user} />
-      <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} userEmail={user?.email ?? null} />
+      <FavoritesDialog open={favoritesOpen} onOpenChange={setFavoritesOpen} />
+      <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
     </>
   );
 }
@@ -91,9 +65,7 @@ interface HeaderProps {
   generateDisabled: boolean;
   generateIsPending: boolean;
   onGenerate: () => void;
-  currentState: { settings: SettingsState; rules: PositionRulesState } | null;
   profilePicker?: React.ReactNode;
-  onOpenLinkedAccounts?: () => void;
   isDark: boolean;
   onToggleDark: () => void;
   onShowOnboarding?: () => void;
@@ -101,7 +73,7 @@ interface HeaderProps {
 }
 
 export function Header({
-  generateDisabled, generateIsPending, onGenerate, currentState, profilePicker, onOpenLinkedAccounts, isDark, onToggleDark, onShowOnboarding, mobileProfileMenu,
+  generateDisabled, generateIsPending, onGenerate, profilePicker, isDark, onToggleDark, onShowOnboarding, mobileProfileMenu,
 }: HeaderProps) {
   return (
     <header className="flex items-center justify-between border-b bg-card px-4 py-3 lg:px-6 lg:py-4">
@@ -131,8 +103,6 @@ export function Header({
           {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
         </Button>
         <HamburgerMenu
-          currentState={currentState}
-          onOpenLinkedAccounts={onOpenLinkedAccounts}
           mobileProfileMenu={mobileProfileMenu}
           isDark={isDark}
           onToggleDark={onToggleDark}

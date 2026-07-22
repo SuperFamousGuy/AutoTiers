@@ -36,8 +36,6 @@ const basePlayer: TieredPlayer = {
       delta: 16.44,
     },
   ],
-  is_favorite_player: null,
-  is_favorite_team: null,
 };
 
 describe("PlayerCard", () => {
@@ -79,31 +77,31 @@ describe("PlayerCard", () => {
     expect(screen.queryByText("Score breakdown")).not.toBeInTheDocument();
   });
 
-  it("shows gold star with accessible name when is_favorite_player is true", () => {
-    render(<PlayerCard player={{ ...basePlayer, is_favorite_player: true }} />);
+  it("shows gold star with accessible name when isFavPlayer is true", () => {
+    render(<PlayerCard player={basePlayer} isFavPlayer />);
     const star = screen.getByRole("img", { name: "Favorite player" });
     expect(star).toBeInTheDocument();
     expect(star).toHaveTextContent("⭐");
   });
 
-  it("does not show gold star when is_favorite_player is null or false", () => {
+  it("does not show gold star when isFavPlayer is omitted or false", () => {
     const { rerender } = render(<PlayerCard player={basePlayer} />);
     expect(screen.queryByRole("img", { name: "Favorite player" })).not.toBeInTheDocument();
     expect(screen.queryByText("⭐")).not.toBeInTheDocument();
-    rerender(<PlayerCard player={{ ...basePlayer, is_favorite_player: false }} />);
+    rerender(<PlayerCard player={basePlayer} isFavPlayer={false} />);
     expect(screen.queryByRole("img", { name: "Favorite player" })).not.toBeInTheDocument();
     expect(screen.queryByText("⭐")).not.toBeInTheDocument();
   });
 
-  it("shows team logo badge when is_favorite_team is true", () => {
-    render(<PlayerCard player={{ ...basePlayer, is_favorite_team: true }} />);
+  it("shows team logo badge when isFavTeam is true", () => {
+    render(<PlayerCard player={basePlayer} isFavTeam />);
     // The small badge img has alt = full team name; aria-hidden logo is separate
     const badges = screen.getAllByAltText("Baltimore Ravens");
     expect(badges.length).toBeGreaterThanOrEqual(1);
   });
 
   it("team logo src uses ESPN CDN (not Sleeper) for both badge and card logo", () => {
-    render(<PlayerCard player={{ ...basePlayer, is_favorite_team: true }} />);
+    render(<PlayerCard player={basePlayer} isFavTeam />);
     const imgs = screen.getAllByAltText("Baltimore Ravens") as HTMLImageElement[];
     for (const img of imgs) {
       expect(img.src).toContain("espncdn.com");
@@ -151,17 +149,17 @@ describe("PlayerCard", () => {
     expect(screen.getByText("—")).toBeInTheDocument();
   });
 
-  it("applies team color background tint when is_favorite_team is true", () => {
+  it("applies team color background tint when isFavTeam is true", () => {
     const { container } = render(
-      <PlayerCard player={{ ...basePlayer, is_favorite_team: true }} />
+      <PlayerCard player={basePlayer} isFavTeam />
     );
     const card = container.firstChild as HTMLElement;
     expect(card.style.backgroundColor).not.toBe("");
   });
 
-  it("renders no team logo images when team is null even with is_favorite_team true", () => {
+  it("renders no team logo images when team is null even with isFavTeam true", () => {
     render(
-      <PlayerCard player={{ ...basePlayer, team: null, is_favorite_team: true }} />
+      <PlayerCard player={{ ...basePlayer, team: null }} isFavTeam />
     );
     // fullTeamName is "—" when team is null; no logo img should render with that alt
     expect(screen.queryByAltText("—")).toBeNull();

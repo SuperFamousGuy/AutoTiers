@@ -1,8 +1,8 @@
 import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
-import type { Profile } from "@/api/types";
+import type { LocalProfile } from "@/hooks/useLocalProfiles";
 
 interface MobileProfileMenuItemsProps {
-  profiles: Profile[];
+  profiles: LocalProfile[];
   activeId: string | null;
   onSelect: (id: string) => void;
   onNew: () => void;
