@@ -51,6 +51,21 @@ describe("App skip-to-main-content link (#811)", () => {
     expect(link).toHaveFocus();
   });
 
+  it("moves focus to the <main> region when activated", async () => {
+    renderApp();
+    const user = userEvent.setup();
+
+    const link = screen.getByRole("link", { name: /skip to main content/i });
+    // Tab to the link (first stop) and activate it — the key acceptance
+    // criterion is that focus lands on <main>, not merely that the hash changes.
+    await user.tab();
+    expect(link).toHaveFocus();
+    await user.keyboard("{Enter}");
+
+    const main = document.getElementById("main-content");
+    expect(main).toHaveFocus();
+  });
+
   it("stays visually hidden until focused (off-screen, not display:none)", () => {
     renderApp();
 

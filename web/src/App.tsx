@@ -451,10 +451,20 @@ export default function App() {
           through every header control (WCAG 2.4.1 Bypass Blocks, #811). Kept
           visually hidden via `sr-only` until focused, at which point
           `focus:not-sr-only` brings it on-screen. Targets the <main> region,
-          which carries id="main-content" and tabIndex={-1} so focus can land
-          there programmatically. */}
+          which carries id="main-content" and tabIndex={-1}. The onClick handler
+          moves focus onto <main> explicitly — bare fragment navigation
+          (`#main-content`) doesn't reliably shift focus across browsers/AT, so
+          the handler is what satisfies the "focus lands on <main>" criterion. */}
       <a
         href="#main-content"
+        onClick={(e) => {
+          e.preventDefault();
+          const main = document.getElementById("main-content");
+          if (main) {
+            main.focus();
+            main.scrollIntoView();
+          }
+        }}
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-background focus:px-4 focus:py-2 focus:text-foreground focus:shadow-lg focus:ring-2 focus:ring-ring"
       >
         Skip to main content
@@ -550,7 +560,7 @@ export default function App() {
       <main
         id="main-content"
         tabIndex={-1}
-        className="flex-1 grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_minmax(0,1.5fr)] lg:grid-rows-1 overflow-hidden outline-none"
+        className="flex-1 grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_minmax(0,1.5fr)] lg:grid-rows-1 overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       >
         <div
           id="panel-settings"
