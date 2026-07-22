@@ -95,7 +95,11 @@ env:
   # would resolve and keeps the legacy park-with-notice behaviour. Arm by
   # flipping to "false" after one dry-run tick logs sensible verdicts (or pass
   # the final_resolve_dry_run=false workflow_dispatch input for a single run).
-  FINAL_RESOLVE_DRY_RUN: "true"
+  # ARMED 2026-07-22: capped PRs now auto reply+resolve remaining Copilot
+  # threads instead of parking for a human. Caveat: the cap heuristic assumes
+  # remaining threads are nitpick-class; a genuine bug surviving 3 passes (e.g.
+  # PR #816's skip-link focus gap) will be auto-resolved as a "noted nitpick".
+  FINAL_RESOLVE_DRY_RUN: "false"
 
 jobs:
   # STAGE 1 (cheap): scan for eligible PRs. Pure gh/GraphQL, no toolchain, no
