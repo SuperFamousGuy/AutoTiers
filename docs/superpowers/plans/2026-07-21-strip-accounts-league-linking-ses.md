@@ -878,12 +878,33 @@ Follow the repo's existing migration-run path (see memory
 established working mechanism, e.g. exec into the backend task or the CI migrate
 step). Run `alembic upgrade head`. Verify the 5 tables are gone.
 
+- [ ] **Step 2a: Clean the local tfvars BEFORE planning.**
+  The `.tf` were updated, but `infra/terraform.tfvars` (gitignored; holds the
+  real secret values + `enable_ses = true`) and `infra/prod.auto.tfvars`
+  (`backend_base_url = ...`, a `ses_route53_zone_name` comment) still set
+  variables that no longer exist. Terraform emits "Value for undeclared
+  variable" warnings for each. Remove the now-undeclared lines: `jwt_secret`,
+  `secret_key`, `yahoo_client_id/secret`, `google_client_id/secret`,
+  `enable_ses`, `backend_base_url` (and rename any `ses_route53_zone_name` →
+  `route53_zone_name` if set). Keep `manage_dns = true`, `admin_api_key`,
+  `domain_name`, DB settings.
+
 - [ ] **Step 3: Apply Terraform**
 
 ```bash
 cd infra && terraform apply teardown.plan
 ```
-Confirm only SES + secrets + task-def changed; DNS/TLS/domain intact.
+  **Expected destroy manifest** — the plan should destroy/remove ONLY:
+  SES domain identity + DKIM + MAIL FROM, the SES verification/DKIM/MAIL-FROM
+  Route53 records, the SES-notifications SNS topic + subscription, the
+  `ses:SendEmail` IAM statement, and the 6 Secrets Manager secrets
+  (jwt_secret, secret_key, yahoo_client_id/secret, google_client_id/secret) +
+  a backend/scheduler/migrate task-def revision. It must NOT show the apex/www/api
+  Route53 records, ACM certs, CloudFront, ALB, or the DB being destroyed — the
+  DNS records were re-homed to `data.aws_route53_zone.app` precisely so they
+  stay put. If anything outside the manifest appears, STOP.
+  Local validation already done on this branch: `terraform validate` passes,
+  `terraform test` = 9 passed / 0 failed.
 
 - [ ] **Step 4: Force a new backend deployment**
 
