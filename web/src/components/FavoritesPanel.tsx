@@ -1,57 +1,35 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, X } from "lucide-react";
+import { X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { PlayerHeadshot } from "@/components/PlayerHeadshot";
 import { TeamLogo } from "@/components/TeamLogo";
-import type { FavoritesOut, FavoritesUpdate, PlayerSearchResult } from "@/api/types";
+import type { PlayerSearchResult } from "@/api/types";
 import { NFL_CONFERENCES } from "@/lib/teams";
-import { ApiError } from "@/api/client";
 
 const PLAYER_CAP = 20;
 const TEAM_CAP = 4;
 const SEARCH_DEBOUNCE_MS = 300;
 
-const GENERIC_SAVE_ERROR =
-  "Couldn't save your change — it was reverted. Please try again.";
-
-/**
- * Turn a rejected save into user-facing copy. The backend returns actionable
- * details for domain rejections (e.g. `Unknown player ID(s): X`) as a FastAPI
- * `{"detail": "..."}` body carried on `ApiError.message`; surface that so the
- * user knows *which* player to remove instead of a generic fallback. Anything
- * without a usable detail falls back to the generic revert message.
- */
-function saveErrorMessage(err: unknown): string {
-  if (err instanceof ApiError) {
-    try {
-      const parsed = JSON.parse(err.message) as { detail?: unknown };
-      if (typeof parsed.detail === "string" && parsed.detail.trim()) {
-        return `Couldn't save your change — it was reverted. ${parsed.detail}`;
-      }
-    } catch {
-      // Non-JSON body (e.g. a plain status text) — fall through to the generic.
-    }
-  }
-  return GENERIC_SAVE_ERROR;
-}
-
 interface FavoritesPanelProps {
-  favorites: FavoritesOut;
-  loading?: boolean;
-  error?: string | null;
-  onRetry?: () => void;
-  onSave: (next: FavoritesUpdate) => Promise<void>;
+  favoritePlayerIds: string[];
+  favoriteTeams: string[];
+  onTogglePlayer: (id: string) => void;
+  onToggleTeam: (code: string) => void;
   searchPlayers: (q: string) => Promise<PlayerSearchResult[]>;
   batchPlayers: (ids: string[]) => Promise<PlayerSearchResult[]>;
 }
 
+/**
+ * Favorites live in `localStorage` (useLocalFavorites) — every toggle here is
+ * synchronous and can't fail, so unlike the old server-backed panel there is
+ * no loading/error/retry state and no optimistic-revert copy.
+ */
 export function FavoritesPanel({
-  favorites,
-  loading = false,
-  error = null,
-  onRetry,
-  onSave,
+  favoritePlayerIds,
+  favoriteTeams,
+  onTogglePlayer,
+  onToggleTeam,
   searchPlayers,
   batchPlayers,
 }: FavoritesPanelProps) {
@@ -59,7 +37,6 @@ export function FavoritesPanel({
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [results, setResults] = useState<PlayerSearchResult[]>([]);
   const [searched, setSearched] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
   const [batchLoading, setBatchLoading] = useState(false);
   const resolvedPlayers = useRef<Record<string, PlayerSearchResult>>({});
 
@@ -93,9 +70,7 @@ export function FavoritesPanel({
   }, [debouncedQuery, searchPlayers]);
 
   useEffect(() => {
-    const unresolved = favorites.favorite_player_ids.filter(
-      (id) => !(id in resolvedPlayers.current)
-    );
+    const unresolved = favoritePlayerIds.filter((id) => !(id in resolvedPlayers.current));
     if (unresolved.length === 0) return;
     let cancelled = false;
     setBatchLoading(true);
@@ -109,96 +84,31 @@ export function FavoritesPanel({
         if (!cancelled) setBatchLoading(false);
       });
     return () => { cancelled = true; setBatchLoading(false); };
-  }, [favorites.favorite_player_ids, batchPlayers]);
+  }, [favoritePlayerIds, batchPlayers]);
 
-  const playersAtCap = favorites.favorite_player_ids.length >= PLAYER_CAP;
-  const teamsAtCap = favorites.favorite_teams.length >= TEAM_CAP;
-
-  const commit = (next: FavoritesUpdate) => {
-    setSaveError(null);
-    onSave(next).catch((err) => {
-      setSaveError(saveErrorMessage(err));
-    });
-  };
+  const playersAtCap = favoritePlayerIds.length >= PLAYER_CAP;
+  const teamsAtCap = favoriteTeams.length >= TEAM_CAP;
 
   const resolvedPlayer = (id: string): PlayerSearchResult | undefined =>
     resolvedPlayers.current[id];
 
-  const addPlayer = (id: string) => {
-    if (favorites.favorite_player_ids.includes(id) || playersAtCap) return;
-    commit({
-      favorite_player_ids: [...favorites.favorite_player_ids, id],
-      favorite_teams: favorites.favorite_teams,
-    });
-  };
-
-  const removePlayer = (id: string) => {
-    commit({
-      favorite_player_ids: favorites.favorite_player_ids.filter((x) => x !== id),
-      favorite_teams: favorites.favorite_teams,
-    });
-  };
-
-  const toggleTeam = (team: string) => {
-    const isFav = favorites.favorite_teams.includes(team);
-    if (isFav) {
-      commit({
-        favorite_player_ids: favorites.favorite_player_ids,
-        favorite_teams: favorites.favorite_teams.filter((t) => t !== team),
-      });
-    } else if (!teamsAtCap) {
-      commit({
-        favorite_player_ids: favorites.favorite_player_ids,
-        favorite_teams: [...favorites.favorite_teams, team],
-      });
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-        <span role="status">Loading favorites…</span>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex flex-col items-center gap-3 p-8 text-center">
-        <p className="text-sm text-destructive">{error}</p>
-        {onRetry && (
-          <Button type="button" variant="outline" size="sm" onClick={onRetry}>
-            Retry
-          </Button>
-        )}
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6 p-4">
-      {saveError && (
-        <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {saveError}
-        </p>
-      )}
-
       <section data-testid="player-favorites" data-batchloading={String(batchLoading)}>
         <header className="flex items-center justify-between mb-2">
           <h3 className="font-medium">Favorite Players</h3>
           <span className={`text-xs ${playersAtCap ? "text-amber-600" : "text-muted-foreground"}`}>
-            {favorites.favorite_player_ids.length} / {PLAYER_CAP}
+            {favoritePlayerIds.length} / {PLAYER_CAP}
           </span>
         </header>
 
-        {favorites.favorite_player_ids.length === 0 ? (
+        {favoritePlayerIds.length === 0 ? (
           <p className="text-sm text-muted-foreground mb-3">
             No favorite players yet. Search below to add one.
           </p>
         ) : batchLoading ? (
           <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 mb-3">
-            {favorites.favorite_player_ids.map((id) => (
+            {favoritePlayerIds.map((id) => (
               <li key={id} className="flex items-center gap-3 rounded-lg border bg-card p-3 animate-pulse">
                 <div className="h-12 w-12 shrink-0 rounded-md bg-muted" />
                 <div className="flex-1 space-y-2">
@@ -210,7 +120,7 @@ export function FavoritesPanel({
           </ul>
         ) : (
           <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 mb-3">
-            {favorites.favorite_player_ids.map((id) => {
+            {favoritePlayerIds.map((id) => {
               const player = resolvedPlayer(id);
               return (
                 <li
@@ -235,7 +145,7 @@ export function FavoritesPanel({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    onClick={() => removePlayer(id)}
+                    onClick={() => onTogglePlayer(id)}
                     aria-label={`Remove ${player?.name ?? id}`}
                     className="absolute right-1 top-1 h-6 w-6 p-0"
                   >
@@ -265,7 +175,7 @@ export function FavoritesPanel({
             <li className="text-sm text-muted-foreground">No players match "{debouncedQuery}".</li>
           )}
           {results.map((p) => {
-            const isFav = favorites.favorite_player_ids.includes(p.id);
+            const isFav = favoritePlayerIds.includes(p.id);
             return (
               <li key={p.id} className="flex items-center justify-between text-sm">
                 <span>{p.name} ({p.position}{p.team ? ` · ${p.team}` : ""})</span>
@@ -273,7 +183,7 @@ export function FavoritesPanel({
                   type="button"
                   variant={isFav ? "ghost" : "outline"}
                   size="sm"
-                  onClick={() => (isFav ? removePlayer(p.id) : addPlayer(p.id))}
+                  onClick={() => onTogglePlayer(p.id)}
                   disabled={!isFav && playersAtCap}
                   aria-label={isFav ? `Remove ${p.name}` : `Add ${p.name}`}
                 >
@@ -289,7 +199,7 @@ export function FavoritesPanel({
         <header className="flex items-center justify-between mb-2">
           <h3 className="font-medium">Favorite Teams</h3>
           <span className={`text-xs ${teamsAtCap ? "text-amber-600" : "text-muted-foreground"}`}>
-            {favorites.favorite_teams.length} / {TEAM_CAP}
+            {favoriteTeams.length} / {TEAM_CAP}
           </span>
         </header>
         {teamsAtCap && (
@@ -297,7 +207,7 @@ export function FavoritesPanel({
             Limit reached ({TEAM_CAP} teams). Remove one to add another.
           </p>
         )}
-        {favorites.favorite_teams.length === 0 && (
+        {favoriteTeams.length === 0 && (
           <p className="text-sm text-muted-foreground mb-2">
             No favorite teams yet. Select up to {TEAM_CAP} teams.
           </p>
@@ -312,14 +222,14 @@ export function FavoritesPanel({
                     <h5 className="mb-1 text-xs font-semibold text-muted-foreground">{div.division}</h5>
                     <div className="grid grid-cols-4 gap-2">
                       {div.teams.map((team) => {
-                        const isFav = favorites.favorite_teams.includes(team.code);
+                        const isFav = favoriteTeams.includes(team.code);
                         return (
                           <Button
                             key={team.code}
                             type="button"
                             variant={isFav ? "default" : "outline"}
                             size="sm"
-                            onClick={() => toggleTeam(team.code)}
+                            onClick={() => onToggleTeam(team.code)}
                             disabled={!isFav && teamsAtCap}
                             aria-label={team.name}
                             aria-pressed={isFav}

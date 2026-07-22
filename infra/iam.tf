@@ -43,12 +43,6 @@ data "aws_iam_policy_document" "secrets_read" {
       aws_secretsmanager_secret.db_password.arn,
       aws_secretsmanager_secret.database_url.arn,
       aws_secretsmanager_secret.database_url_sync.arn,
-      aws_secretsmanager_secret.jwt_secret.arn,
-      aws_secretsmanager_secret.secret_key.arn,
-      aws_secretsmanager_secret.yahoo_client_id.arn,
-      aws_secretsmanager_secret.yahoo_client_secret.arn,
-      aws_secretsmanager_secret.google_client_id.arn,
-      aws_secretsmanager_secret.google_client_secret.arn,
       aws_secretsmanager_secret.admin_api_key.arn,
     ]
   }
@@ -73,49 +67,14 @@ resource "aws_iam_role" "ecs_task" {
   }
 }
 
-# Allow the app to send transactional email via SES (password reset + email
-# verification). The sender is pinned by the ses:FromAddress condition so a
-# compromised task can only ever send AS noreply@<domain> -- it cannot spoof
-# other senders on the domain.
-#
-# The Resource list must include BOTH the sender domain identity AND every
-# recipient-address identity (identity/*). SES authorizes ses:SendEmail against
-# *all* identities involved in a send, and while the account is in the SES
-# sandbox each recipient is itself a verified email identity. Scoping Resource
-# to only the domain identity caused AccessDenied on the recipient identity,
-# silently dropping all verification/reset mail (the from-address condition
-# still constrains who we can send AS, so identity/* does not weaken anti-spoof).
-data "aws_iam_policy_document" "ses_send" {
-  statement {
-    effect = "Allow"
-    actions = [
-      "ses:SendEmail",
-      "ses:SendRawEmail",
-    ]
-    resources = [
-      aws_ses_domain_identity.main.arn,
-      "arn:aws:ses:${var.aws_region}:${data.aws_caller_identity.current.account_id}:identity/*",
-    ]
-
-    condition {
-      test     = "StringEquals"
-      variable = "ses:FromAddress"
-      values   = [var.ses_from_email]
-    }
-  }
-}
-
-resource "aws_iam_role_policy" "ecs_task_ses" {
-  name   = "${var.app_name}-${var.environment}-ses-send"
-  role   = aws_iam_role.ecs_task.id
-  policy = data.aws_iam_policy_document.ses_send.json
-}
+# No inline policies: the backend app makes no AWS API calls of its own (SES
+# sending was removed with the accounts/email teardown). The role still exists
+# to satisfy the ECS task definition's task_role_arn requirement.
 
 ###############################################################################
 # Scheduler Task Role
-# The scheduler service never sends email, so it gets its own bare task role
-# rather than sharing the backend's (which carries ses:SendEmail) — keeps SES
-# permissions off the scheduler per least-privilege.
+# The scheduler service gets its own bare task role (it never calls any AWS
+# API directly either) rather than sharing the backend's, per least-privilege.
 ###############################################################################
 resource "aws_iam_role" "ecs_scheduler_task" {
   name               = "${var.app_name}-${var.environment}-ecs-scheduler-task-role"

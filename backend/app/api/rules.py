@@ -1,9 +1,6 @@
-from typing import Optional
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from app.schemas.rules import RuleSchema, RuleConditionSchema, RuleEffectSchema
 from app.engine.builtin_rules import BUILTIN_RULES
-from app.models import User
-from app.auth.dependencies import _get_current_user_impl
 
 router = APIRouter()
 
@@ -17,6 +14,7 @@ _CATEGORIES = {
     "Sophomore Leap": "Situation",
     "TE Year-3 Leap": "Situation",
     "Rookie RB Draft Capital": "Situation",
+    "Rookie WR Draft Capital": "Situation",
     "Contract Year": "Situation",
     "Bad Offense": "Situation",
     "Follow the Money": "Situation",
@@ -44,12 +42,15 @@ def _categorize(name: str) -> str:
 
 
 @router.get("/rules", response_model=list[RuleSchema])
-async def list_rules(
-    current_user: Optional[User] = Depends(_get_current_user_impl),
-) -> list[RuleSchema]:
+async def list_rules() -> list[RuleSchema]:
     out: list[RuleSchema] = []
     for rule in BUILTIN_RULES:
-        if rule.name == "Favorites" and current_user is None:
+        # "Favorites" has no meaning without a server-side account (accounts
+        # were removed in the v1 teardown) — is_favorite is never populated
+        # by /generate anymore, so this rule structurally can't fire. Keep it
+        # out of the exposed rule list entirely rather than let users toggle a
+        # dead rule.
+        if rule.name == "Favorites":
             continue
         out.append(RuleSchema(
             name=rule.name,

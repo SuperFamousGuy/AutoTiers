@@ -18,9 +18,7 @@
       ],
       "secrets": [
         { "name": "DATABASE_URL", "valueFrom": null },
-        { "name": "DATABASE_URL_SYNC", "valueFrom": null },
-        { "name": "JWT_SECRET", "valueFrom": null },
-        { "name": "SECRET_KEY", "valueFrom": null }
+        { "name": "DATABASE_URL_SYNC", "valueFrom": null }
       ]
     }
   ]

@@ -26,10 +26,10 @@ export function MobilePanelTabBar({ active, onChange, generateIsPending = false 
 
   // WAI-ARIA APG tab pattern (automatic-activation variant): Left/Right cycle
   // the active tab among TABS, wrapping at the ends, and move focus to the newly
-  // active tab button — matching the position strip in RulesPanel and the
-  // platform strip in LinkedAccountsDialog. This is a controlled component, so
-  // selection is driven by onChange; the parent re-renders with the new `active`
-  // while we focus the destination button (already mounted) synchronously.
+  // active tab button — matching the position strip in RulesPanel. This is a
+  // controlled component, so selection is driven by onChange; the parent
+  // re-renders with the new `active` while we focus the destination button
+  // (already mounted) synchronously.
   function handleTabKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
     // Derive the current tab from the focused button rather than the `active`

@@ -126,6 +126,84 @@ async def test_fuzzy_match_falls_back_to_token_ratio(test_db, use_index):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("use_index", [False, True])
+async def test_fuzzy_match_deterministic_on_same_name_same_team_collision(
+    test_db, caplog, use_index
+):
+    """Strategy 1: two Player rows sharing normalized name + team + position must
+    resolve deterministically (lowest id wins regardless of insert order) and log
+    a warning naming both ids/teams."""
+    # Insert with the higher id first so index-0-of-row-order != lowest id.
+    test_db.add(Player(id="wr_zzz", name="Michael Thomas", position="WR", team="NO"))
+    test_db.add(Player(id="wr_aaa", name="Michael Thomas", position="WR", team="NO"))
+    await test_db.commit()
+
+    index = PositionMatchIndex() if use_index else None
+    with caplog.at_level("WARNING", logger="app.data.matching"):
+        caplog.clear()
+        first = await fuzzy_match(test_db, "Michael Thomas", "NO", "WR", index=index)
+    warnings = [
+        r for r in caplog.records
+        if r.levelname == "WARNING" and r.name == "app.data.matching"
+    ]
+    assert len(warnings) == 1
+    msg = warnings[0].getMessage()
+    assert "collision" in msg
+    assert "wr_aaa" in msg and "wr_zzz" in msg
+
+    # Deterministic across repeated calls (lowest id wins via order_by(Player.id)).
+    second = await fuzzy_match(test_db, "Michael Thomas", "NO", "WR", index=index)
+    assert first is not None
+    assert first.id == "wr_aaa"
+    assert second.id == first.id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("use_index", [False, True])
+async def test_fuzzy_match_deterministic_on_same_name_any_team_collision(
+    test_db, caplog, use_index
+):
+    """Strategy 2: two Player rows sharing normalized name + position but different
+    teams (neither matches the lookup team) resolve deterministically and warn."""
+    test_db.add(Player(id="rb_zzz", name="Mike Davis", position="RB", team="ATL"))
+    test_db.add(Player(id="rb_aaa", name="Mike Davis", position="RB", team="CAR"))
+    await test_db.commit()
+
+    index = PositionMatchIndex() if use_index else None
+    with caplog.at_level("WARNING", logger="app.data.matching"):
+        caplog.clear()
+        first = await fuzzy_match(test_db, "Mike Davis", "BAL", "RB", index=index)
+    warnings = [
+        r for r in caplog.records
+        if r.levelname == "WARNING" and r.name == "app.data.matching"
+    ]
+    assert len(warnings) == 1
+    msg = warnings[0].getMessage()
+    assert "collision" in msg
+    assert "rb_aaa" in msg and "rb_zzz" in msg
+
+    second = await fuzzy_match(test_db, "Mike Davis", "BAL", "RB", index=index)
+    assert first is not None
+    assert first.id == "rb_aaa"
+    assert second.id == first.id
+
+
+@pytest.mark.asyncio
+async def test_fuzzy_match_single_candidate_emits_no_warning(test_db, caplog):
+    """The common single-candidate path is unchanged: a match, no warning."""
+    test_db.add(Player(id="wr_1", name="Justin Jefferson", position="WR", team="MIN"))
+    await test_db.commit()
+    with caplog.at_level("WARNING", logger="app.data.matching"):
+        caplog.clear()
+        match = await fuzzy_match(test_db, "Justin Jefferson", "MIN", "WR")
+    assert match is not None and match.id == "wr_1"
+    assert [
+        r for r in caplog.records
+        if r.levelname == "WARNING" and r.name == "app.data.matching"
+    ] == []
+
+
+@pytest.mark.asyncio
 async def test_position_match_index_caches_empty_bucket(test_engine, test_db):
     """A position with no players is cached too — no re-query on repeat lookups."""
     index = PositionMatchIndex()

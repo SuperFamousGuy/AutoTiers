@@ -129,6 +129,18 @@ async def test_generate_invalid_weights_returns_422(async_client):
     assert resp.status_code == 422
 
 
+async def test_generate_has_no_favorite_fields(async_client, test_db):
+    """Accounts were removed (v1 teardown): /generate is always anonymous and
+    never returns favorite flags — the client derives them from localStorage."""
+    await _seed(test_db)
+    resp = await async_client.post("/api/generate", json=_GENERATE_BODY)
+    assert resp.status_code == 200
+    player = resp.json()["players"][0]
+    assert "is_favorite" not in player
+    assert "is_favorite_player" not in player
+    assert "is_favorite_team" not in player
+
+
 async def test_generate_negative_weight_returns_422(async_client):
     # Sums to 1.0 but a negative weight would silently drop that source under
     # the >0 active-set rule in blend_scores; the boundary must reject it.

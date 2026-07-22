@@ -37,8 +37,6 @@ const tier7Response: GenerateResponse = {
       flags: [],
       rules_applied: [],
       rule_applications: [],
-      is_favorite_player: null,
-      is_favorite_team: null,
     },
   ],
 };
@@ -71,8 +69,6 @@ const qbOnlyResponse: GenerateResponse = {
       flags: [],
       rules_applied: [],
       rule_applications: [],
-      is_favorite_player: null,
-      is_favorite_team: null,
     },
   ],
 };

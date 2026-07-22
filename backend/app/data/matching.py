@@ -1,6 +1,7 @@
 """Player name normalization and fuzzy matching for sources without stable IDs."""
 from __future__ import annotations
 
+import logging
 import re
 from typing import Optional
 
@@ -10,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Player
 
+
+logger = logging.getLogger(__name__)
 
 _SUFFIX_PATTERN = re.compile(r"\b(jr|sr|ii|iii|iv|v)\b\.?", re.IGNORECASE)
 _PUNCT_PATTERN = re.compile(r"[^\w\s]")
@@ -23,6 +26,34 @@ def normalize_name(name: str) -> str:
     s = _PUNCT_PATTERN.sub("", s)
     s = _WHITESPACE_PATTERN.sub(" ", s).strip()
     return s
+
+
+def _warn_ambiguous(
+    strategy: str,
+    target: str,
+    team: str,
+    position: str,
+    matches: list[Player],
+) -> None:
+    """Log a warning when an exact-match strategy hits more than one Player row.
+
+    Candidates are ordered by ``Player.id`` so ``matches[0]`` (the winner) is
+    deterministic, but a collision still means one Player is silently getting
+    another's scraped stats/ADP. Emit both ids/teams so the ambiguity is
+    discoverable instead of quietly wrong.
+    """
+    detail = ", ".join(f"{p.id} (team={p.team})" for p in matches)
+    logger.warning(
+        "fuzzy_match %s collision: %d players match normalized name %r "
+        "(position=%s, lookup team=%s); deterministically picking %s. Candidates: %s",
+        strategy,
+        len(matches),
+        target,
+        position,
+        team,
+        matches[0].id,
+        detail,
+    )
 
 
 class PositionMatchIndex:
@@ -57,7 +88,7 @@ class PositionMatchIndex:
         cached = self._cache.get(position)
         if cached is None:
             players = (await db.scalars(
-                select(Player).where(Player.position == position)
+                select(Player).where(Player.position == position).order_by(Player.id)
             )).all()
             cached = [(p, normalize_name(p.name)) for p in players]
             self._cache[position] = cached
@@ -92,7 +123,7 @@ async def fuzzy_match(
     # either freshly loaded (index is None) or served from the per-run cache.
     if index is None:
         players = (await db.scalars(
-            select(Player).where(Player.position == position)
+            select(Player).where(Player.position == position).order_by(Player.id)
         )).all()
         candidates = [(p, normalize_name(p.name)) for p in players]
     else:
@@ -101,19 +132,31 @@ async def fuzzy_match(
     # Strategy 1: exact match including team
     same_team = [p for p, norm in candidates if norm == target and p.team == team]
     if same_team:
+        if len(same_team) > 1:
+            _warn_ambiguous("name+team+position", target, team, position, same_team)
         return same_team[0]
 
     # Strategy 2: exact name + position, any team
     any_team = [p for p, norm in candidates if norm == target]
     if any_team:
+        if len(any_team) > 1:
+            _warn_ambiguous("name+position", target, team, position, any_team)
         return any_team[0]
 
-    # Strategy 3: fuzzy
+    # Strategy 3: fuzzy. Score every candidate above threshold, then pick a
+    # winner by a deterministic key so fuzzy-score ties don't hinge on the
+    # (unordered) DB row-fetch order. A strict ``>`` on score alone let the
+    # first-fetched of two equally-fuzzy names win, so the same scraped row
+    # could resolve to a different Player across runs. Break ties toward the
+    # team-matching candidate first, then by player id for full determinism.
     best: Optional[Player] = None
-    best_score = 0
+    best_key: tuple[float, bool, str] = (0.0, False, "")
     for p, norm in candidates:
         score = fuzz.token_set_ratio(target, norm)
-        if score >= threshold and score > best_score:
+        if score < threshold:
+            continue
+        key = (score, p.team == team, p.id)
+        if best is None or key > best_key:
             best = p
-            best_score = score
+            best_key = key
     return best

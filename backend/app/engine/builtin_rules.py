@@ -147,6 +147,35 @@ BUILTIN_RULES: list[Rule] = [
         ),
         positions=["RB"],
     ),
+    # Draft capital is also the single most predictive public signal for rookie
+    # WR PPR outcomes (2026 sourcing converges: Dynasty Nerds, PFF 2026 rookie
+    # WR model, FantasyPros "How to Value Rookie WRs" — target round 1-2 capital,
+    # be wary of round 3+). But every source shares the same caveat: WR
+    # prospecting is noticeably noisier than RB, so the multiplier is
+    # DELIBERATELY smaller than the RB rule's +8% — do NOT set these equal on a
+    # future recalibration. Same gating as the RB rule: first-year (years_exp==0)
+    # WRs drafted in the first two rounds only. UDFA / day-3 receivers
+    # (draft_round None or >2) do NOT fire — a None draft_round is a non-match
+    # under the engine's "unknown field = no match" convention (_evaluate),
+    # locked by a unit test. See the autotiers-ff-knowledge "Draft Capital Is the
+    # Dominant Predictor of Rookie WR Hit Rate (Smaller Boost Than RB)" entry.
+    Rule(
+        name="Rookie WR Draft Capital",
+        conditions=[
+            RuleCondition(field="position", operator="==", value="WR"),
+            RuleCondition(field="years_exp", operator="==", value=0),
+            RuleCondition(field="draft_round", operator="<=", value=2),
+        ],
+        effect=RuleEffect(type=EffectType.MULTIPLIER, value=1.05),
+        description=(
+            "Boosts rookie WRs (years_exp==0) drafted in the first two rounds — "
+            "draft capital is the most predictive public signal for rookie WR "
+            "hit rate. Deliberately smaller than the rookie RB boost (+5% vs +8%) "
+            "because WR prospecting is noisier. UDFA / day-3 receivers "
+            "(draft_round None or >2) do not fire. +5% at default weight."
+        ),
+        positions=["WR"],
+    ),
     Rule(
         name="Contract Year Flag",
         conditions=[RuleCondition(field="years_exp", operator=">", value=3)],

@@ -35,21 +35,11 @@ override_data {
   values = { json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}" }
 }
 override_data {
-  target = data.aws_iam_policy_document.ses_send
-  values = { json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}" }
-}
-override_data {
-  target = data.aws_iam_policy_document.ses_notifications
-  values = { json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}" }
-}
-override_data {
   target = data.aws_iam_policy_document.ops_alerts
   values = { json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}" }
 }
 
 variables {
-  jwt_secret              = "a-sufficiently-long-jwt-signing-secret-value"
-  secret_key              = "dKkY-w0jHF6kBE_oTzx7JtAYxHB1yyaJYBNz3X1eYdY="
   admin_api_key           = "a-sufficiently-long-admin-api-key-value-123"
   run_migrations_on_apply = false
 }
