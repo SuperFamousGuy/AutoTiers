@@ -53,7 +53,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association) &&
-       !contains(github.event.issue.body, 'autotiers:rec'))
+       !contains(github.event.issue.body, '<!-- autotiers:rec'))
     steps:
       # Resolve the issue's number/title/author from EITHER the webhook payload
       # (opened/reopened) OR the workflow_dispatch input, into $GITHUB_ENV so

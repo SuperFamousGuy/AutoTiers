@@ -24,8 +24,9 @@ world (input dict):
 
 result (return value): the surviving candidates, ordered best-first, capped.
 `score` is carried through (coerced to float, defaulting to 0.0) so the
-downstream triage dispatcher can meter issues best-score-first without
-re-parsing the filed issue body:
+workflow can embed it into the issue's `<!-- autotiers:rec score=N -->`
+body marker when filing; the downstream triage dispatcher then parses that
+marker to meter issues best-score-first:
     [{"title": "...", "area": "...", "body": "...", "score": 8.5}]
 """
 from __future__ import annotations

@@ -120,7 +120,10 @@ jobs:
             n="$(echo "$row" | jq -r .number)"
             s="$(echo "$row" | jq -r .score)"
             echo "dispatch #$n (score $s)"
-            if [ "$dry_run" = "true" ]; then
+            # Fail-safe: ARM only when DRY_RUN is exactly "false". Any other value
+            # (an unset var, a typo like "False"/"0", or the default "true") stays
+            # report-only, so a mistyped flag can never silently arm dispatch.
+            if [ "$dry_run" != "false" ]; then
               echo "(dry-run) would drop '$QUEUED_LABEL' and dispatch $IMPLEMENT_WORKFLOW for #$n."
               continue
             fi

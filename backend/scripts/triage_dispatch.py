@@ -24,7 +24,7 @@ world (stdin/file JSON):
     }
 
 plan (stdout JSON):
-    {"dispatch": [{"number": 12, "score": 8.5}], "slots": 2}
+    {"dispatch": [{"number": 12, "score": 8.5}], "slots": 1}
 
 `slots` is the number of free slots computed (cap - inflight, floored at 0);
 `dispatch` is at most `slots` issues, best score first. A malformed world (bad

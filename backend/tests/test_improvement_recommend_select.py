@@ -76,7 +76,7 @@ def test_is_duplicate_unrelated_titles_false():
     assert not _is_duplicate("Upgrade jenkspy clustering", ["Redesign the export modal"])
 
 
-def test_result_shape_is_title_area_body_only():
+def test_result_shape_is_title_area_body_score():
     out = select({"max_issues": 5, "existing": [], "candidates": [_cand("x", 1.0)]})
     assert set(out[0].keys()) == {"title", "area", "body", "score"}
 
