@@ -44,7 +44,10 @@ permissions:
 env:
   # Ship SAFE: report-only until a human confirms the dispatch decisions against
   # real backlog state, then flip to "false" in a one-line commit to arm it.
-  DRY_RUN: "true"
+  # ARMED 2026-07-22: now meters top-score backlog issues into
+  # claude-implement-issue at CAP below (autonomous issue->implement pipeline,
+  # spends quota). Re-safe by flipping "true".
+  DRY_RUN: "false"
   CAP: "2" # max concurrent open auto-implement PRs
   QUEUED_LABEL: "triage-queued"
   IMPLEMENT_WORKFLOW: claude-implement-issue.yml
