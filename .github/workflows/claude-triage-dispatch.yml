@@ -1,0 +1,110 @@
+name: claude-triage-dispatch
+
+# Deterministic throttle between the improvement recommender and the
+# auto-implementer. The recommender files backlog issues labelled `triage-queued`
+# with a `<!-- autotiers:rec score=N -->` body marker. This workflow reacts to a
+# freed slot (a PR closing) or new intake (an issue opening), counts in-flight
+# `claude/issue-*` PRs, and dispatches the top-score queued issues to
+# claude-implement-issue.yml to fill up to CAP concurrent slots. It invokes NO
+# Claude — selection is a pure Python decision core.
+#
+# TOKEN SPLIT (correctness-critical): the `gh workflow run` DISPATCH uses
+# PR_AUTHOR_PAT, because a GITHUB_TOKEN-triggered workflow_dispatch is suppressed
+# by GitHub's recursion guard (same rule as the orphan sweeper). Label writes use
+# the built-in GITHUB_TOKEN.
+#
+# Design: docs/superpowers/specs/2026-07-21-triage-dispatch-throttle-design.md
+
+on:
+  pull_request:
+    types: [closed] # a slot may have freed
+  issues:
+    types: [opened, reopened] # cold-start seed: start an empty pipe
+  workflow_dispatch: {} # manual recovery lever
+
+concurrency:
+  # Serialize ticks so two events never both dispatch (and double-drain) slots.
+  group: claude-triage-dispatch
+  cancel-in-progress: false
+
+permissions:
+  contents: read # actions/checkout for the decision core
+  issues: write # remove the triage-queued label on dispatch
+  pull-requests: read # count in-flight claude/issue-* PRs
+
+env:
+  CAP: "2" # max concurrent open auto-implement PRs
+  QUEUED_LABEL: "triage-queued"
+  IMPLEMENT_WORKFLOW: claude-implement-issue.yml
+
+jobs:
+  dispatch:
+    name: dispatch queued recommendations to fill open slots
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Scan, plan, and dispatch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_AUTHOR_PAT: ${{ secrets.PR_AUTHOR_PAT }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # --- Gather the world -----------------------------------------------
+          # In-flight = open PRs whose head is a `claude/issue-N` branch.
+          inflight="$(gh pr list --repo "$REPO" --state open --limit 300 \
+            --json headRefName \
+            --jq '[.[] | select(.headRefName | test("^claude/issue-[0-9]+$"))] | length')"
+
+          # Queued backlog issues with body + label names.
+          gh issue list --repo "$REPO" --label "$QUEUED_LABEL" --state open \
+            --limit 200 --json number,body,labels \
+            --jq '[.[] | {number, body, labels: [.labels[].name]}]' > queued.json
+
+          jq -n \
+            --arg cap "$CAP" \
+            --arg inflight "$inflight" \
+            --arg queued "$QUEUED_LABEL" \
+            --slurpfile issues queued.json \
+            '{cap: ($cap|tonumber), inflight: ($inflight|tonumber),
+              queued_label: $queued, issues: $issues[0]}' > world.json
+
+          echo "::group::world.json"; cat world.json; echo "::endgroup::"
+
+          # --- Decide ---------------------------------------------------------
+          python3 backend/scripts/triage_dispatch.py --world world.json > plan.json
+          echo "::group::plan.json"; cat plan.json; echo "::endgroup::"
+
+          slots="$(jq -r .slots plan.json)"
+          count="$(jq -r '.dispatch | length' plan.json)"
+          {
+            echo "### Triage dispatch"
+            echo ""
+            echo "| metric | value |"
+            echo "|---|---|"
+            echo "| CAP | $CAP |"
+            echo "| in-flight PRs | $inflight |"
+            echo "| free slots | $slots |"
+            echo "| dispatched | $count |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # --- Act ------------------------------------------------------------
+          # For each selected issue: drop triage-queued (GITHUB_TOKEN) so it is
+          # never re-selected, then dispatch implement (PR_AUTHOR_PAT — a
+          # GITHUB_TOKEN dispatch no-ops). Order matters: remove the label first
+          # so a mid-loop failure can't leave a dispatched issue still queued.
+          jq -c '.dispatch[]' plan.json | while read -r row; do
+            n="$(echo "$row" | jq -r .number)"
+            s="$(echo "$row" | jq -r .score)"
+            echo "dispatch #$n (score $s)"
+            gh issue edit "$n" --repo "$REPO" --remove-label "$QUEUED_LABEL"
+            GH_TOKEN="$PR_AUTHOR_PAT" gh workflow run "$IMPLEMENT_WORKFLOW" \
+              --repo "$REPO" -f issue_number="$n"
+          done
