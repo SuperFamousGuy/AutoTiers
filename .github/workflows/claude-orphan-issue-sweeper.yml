@@ -54,7 +54,9 @@ permissions:
 env:
   # Ship SAFE: report-only until a human confirms the predicate against real
   # orphans, then flip to "false" in a one-line commit to arm re-dispatch.
-  DRY_RUN: "true"
+  # ARMED 2026-07-22: now re-dispatches claude-implement-issue for orphaned
+  # issues (spends implement-loop quota autonomously). Re-safe by flipping "true".
+  DRY_RUN: "false"
   IMPLEMENT_WORKFLOW: claude-implement-issue.yml
   MAX_ATTEMPTS: "3"
   ATTEMPT_LABEL_PREFIX: "implement-attempt-"
