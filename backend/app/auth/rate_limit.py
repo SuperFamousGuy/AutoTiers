@@ -12,7 +12,7 @@ from collections import defaultdict, deque
 from typing import Deque, Dict
 
 
-class LoginRateLimiter:
+class SlidingWindowRateLimiter:
     def __init__(self, max_attempts: int = 5, window_seconds: int = 900):
         self.max_attempts = max_attempts
         self.window_seconds = window_seconds
@@ -40,4 +40,4 @@ class LoginRateLimiter:
 # no account to key on; submissions are always anonymous). 5 submissions per
 # 10 minutes prevents abuse while leaving room for a user who hits a couple of
 # bugs in one session.
-feedback_rate_limiter = LoginRateLimiter(max_attempts=5, window_seconds=600)
+feedback_rate_limiter = SlidingWindowRateLimiter(max_attempts=5, window_seconds=600)
