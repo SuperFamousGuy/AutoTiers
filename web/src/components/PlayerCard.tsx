@@ -27,9 +27,13 @@ interface PlayerCardProps {
   drafted?: boolean;
   /** Called with the player's id when the draft toggle is clicked. */
   onToggleDraft?: (id: string) => void;
+  /** Whether this player is in the user's localStorage favorites (star badge). */
+  isFavPlayer?: boolean;
+  /** Whether this player's team is in the user's localStorage favorite teams (tint + logo badge). */
+  isFavTeam?: boolean;
 }
 
-export function PlayerCard({ player, draftMode, drafted, onToggleDraft }: PlayerCardProps) {
+export function PlayerCard({ player, draftMode, drafted, onToggleDraft, isFavPlayer = false, isFavTeam = false }: PlayerCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [imgError, setImgError] = useState(false);
 
@@ -37,9 +41,6 @@ export function PlayerCard({ player, draftMode, drafted, onToggleDraft }: Player
   const teamTint = player.team ? TEAM_TINT_COLORS[player.team] : null;
   const teamRgb = teamTint ? hexToRgb(teamTint) : null;
   const fullTeamName = player.team ? (TEAM_FULL_NAME[player.team] ?? player.team) : "—";
-
-  const isFavPlayer = player.is_favorite_player === true;
-  const isFavTeam = player.is_favorite_team === true;
 
   const cardStyle: React.CSSProperties =
     isFavTeam && teamRgb

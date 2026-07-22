@@ -106,8 +106,6 @@ resource "aws_ecs_task_definition" "migrate" {
       secrets = [
         { name = "DATABASE_URL", valueFrom = aws_secretsmanager_secret.database_url.arn },
         { name = "DATABASE_URL_SYNC", valueFrom = aws_secretsmanager_secret.database_url_sync.arn },
-        { name = "JWT_SECRET", valueFrom = aws_secretsmanager_secret.jwt_secret.arn },
-        { name = "SECRET_KEY", valueFrom = aws_secretsmanager_secret.secret_key.arn },
       ]
 
       logConfiguration = {

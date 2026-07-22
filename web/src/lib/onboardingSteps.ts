@@ -41,15 +41,6 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     mobilePanel: "rules",
   },
   {
-    id: "link-league",
-    // The hamburger menu lives in the header (visible at every width), so no
-    // mobilePanel switch is needed — the anchor is always on screen. Reuses the
-    // existing "Connect Your League" entry point rather than adding new nav.
-    anchor: '[data-tour="menu"]',
-    title: "Optional: sync your real league",
-    body: "Connect your Sleeper, ESPN, Yahoo, NFL, or CBS league from the menu to auto-exclude keepers and match your league's settings.",
-  },
-  {
     id: "generate",
     anchor: '[data-tour="generate"]',
     title: "3. Build your tiers",

@@ -1,37 +1,19 @@
-"""Tests for the auth-aware GET /rules behavior introduced for Favorites.
+"""Tests for GET /api/rules and the "Favorites" rule.
 
-Anonymous users must NOT see the Favorites rule. Authenticated users must.
+Accounts were removed (v1 teardown): /generate never populates is_favorite
+server-side anymore, so the "Favorites" built-in rule can never fire. It is
+always excluded from the exposed rule list — there is no authenticated state
+in which it would appear.
 """
 import pytest
 
 
 @pytest.mark.asyncio
-async def test_get_rules_anon_hides_favorites(async_client, test_db):
+async def test_get_rules_hides_favorites(async_client, test_db):
     r = await async_client.get("/api/rules")
     assert r.status_code == 200
     names = [rule["name"] for rule in r.json()]
     assert "Favorites" not in names, (
-        "Anonymous users must not see the Favorites rule — it has no meaning without an account."
+        "Favorites has no meaning without server-side accounts — it must never "
+        "be exposed for toggling."
     )
-
-
-@pytest.mark.asyncio
-async def test_get_rules_authed_shows_favorites(async_client, test_db):
-    await async_client.post("/api/auth/signup", json={
-        "email": "ruletest@example.com", "password": "password-long-enough",
-    })
-    r = await async_client.get("/api/rules")
-    assert r.status_code == 200
-    names = [rule["name"] for rule in r.json()]
-    assert "Favorites" in names
-
-
-@pytest.mark.asyncio
-async def test_get_rules_favorites_categorized_personal(async_client, test_db):
-    await async_client.post("/api/auth/signup", json={
-        "email": "categorize@example.com", "password": "password-long-enough",
-    })
-    r = await async_client.get("/api/rules")
-    assert r.status_code == 200
-    fav = next(rule for rule in r.json() if rule["name"] == "Favorites")
-    assert fav["category"] == "Personal"

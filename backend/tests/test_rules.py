@@ -149,9 +149,9 @@ def test_builtin_rules_is_nonempty_list_of_rules():
         assert rule.conditions
 
 
-def test_builtin_rules_count_is_27():
-    """Adding 'Rookie RB Draft Capital' (was 26 after the 370-split + TE Year-3 Leap)."""
-    assert len(BUILTIN_RULES) == 27
+def test_builtin_rules_count_is_28():
+    """Adding 'Rookie WR Draft Capital' (was 27 after 'Rookie RB Draft Capital')."""
+    assert len(BUILTIN_RULES) == 28
 
 
 def test_opportunity_rules_categorized_as_regression():
@@ -518,6 +518,33 @@ def test_builtin_370_touches_bands_have_rb_position():
     for name in ("370 Touches (Young RB)", "370 Touches (Veteran RB)"):
         rule = next(r for r in BUILTIN_RULES if r.name == name)
         assert rule.positions == ["RB"]
+
+
+def test_builtin_flat_370_touches_rule_no_longer_exists():
+    # The flat "370 Touches" rule was split into age bands (issue #498 / PR #514).
+    # Guards the knowledge-base claim that the flat rule "no longer exists".
+    assert all(r.name != "370 Touches" for r in BUILTIN_RULES)
+
+
+def test_ff_knowledge_370_entry_reflects_merged_split():
+    """The autotiers-ff-knowledge '370 Touches' entry must describe the shipped,
+    merged state — not the stale 'PR #514 open/unmerged' pre-merge caveat that
+    told readers main still had the flat rule (issue #803)."""
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+    skill = repo_root / ".claude" / "skills" / "autotiers-ff-knowledge" / "SKILL.md"
+    text = skill.read_text(encoding="utf-8")
+
+    # Acceptance criterion: the stale pre-merge caveat is gone.
+    assert "PR #514 is open/unmerged" not in text
+    assert "still ships the single flat `370 Touches`" not in text
+
+    # The entry names both shipped band rules that live in builtin_rules.py.
+    shipped_bands = {"370 Touches (Young RB)", "370 Touches (Veteran RB)"}
+    assert shipped_bands.issubset(set(r.name for r in BUILTIN_RULES))
+    for name in shipped_bands:
+        assert name in text
 
 
 def test_builtin_handcuff_rb_has_rb_position():
@@ -1202,3 +1229,114 @@ def test_player_context_accepts_draft_capital_fields():
     ctx = _ctx(draft_round=1, draft_pick=12)
     assert ctx.draft_round == 1
     assert ctx.draft_pick == 12
+
+
+# --- Rookie WR Draft Capital (#824) ------------------------------------------
+
+
+def _rookie_wr_rule():
+    import dataclasses
+    return dataclasses.replace(
+        next(r for r in BUILTIN_RULES if r.name == "Rookie WR Draft Capital"),
+        enabled=True,
+    )
+
+
+def test_rookie_wr_draft_capital_fires_round_1():
+    ctx = _ctx(position="WR", years_exp=0, draft_round=1)
+    result = apply_rules(200.0, ctx, [_rookie_wr_rule()])
+    assert "Rookie WR Draft Capital" in result.rules_applied
+    assert result.adjusted_score == pytest.approx(210.0)  # 200 * 1.05
+
+
+def test_rookie_wr_draft_capital_fires_round_2():
+    ctx = _ctx(position="WR", years_exp=0, draft_round=2)
+    result = apply_rules(200.0, ctx, [_rookie_wr_rule()])
+    assert "Rookie WR Draft Capital" in result.rules_applied
+    assert result.adjusted_score == pytest.approx(210.0)
+
+
+def test_rookie_wr_draft_capital_does_not_fire_when_round_none():
+    """UDFA / unmatched draft record (draft_round is None) must NOT fire.
+
+    Locks the engine's 'unknown field = no match' convention for this rule so a
+    future edit can't silently start boosting undrafted rookies. (#824)
+    """
+    ctx = _ctx(position="WR", years_exp=0, draft_round=None)
+    result = apply_rules(200.0, ctx, [_rookie_wr_rule()])
+    assert "Rookie WR Draft Capital" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(200.0)
+
+
+def test_rookie_wr_draft_capital_does_not_fire_when_round_gt_2():
+    """Day-3 receivers (draft_round 3+) must NOT fire — draft capital gate is <=2."""
+    ctx = _ctx(position="WR", years_exp=0, draft_round=3)
+    result = apply_rules(200.0, ctx, [_rookie_wr_rule()])
+    assert "Rookie WR Draft Capital" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(200.0)
+
+
+def test_rookie_wr_draft_capital_does_not_fire_for_sophomore():
+    """A 2nd-year (years_exp=1) early-round WR must NOT fire — rookie-only gate."""
+    ctx = _ctx(position="WR", years_exp=1, draft_round=1)
+    result = apply_rules(200.0, ctx, [_rookie_wr_rule()])
+    assert "Rookie WR Draft Capital" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(200.0)
+
+
+def test_rookie_wr_draft_capital_does_not_fire_for_non_wr():
+    """A first-round rookie RB must NOT fire — this rule is WR-scoped.
+
+    Guards both gates *independently*: the positions=["WR"] gate (checked first
+    in apply_rules) and the position==WR condition. Because the positions gate
+    short-circuits before conditions are evaluated, we also strip it and prove
+    the condition alone still rejects a non-WR context — so neither guard can be
+    removed silently. (#824)
+    """
+    import dataclasses
+
+    # positions=["WR"] gate blocks the non-WR context
+    ctx = make_ctx(position="RB", years_exp=0, draft_round=1)
+    result = apply_rules(200.0, ctx, [_rookie_wr_rule()])
+    assert "Rookie WR Draft Capital" not in result.rules_applied
+    assert result.adjusted_score == pytest.approx(200.0)
+
+    # with the positions gate removed, the position==WR condition still blocks it
+    rule_no_gate = dataclasses.replace(_rookie_wr_rule(), positions=None)
+    result_no_gate = apply_rules(200.0, ctx, [rule_no_gate])
+    assert "Rookie WR Draft Capital" not in result_no_gate.rules_applied
+    assert result_no_gate.adjusted_score == pytest.approx(200.0)
+
+
+def test_rookie_wr_draft_capital_has_wr_position():
+    rule = next(r for r in BUILTIN_RULES if r.name == "Rookie WR Draft Capital")
+    assert rule.positions == ["WR"]
+
+
+def test_rookie_wr_draft_capital_multiplier_smaller_than_rb():
+    """WR boost must stay below the RB boost — WR prospecting is noisier (#824)."""
+    wr = next(r for r in BUILTIN_RULES if r.name == "Rookie WR Draft Capital")
+    rb = next(r for r in BUILTIN_RULES if r.name == "Rookie RB Draft Capital")
+    assert wr.effect.value < rb.effect.value
+
+
+def test_rookie_wr_draft_capital_categorized_as_situation():
+    from app.api.rules import _categorize
+    assert _categorize("Rookie WR Draft Capital") == "Situation"
+
+
+def test_rookie_rb_and_wr_draft_capital_do_not_cross_leak():
+    """Both rules enabled: a rookie WR fires only the WR rule, a rookie RB only the RB rule."""
+    rules = [_rookie_rb_rule(), _rookie_wr_rule()]
+
+    wr_ctx = make_ctx(position="WR", years_exp=0, draft_round=1)
+    wr_result = apply_rules(200.0, wr_ctx, rules)
+    assert "Rookie WR Draft Capital" in wr_result.rules_applied
+    assert "Rookie RB Draft Capital" not in wr_result.rules_applied
+    assert wr_result.adjusted_score == pytest.approx(210.0)
+
+    rb_ctx = make_ctx(position="RB", years_exp=0, draft_round=1)
+    rb_result = apply_rules(200.0, rb_ctx, rules)
+    assert "Rookie RB Draft Capital" in rb_result.rules_applied
+    assert "Rookie WR Draft Capital" not in rb_result.rules_applied
+    assert rb_result.adjusted_score == pytest.approx(216.0)
