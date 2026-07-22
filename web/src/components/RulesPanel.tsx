@@ -162,7 +162,7 @@ export function RulesPanel({
               aria-controls="rules-tabpanel"
               // The dot is aria-hidden, so a customized tab would otherwise
               // announce identically to an untouched one. Fold the state into
-              // the accessible name (mirrors LinkedAccountsDialog's #665 fix).
+              // the accessible name (#665).
               aria-label={isCustomized ? `${pos}, customized` : pos}
               id={`tab-${pos}`}
               onClick={() => setActivePosition(pos)}

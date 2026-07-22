@@ -4,8 +4,8 @@ from app.engine.scoring import ScoringFormat, LeagueType, PriorYearRamp, FULL_SE
 from app.engine.rules import EffectType
 from app.schemas.rules import RuleOverrideSchema
 
-# /api/generate is unauthenticated (`current_user` is Optional), so an anonymous
-# caller can POST arbitrarily large keepers/league_adp/rules payloads. Every
+# /api/generate is fully anonymous (no accounts), so any caller can POST
+# arbitrarily large keepers/league_adp/rules payloads. Every
 # entry is fully parsed, dict-comprehended, and `normalize_name`d before any real
 # work, so an unbounded payload is a DoS vector — the same reasoning that capped
 # settings_json/rules_json at 64KB in #673. Bound each collection here so an
@@ -193,8 +193,6 @@ class TieredPlayerOut(BaseModel):
     flags: list[str]
     rules_applied: list[str]
     rule_applications: list[RuleApplicationOut]
-    is_favorite_player: Optional[bool] = None
-    is_favorite_team: Optional[bool] = None
 
     model_config = {"from_attributes": True}
 

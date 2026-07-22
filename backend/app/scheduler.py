@@ -11,9 +11,20 @@ scheduler = AsyncIOScheduler(timezone=ZoneInfo("UTC"))
 
 
 async def _refresh_job() -> None:
-    async with AsyncSessionLocal() as db:
-        status = await fetcher.refresh_all(db)
-        logger.info("Data refresh complete: %s", status)
+    # Share the refresh slot with the admin endpoint (issue #827) so a
+    # scheduler tick that lands while an admin-triggered refresh is still in
+    # flight (or vice versa) is skipped instead of launching a duplicate,
+    # concurrency-unsafe refresh_all run. Release it in finally so a failed
+    # run doesn't wedge future refreshes.
+    if not fetcher.try_begin_refresh():
+        logger.info("Skipping scheduled data refresh; one is already in progress")
+        return
+    try:
+        async with AsyncSessionLocal() as db:
+            status = await fetcher.refresh_all(db)
+            logger.info("Data refresh complete: %s", status)
+    finally:
+        fetcher.end_refresh()
 
 
 def setup_scheduler() -> None:

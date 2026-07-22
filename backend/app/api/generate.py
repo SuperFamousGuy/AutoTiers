@@ -13,8 +13,7 @@ from app.database import get_db
 from app.models.player import Player, PlayerStat
 from app.models.projection import Projection
 from app.models.adp import ADPData
-from app.models import TeamSeason, PlayerContract, UserFavorites, User
-from app.auth.dependencies import _get_current_user_impl
+from app.models import TeamSeason, PlayerContract
 from app.engine.scoring import LeagueSettings, PlayerStats, calculate_fantasy_points, blend_scores, _score_receiving, _score_rushing, _score_tds_only
 from app.engine.rules import Rule, PlayerContext, apply_rules
 from app.engine.builtin_rules import BUILTIN_RULES, compute_is_over_the_hill
@@ -382,7 +381,7 @@ def _snapshot_player(p: Player) -> _PlayerSnapshot:
     )
 
 
-async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Optional[User] = None) -> list[TieredPlayer]:
+async def _run_generate(req: GenerateRequest, db: AsyncSession) -> list[TieredPlayer]:
     settings = _build_league_settings(req)
     scoring_fmt = req.scoring_format.value
 
@@ -417,19 +416,6 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
 
     above_market_pids = await _compute_above_market_pids(db, current_year, players)
 
-    # Server-side favorites lookup. Anonymous calls: empty sets, is_favorite
-    # is None per player, the Favorites rule silently no-ops. Done here (on the
-    # event loop) so the worker thread below needs no DB access.
-    favorite_pids_set: set[str] = set()
-    favorite_teams_set: set[str] = set()
-    if current_user is not None:
-        fav_row = (await db.scalars(
-            select(UserFavorites).where(UserFavorites.user_id == current_user.id)
-        )).one_or_none()
-        if fav_row is not None:
-            favorite_pids_set = set(fav_row.favorite_player_ids or [])
-            favorite_teams_set = set(fav_row.favorite_teams or [])
-
     # All DB I/O is done. Hand the pure-Python CPU work (per-player scoring +
     # rules + VBD + Jenks clustering) to a worker thread so it stops blocking
     # the single event loop that also serves other /generate requests,
@@ -446,8 +432,6 @@ async def _run_generate(req: GenerateRequest, db: AsyncSession, current_user: Op
         keepers_normalized=keepers_normalized,
         bad_offense_teams=bad_offense_teams,
         above_market_pids=above_market_pids,
-        favorite_pids_set=favorite_pids_set,
-        favorite_teams_set=favorite_teams_set,
         current_year=current_year,
     )
     logger.info(
@@ -466,8 +450,6 @@ def _compute_ranked_players(
     keepers_normalized: set[str],
     bad_offense_teams: set[str],
     above_market_pids: set[str],
-    favorite_pids_set: set[str],
-    favorite_teams_set: set[str],
     current_year: int,
 ) -> list[TieredPlayer]:
     """Pure-Python tiering: per-player scoring/rules + VBD + Jenks clustering.
@@ -521,10 +503,6 @@ def _compute_ranked_players(
 
     position_sigmas = compute_per_position_sigmas(gaps_by_position)
     # ------------------------------------------------------------------------
-
-    # ``favorite_pids_set`` / ``favorite_teams_set`` were resolved on the event
-    # loop (see ``_run_generate``) and passed in — no DB access from this thread.
-    has_any_favorites = bool(favorite_pids_set or favorite_teams_set)
 
     # Pre-compute per-position rule lists once before the player loop.
     # _build_rules_for_position is O(len(BUILTIN_RULES)) per call; calling it
@@ -631,13 +609,6 @@ def _compute_ranked_players(
             sp_for_z = _StatWithPosition(stat=stat, position=player.position)
             opportunity_score_z = compute_opportunity_score_z(sp_for_z, league_avg, position_sigmas, settings)
 
-        if has_any_favorites:
-            is_favorite_player = player.id in favorite_pids_set
-            is_favorite_team = player.team is not None and player.team in favorite_teams_set
-        else:
-            is_favorite_player = None
-            is_favorite_team = None
-
         # Double-gate invariant (DOME_TEAMS / ELEVATION_TEAM / COLD_WEATHER_TEAMS):
         # these context fields are *intentionally* only populated for position "K".
         # Every non-K player reaches the rules engine with None here, and
@@ -697,7 +668,10 @@ def _compute_ranked_players(
             bad_offense_team=bad_offense_team,
             above_market_contract=above_market_contract,
             opportunity_score_z=opportunity_score_z,
-            is_favorite=is_favorite_player or is_favorite_team,
+            # No server-side favorites anymore (accounts removed): is_favorite
+            # stays at its PlayerContext default (None), so the "Favorites"
+            # built-in rule structurally never fires. Favorite marking is now
+            # entirely client-side (localStorage), post-response.
             plays_in_dome=plays_in_dome,
             is_denver_kicker=is_denver_kicker,
             cold_weather_kicker=cold_weather_kicker,
@@ -731,8 +705,6 @@ def _compute_ranked_players(
             flags=rule_result.flags,
             rules_applied=rule_result.rules_applied,
             rule_applications=rule_result.applications,
-            is_favorite_player=is_favorite_player,
-            is_favorite_team=is_favorite_team,
             overall_rank=0,
             overall_tier=0,
             positional_tier="",
@@ -846,9 +818,8 @@ def _cap_and_assign_tiers(
 async def generate_tiers(
     req: GenerateRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: Optional[User] = Depends(_get_current_user_impl),
 ) -> GenerateResponse:
-    ranked = await _run_generate(req, db, current_user)
+    ranked = await _run_generate(req, db)
     data_as_of = await _compute_data_as_of(db)
     never_succeeded = await _compute_never_succeeded(db)
     league_adp_normalized: dict[str, float] = (

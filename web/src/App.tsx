@@ -7,24 +7,18 @@ import { ONBOARDING_STEPS } from "@/lib/onboardingSteps";
 import { SettingsPanel, DEFAULT_FULL_SEASON_GAMES, DEFAULT_PRIOR_YEAR_RAMP, DEFAULT_TE_PREMIUM, type SettingsState } from "@/components/SettingsPanel";
 import { RulesPanel } from "@/components/RulesPanel";
 import { TiersPanel } from "@/components/TiersPanel";
-import { ProfilePicker } from "@/components/ProfilePicker";
+import { ProfileSwitcher } from "@/components/ProfileSwitcher";
 import { MobileProfileMenuItems } from "@/components/MobileProfileMenuItems";
-import { ManageProfilesDialog } from "@/components/ManageProfilesDialog";
-import { LinkedAccountsDialog } from "@/components/LinkedAccountsDialog";
+import { ProfileManagerDialog } from "@/components/ProfileManagerDialog";
 import { MobilePanelTabBar, type MobilePanel } from "@/components/MobilePanelTabBar";
 import { AdSlot } from "@/components/AdSlot";
-import { PasswordResetPanel } from "@/components/PasswordResetPanel";
-import { EmailVerificationBanner, shouldShowVerificationBanner, dismissVerificationBanner } from "@/components/EmailVerificationBanner";
-import { NoProfileBanner } from "@/components/NoProfileBanner";
-import { AuthDialog } from "@/components/AuthDialog";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { useRules, useGenerateMutation, downloadDraftXlsx, downloadDebugCsv } from "@/api/hooks";
-import { useAuth } from "@/contexts/AuthContext";
-import { verifyEmail } from "@/api/auth";
-import { createProfile, updateProfile, deleteProfile, activateProfile } from "@/api/profiles";
+import { useLocalProfiles } from "@/hooks/useLocalProfiles";
+import { useLocalFavorites } from "@/hooks/useLocalFavorites";
 import { useAutoSave } from "@/hooks/useAutoSave";
-import { describeGenerateError, describeSaveError } from "@/lib/errors";
+import { describeGenerateError } from "@/lib/errors";
 import { generateDisabledReason } from "@/lib/generateGuard";
 import { buildResolvedTierNames, resolveTierLabelOverrides } from "@/lib/tiers";
 import type { Rule, GenerateRequest, PositionRulesState } from "@/api/types";
@@ -45,6 +39,15 @@ const DEFAULT_SETTINGS: SettingsState = {
   prior_year_ramp: DEFAULT_PRIOR_YEAR_RAMP,
 };
 
+/** The next "Profile N" name that doesn't collide with an existing one —
+ * `useLocalProfiles.create` throws on an exact duplicate name. */
+function nextProfileName(existing: { name: string }[]): string {
+  const names = new Set(existing.map((p) => p.name));
+  let n = existing.length + 1;
+  while (names.has(`Profile ${n}`)) n++;
+  return `Profile ${n}`;
+}
+
 export default function App() {
   const [isDark, toggleDark] = useDarkMode();
   const {
@@ -57,7 +60,8 @@ export default function App() {
     goTo: tourGoTo,
     skip: tourSkip,
   } = useOnboarding(ONBOARDING_STEPS.length);
-  const { user, profiles, setProfiles, refresh } = useAuth();
+  const { profiles, active: activeProfile, create, update, rename, remove, activate } = useLocalProfiles();
+  const { isFavoritePlayer, isFavoriteTeam } = useLocalFavorites();
   const { toast } = useToast();
   const [settings, setSettings] = useState<SettingsState>(DEFAULT_SETTINGS);
   // Dev-only debug export: surfaces the full debug CSV button when the app URL
@@ -71,25 +75,33 @@ export default function App() {
   // Per-position override state — what gets saved and sent to generate.
   const [positionRules, setPositionRules] = useState<PositionRulesState>({});
   const [seeded, setSeeded] = useState(false);
-  const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const [manageOpen, setManageOpen] = useState(false);
-  const [linkedOpen, setLinkedOpen] = useState(false);
-  const [linkingError, setLinkingError] = useState<string | null>(null);
-  // Password-reset token extracted from ?reset_token= query param.
-  const [resetToken, setResetToken] = useState<string | null>(null);
-  // Controls the forgot-password dialog opened from the reset panel "Request new link" button.
-  const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
-  // Email verification banner — shown until dismissed or email is verified.
-  const [showVerifyBanner, setShowVerifyBanner] = useState(false);
   // Mobile panel state: "settings" when no result exists yet, "tiers" once a result exists.
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>("settings");
   // Guard: auto-switch to Tiers only on the FIRST generate result after app load
   // (or after a profile switch). Reset to false on profile change so the next
   // generate result after switching profiles auto-switches again.
   const hasAutoSwitchedToTiers = useRef(false);
+
+  const activeProfileId = activeProfile?.id ?? null;
+
+  // First-run only: with no accounts, a brand-new visitor has zero local
+  // profiles. Auto-create one so Settings/Rules edits have somewhere to
+  // autosave into immediately, rather than silently going nowhere until the
+  // user notices and clicks "+ New Profile" themselves.
+  const didAutoCreate = useRef(false);
+  useEffect(() => {
+    if (didAutoCreate.current) return;
+    didAutoCreate.current = true;
+    if (profiles.length === 0) {
+      create("My Settings", DEFAULT_SETTINGS as unknown as Record<string, unknown>, {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Per-profile undo history. Each entry is a snapshot of a moment when state
-  // was committed to the server. Tip (last entry) is the current server state.
-  // Undo pops the tip and re-PATCHes the prior tip, so undo also persists.
+  // was committed to the profile. Tip (last entry) is the current saved state.
+  // Undo pops the tip and re-applies the prior tip, so undo also persists.
   type Snapshot = {
     settings_json: Record<string, unknown>;
     rules_json: Record<string, unknown>;
@@ -133,70 +145,7 @@ export default function App() {
     }
   }, [fetchedRules, seeded]);
 
-  // On first mount, read all query params (OAuth errors, password-reset token, verify token).
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-
-    // OAuth linking errors
-    const code = params.get("linking_error");
-    let message: string | null = null;
-    if (code === "already_linked_elsewhere") {
-      message = "This Google or Yahoo account is already linked to a different AutoTiers account.";
-    } else if (code === "session_lost") {
-      message = "Your sign-in session was lost during the redirect. Please sign in again, then try linking the account.";
-    }
-    if (message !== null) {
-      setLinkingError(message);
-      setLinkedOpen(true);
-    }
-
-    // Password-reset token — show inline panel
-    const rt = params.get("reset_token");
-    if (rt) {
-      setResetToken(rt);
-    }
-
-    // Email-verification token — call the endpoint immediately
-    const vt = params.get("verify_token");
-    if (vt) {
-      verifyEmail(vt)
-        .then(() => {
-          refresh();
-          toast({ title: "Email verified. Thank you!", variant: "success" });
-        })
-        .catch(() => {
-          toast({
-            title: "This verification link is invalid or has expired.",
-            description: "You can request a new one from the banner below.",
-            variant: "error",
-          });
-          // Surface the banner so the user can resend.
-          setShowVerifyBanner(true);
-        });
-    }
-
-    // Strip handled params from the URL.
-    ["linking_error", "reset_token", "verify_token"].forEach((k) => params.delete(k));
-    const rest = params.toString();
-    window.history.replaceState({}, "", window.location.pathname + (rest ? `?${rest}` : ""));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // On user change, set activeProfileId from the user's last-active.
-  useEffect(() => {
-    setActiveProfileId(user?.last_active_profile_id ?? null);
-  }, [user]);
-
-  // Show verification banner when user is logged in with unverified email.
-  useEffect(() => {
-    if (user && user.email && !user.email_verified && shouldShowVerificationBanner()) {
-      setShowVerifyBanner(true);
-    } else {
-      setShowVerifyBanner(false);
-    }
-  }, [user]);
-
-  // When activeProfileId changes, hydrate settings + positionRules from that profile.
+  // When the active profile changes, hydrate settings + positionRules from it.
   // Also seed undo history with the loaded snapshot — but only on the first
   // hydration for the profile, so existing in-memory history survives
   // profile-switch round-trips.
@@ -205,17 +154,15 @@ export default function App() {
     const active = profiles.find((p) => p.id === activeProfileId);
     if (!active) return;
 
-    setSettings(active.settings_json as unknown as SettingsState);
-    // Profile rules_json is already in the new dict format (position-keyed overrides).
-    // Backend guarantees dict format (model_validator migrates old list format to {}).
-    setPositionRules(active.rules_json as unknown as PositionRulesState);
+    setSettings(active.settings as unknown as SettingsState);
+    setPositionRules(active.rules as unknown as PositionRulesState);
     setHistory((prev) => {
       if ((prev[activeProfileId]?.length ?? 0) > 0) return prev;
       return {
         ...prev,
         [activeProfileId]: [{
-          settings_json: active.settings_json as Record<string, unknown>,
-          rules_json: active.rules_json as unknown as Record<string, unknown>,
+          settings_json: active.settings as Record<string, unknown>,
+          rules_json: active.rules as Record<string, unknown>,
         }],
       };
     });
@@ -227,18 +174,18 @@ export default function App() {
   }), [settings, positionRules]);
 
   useAutoSave({
-    activeId: user ? activeProfileId : null,
+    activeId: activeProfileId,
     payload: autosavePayload,
     save: async (id, payload) => {
       // Bail when the payload matches what's already saved. The autosave
       // effect fires whenever `payload` changes — including the change
       // triggered by profile hydration itself — and without this guard
-      // we'd issue a wasted PATCH echoing back the just-loaded data on
+      // we'd issue a wasted write echoing back the just-loaded data on
       // every page load and profile switch.
       if (lastSavedSnapshot && JSON.stringify(payload) === JSON.stringify(lastSavedSnapshot)) {
         return;
       }
-      const updated = await updateProfile(id, payload);
+      update(id, { settings: payload.settings_json, rules: payload.rules_json });
       // Append the new save point to history. Cap at HISTORY_CAP so memory
       // doesn't grow unbounded over long sessions.
       setHistory((prev) => {
@@ -247,16 +194,11 @@ export default function App() {
         if (next.length > HISTORY_CAP) next.shift();
         return { ...prev, [id]: next };
       });
-      // Keep AuthContext's profiles array in sync with what's on the server.
-      // Without this, switching profiles re-hydrates from the original
-      // /me snapshot — so the edits the user just made get clobbered when
-      // they switch away and back.
-      setProfiles(profiles.map((p) => (p.id === id ? updated : p)));
     },
   });
 
-  const handleSelectProfile = useCallback(async (id: string) => {
-    setActiveProfileId(id);
+  const handleSelectProfile = useCallback((id: string) => {
+    activate(id);
     // Return the mobile view to Settings on profile switch so the user sees
     // the newly-loaded settings, and reset the auto-switch guard so the next
     // generate result after switching will auto-navigate to Tiers again.
@@ -270,17 +212,15 @@ export default function App() {
     // Drop the captured request so the staleness banner can't compare the new
     // profile's live settings against the previous profile's generate (#523).
     setLastGeneratedRequest(null);
-    await activateProfile(id);
-  }, [generate.reset]);
+  }, [activate, generate.reset]);
 
-  const handleNewProfile = useCallback(async () => {
-    const created = await createProfile({
-      name: `Profile ${profiles.length + 1}`,
-      settings_json: settings as unknown as Record<string, unknown>,
-      rules_json: positionRules as unknown as Record<string, Array<{ name: string; enabled: boolean; weight: number }>>,
-    });
-    setProfiles([...profiles, created]);
-    setActiveProfileId(created.id);
+  const handleNewProfile = useCallback(() => {
+    const name = nextProfileName(profiles);
+    create(
+      name,
+      settings as unknown as Record<string, unknown>,
+      positionRules as unknown as Record<string, unknown>,
+    );
     // Match the select-profile path: return to Settings, re-arm the auto-switch
     // guard, and clear the stale generate result so the new profile starts from
     // the empty state.
@@ -288,81 +228,47 @@ export default function App() {
     hasAutoSwitchedToTiers.current = false;
     generate.reset();
     setLastGeneratedRequest(null);
-    await activateProfile(created.id);
-  }, [profiles, settings, positionRules, setProfiles, generate.reset]);
+  }, [profiles, settings, positionRules, create, generate.reset]);
 
-  const handleRenameProfile = useCallback(async (id: string, name: string) => {
-    const updated = await updateProfile(id, { name });
-    setProfiles(profiles.map((p) => (p.id === id ? updated : p)));
-  }, [profiles, setProfiles]);
+  const handleRenameProfile = useCallback((id: string, name: string) => {
+    rename(id, name);
+  }, [rename]);
 
-  const handleDeleteProfile = useCallback(async (id: string) => {
-    await deleteProfile(id);
-    setProfiles((prev) => prev.filter((p) => p.id !== id));
-    if (activeProfileId === id) {
-      setActiveProfileId(null);
-      // Deleting the active profile must mirror the select/new-profile reset:
-      // clear the orphaned tier list (computed for a now-deleted profile),
-      // return the mobile view to Settings, re-arm the auto-switch guard, and
-      // drop the captured request so the staleness banner has nothing to
-      // compare against. Without this the Tiers panel keeps rendering stale
-      // tiers and Generate would fire with a silently wrong payload (#626).
+  const handleDeleteProfile = useCallback((id: string) => {
+    const wasActive = activeProfileId === id;
+    remove(id);
+    if (wasActive) {
+      // Deleting the active profile must clear the orphaned tier list
+      // (computed for a now-deleted profile), return the mobile view to
+      // Settings, re-arm the auto-switch guard, and drop the captured request
+      // so the staleness banner has nothing to compare against. Without this
+      // the Tiers panel keeps rendering stale tiers and Generate would fire
+      // with a silently wrong payload (#626).
       generate.reset();
       setLastGeneratedRequest(null);
       setMobilePanel("settings");
       hasAutoSwitchedToTiers.current = false;
     }
-  }, [activeProfileId, setProfiles, generate.reset]);
+  }, [activeProfileId, remove, generate.reset]);
 
-  const handleUndo = useCallback(async () => {
+  const handleUndo = useCallback(() => {
     if (!activeProfileId) return;
     const current = history[activeProfileId];
     if (!current || current.length < 2) return;
     // Drop the current tip; the entry before it becomes the new tip.
     const trimmed = current.slice(0, -1);
     const newTip = trimmed[trimmed.length - 1];
-    // The snapshot we're reverting away from — kept so we can restore exact
-    // server-truth local state if the PATCH below fails.
-    const prevTip = current[current.length - 1];
 
-    // Apply to local state immediately so the UI updates without waiting
-    // for the server round-trip.
     setSettings(newTip.settings_json as unknown as SettingsState);
     setPositionRules(newTip.rules_json as unknown as PositionRulesState);
-
-    // Drop the popped entry from history. The autosave guard ("bail if payload
-    // matches tip") now blocks the debounced save from firing redundantly —
-    // but the server still has the old tip, so we PATCH explicitly here.
     setHistory((prev) => ({ ...prev, [activeProfileId]: trimmed }));
-    try {
-      const updated = await updateProfile(activeProfileId, newTip);
-      // Functional updater: this runs after the PATCH await, so apply the swap
-      // to the latest profiles rather than the array captured at render time —
-      // a concurrent save/refresh/mutation must not be clobbered here (#694).
-      setProfiles((prev) => prev.map((p) => (p.id === activeProfileId ? updated : p)));
-      // Confirm the (otherwise silent) revert so a mis-click next to the
-      // ProfilePicker is at least visible and self-explanatory (#694).
-      toast({ title: "Reverted to previous settings", variant: "success" });
-    } catch (err) {
-      // The PATCH failed, so the server still holds `prevTip`. Roll the
-      // optimistic local state (settings, rules, AND the trimmed history) back
-      // to that server-truth snapshot — otherwise the UI would show a "reverted"
-      // state the server never accepted, silently diverging from persistence and
-      // leaving no way back to the pre-undo settings (#694).
-      setSettings(prevTip.settings_json as unknown as SettingsState);
-      setPositionRules(prevTip.rules_json as unknown as PositionRulesState);
-      setHistory((prev) => ({ ...prev, [activeProfileId]: current }));
-      toast({
-        title: "Couldn't undo",
-        description: describeSaveError(err),
-        variant: "error",
-      });
-    }
-  }, [activeProfileId, history, setProfiles, toast]);
+    update(activeProfileId, { settings: newTip.settings_json, rules: newTip.rules_json });
+    // Confirm the (otherwise silent) revert so a mis-click next to the
+    // ProfileSwitcher is at least visible and self-explanatory (#694).
+    toast({ title: "Reverted to previous settings", variant: "success" });
+  }, [activeProfileId, history, update, toast]);
 
   const buildRequest = (): GenerateRequest => {
-    const active = profiles.find((p) => p.id === activeProfileId);
-    const linked = active?.linked_league ?? null;
     return {
       scoring_format: settings.scoring_format,
       league_type: "standard",
@@ -383,8 +289,6 @@ export default function App() {
       draft_rounds: settings.draft_rounds,
       overall_tier_count: settings.tier_count ?? settings.league_size,
       rules: positionRules,
-      keepers: linked?.keepers_json?.map((k) => k.player_name) ?? undefined,
-      league_adp: linked?.adp_json ?? undefined,
     };
   };
 
@@ -392,7 +296,8 @@ export default function App() {
   // active profile. Deleting the active profile sets activeProfileId to null;
   // without this guard Generate would stay enabled and fire buildRequest() with
   // keepers/league_adp silently undefined (profiles.find returns undefined)
-  // (#626). Logged-out users have no profiles, so they stay able to generate.
+  // (#626). A user with zero profiles yet (first paint, before auto-create
+  // lands) stays able to generate.
   //
   // When disabled, name the *specific* unmet precondition so the button isn't a
   // silent grey rectangle for mouse or screen-reader users (#838). The priority
@@ -455,17 +360,38 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen">
+      {/* Skip link — the first focusable element on the page so keyboard and
+          screen-reader users can jump straight to the panels without tabbing
+          through every header control (WCAG 2.4.1 Bypass Blocks, #811). Kept
+          visually hidden via `sr-only` until focused, at which point
+          `focus:not-sr-only` brings it on-screen. Targets the <main> region,
+          which carries id="main-content" and tabIndex={-1}. The onClick handler
+          moves focus onto <main> explicitly — bare fragment navigation
+          (`#main-content`) doesn't reliably shift focus across browsers/AT, so
+          the handler is what satisfies the "focus lands on <main>" criterion. */}
+      <a
+        href="#main-content"
+        onClick={(e) => {
+          e.preventDefault();
+          const main = document.getElementById("main-content");
+          if (main) {
+            main.focus();
+            main.scrollIntoView();
+          }
+        }}
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-background focus:px-4 focus:py-2 focus:text-foreground focus:shadow-lg focus:ring-2 focus:ring-ring"
+      >
+        Skip to main content
+      </a>
       <Header
         generateDisabled={!canGenerate}
         generateDisabledReason={disabledReason}
         generateIsPending={generate.isPending}
         onGenerate={handleGenerate}
-        currentState={{ settings, rules: positionRules }}
         isDark={isDark}
         onToggleDark={toggleDark}
         onShowOnboarding={startOnboarding}
-        onOpenLinkedAccounts={user ? () => { setLinkingError(null); setLinkedOpen(true); } : undefined}
-        mobileProfileMenu={user ? (
+        mobileProfileMenu={(
           <MobileProfileMenuItems
             profiles={profiles}
             activeId={activeProfileId}
@@ -476,10 +402,10 @@ export default function App() {
             onUndo={handleUndo}
             canUndo={canUndo}
           />
-        ) : null}
-        profilePicker={user ? (
+        )}
+        profilePicker={(
           <div className="flex items-center gap-2">
-            <ProfilePicker
+            <ProfileSwitcher
               profiles={profiles}
               activeId={activeProfileId}
               onSelect={handleSelectProfile}
@@ -499,52 +425,29 @@ export default function App() {
               </Button>
             )}
           </div>
-        ) : null}
+        )}
       />
-      {/* Zero-profile banner — a logged-in user with no profile has autosave
-          silently disabled, so warn them and offer a one-click fix (#606). */}
-      {user && profiles.length === 0 && (
-        <NoProfileBanner onCreateProfile={handleNewProfile} />
-      )}
-      {/* Email verification banner — shown below header when email is unverified */}
-      {showVerifyBanner && user?.email && (
-        <EmailVerificationBanner
-          email={user.email}
-          onDismiss={() => {
-            dismissVerificationBanner();
-            setShowVerifyBanner(false);
-          }}
+      {tourActive && (
+        <OnboardingTour
+          stepIndex={tourStep}
+          totalSteps={tourTotal}
+          onNext={tourNext}
+          onBack={tourBack}
+          onGoTo={tourGoTo}
+          onSkip={tourSkip}
+          onStepPanel={setMobilePanel}
         />
-      )}
-      {/* Password-reset panel — replaces onboarding card slot when reset_token present */}
-      {resetToken ? (
-        <PasswordResetPanel
-          token={resetToken}
-          onDismiss={() => setResetToken(null)}
-          onRequestNewLink={() => {
-            setResetToken(null);
-            setForgotPasswordOpen(true);
-          }}
-        />
-      ) : (
-        tourActive && (
-          <OnboardingTour
-            stepIndex={tourStep}
-            totalSteps={tourTotal}
-            onNext={tourNext}
-            onBack={tourBack}
-            onGoTo={tourGoTo}
-            onSkip={tourSkip}
-            onStepPanel={setMobilePanel}
-          />
-        )
       )}
       <MobilePanelTabBar
         active={mobilePanel}
         onChange={setMobilePanel}
         generateIsPending={generate.isPending}
       />
-      <main className="flex-1 grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_minmax(0,1.5fr)] lg:grid-rows-1 overflow-hidden">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="flex-1 grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_minmax(0,1.5fr)] lg:grid-rows-1 overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      >
         <div
           id="panel-settings"
           role="tabpanel"
@@ -554,18 +457,6 @@ export default function App() {
           <SettingsPanel
             value={settings}
             onChange={setSettings}
-            linkedLeague={
-              (() => {
-                const active = profiles.find((p) => p.id === activeProfileId);
-                const ll = active?.linked_league;
-                // Only show the auto-detected chip when an actual league is selected.
-                return ll && ll.league_metadata_json
-                  ? { provider: ll.provider, leagueName: ll.league_metadata_json.name }
-                  : null;
-              })()
-            }
-            profileId={activeProfileId}
-            onRefreshLink={refresh}
           />
         </div>
         <div
@@ -604,7 +495,7 @@ export default function App() {
                 return downloadDraftXlsx(
                   generate.data.players,
                   settings.scoring_format,
-                  profiles.find((p) => p.id === activeProfileId)?.name ?? null,
+                  activeProfile?.name ?? null,
                   resolvedTierNames,
                 );
               }
@@ -618,53 +509,24 @@ export default function App() {
                 );
               }
             }}
-            keepers={
-              profiles.find((p) => p.id === activeProfileId)?.linked_league?.keepers_json ?? undefined
-            }
             scoringFormat={settings.scoring_format}
             tierLabelOverrides={resolvedTierNames}
-            leagueKey={
-              (() => {
-                const active = profiles.find((p) => p.id === activeProfileId);
-                // Prefer the linked league's id (stable across profile renames); fall
-                // back to the profile id so unlinked profiles still get isolated Draft
-                // Mode storage, then "default" if there's no active profile at all.
-                return active?.linked_league?.league_id ?? active?.id ?? "default";
-              })()
-            }
+            isFavoritePlayer={isFavoritePlayer}
+            isFavoriteTeam={isFavoriteTeam}
+            leagueKey={activeProfileId ?? "default"}
           />
         </div>
       </main>
       {/* Monetization: slim, dismissible sponsor strip. Renders nothing unless
           the deployment opts in via VITE_ADS_ENABLED (#387). */}
       <AdSlot slot={import.meta.env.VITE_ADSENSE_FOOTER_SLOT} />
-      <ManageProfilesDialog
+      <ProfileManagerDialog
         open={manageOpen}
         onOpenChange={setManageOpen}
         profiles={profiles}
         activeProfileId={activeProfileId}
         onRename={handleRenameProfile}
         onDelete={handleDeleteProfile}
-      />
-      {user && (
-        <LinkedAccountsDialog
-          open={linkedOpen}
-          onOpenChange={setLinkedOpen}
-          user={user}
-          onRefresh={refresh}
-          initialError={linkingError}
-          activeProfile={profiles.find((p) => p.id === activeProfileId) ?? null}
-          profiles={profiles}
-          onSelectProfile={handleSelectProfile}
-          onCreateProfile={handleNewProfile}
-        />
-      )}
-      {/* Standalone forgot-password dialog — opened from the reset panel's "Request new link" */}
-      <AuthDialog
-        open={forgotPasswordOpen}
-        onOpenChange={setForgotPasswordOpen}
-        initialState={null}
-        initialView="forgot_password"
       />
     </div>
   );

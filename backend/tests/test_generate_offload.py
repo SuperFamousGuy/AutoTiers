@@ -214,8 +214,6 @@ def test_compute_ranked_players_is_pure_and_deterministic():
             keepers_normalized=set(),
             bad_offense_teams=set(),
             above_market_pids=set(),
-            favorite_pids_set=set(),
-            favorite_teams_set=set(),
             current_year=2026,
         )
 
@@ -245,8 +243,6 @@ def test_compute_ranked_players_honors_keepers():
         keepers_normalized={normalize_name(keeper.name)},
         bad_offense_teams=set(),
         above_market_pids=set(),
-        favorite_pids_set=set(),
-        favorite_teams_set=set(),
         current_year=2026,
     )
     assert keeper.id not in {p.player_id for p in ranked}

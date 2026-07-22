@@ -62,6 +62,41 @@ async def test_cbs_fetcher_handles_empty_html_gracefully(test_db):
 
 
 @pytest.mark.asyncio
+async def test_cbs_fetcher_ignores_unrelated_table_on_shell_page(test_db):
+    """False-positive guard (issue #839): a page with an unrelated <table> but no
+    TableBase-class projections table (CBS's client-side-rendered marketing shell,
+    where nav/footer/related-content grids are <table>s) must NOT be parsed as
+    projections. Expect success=False with 0 rows, never a false-positive success
+    with garbage rows persisted."""
+    test_db.add(Player(id="6794", name="Ja'Marr Chase", position="WR", team="CIN"))
+    await test_db.commit()
+
+    # An unrelated table that, under a bare soup.find("table") fallback, would be
+    # parsed row-by-row and could emit a bogus projection for a matched player.
+    shell_html = """<html><body>
+        <nav><table class="site-nav">
+            <thead><tr><th>Ja'Marr Chase</th><th>Team</th><th>FPTS</th></tr></thead>
+            <tbody><tr><td>Ja'Marr Chase</td><td>CIN</td><td>999.9</td></tr></tbody>
+        </table></nav>
+    </body></html>"""
+
+    with respx.mock(base_url="https://www.cbssports.com") as router:
+        router.get(url__regex=r"/fantasy/football/projections/.*").mock(
+            return_value=Response(200, text=shell_html),
+        )
+        fetcher = CBSFetcher()
+        result = await fetcher.fetch(test_db)
+
+    assert result.success is False
+    assert result.rows_upserted == 0
+    # No garbage projection should have been written for the matched player.
+    proj = await test_db.scalar(
+        select(Projection).where(Projection.player_id == "6794", Projection.source == "cbs")
+    )
+    assert proj is None
+
+
+@pytest.mark.asyncio
 async def test_cbs_fetcher_parses_valid_table_and_upserts_projections(test_db):
     """Happy path: a valid CBS-style table results in matched players + projection upserts."""
     test_db.add(Player(id="6794", name="Ja'Marr Chase", position="WR", team="CIN"))

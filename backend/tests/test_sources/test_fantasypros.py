@@ -1,10 +1,13 @@
+import httpx
 import pytest
 import respx
+from datetime import date, datetime
 from httpx import Response
 from pathlib import Path
 
 from sqlalchemy import event, select
-from app.models import Player, Projection, ADPData
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from app.models import Player, Projection, ADPData, DataSourceStatus
 from app.data.sources.fantasypros import FantasyProsFetcher
 
 
@@ -200,6 +203,177 @@ async def test_fantasypros_adp_existence_check_is_one_select(test_engine, test_d
         f"expected one existence-check SELECT for {n_rows} rows, "
         f"got {len(adp_selects)} (N+1 regression)"
     )
+
+
+_EMPTY_TABLE = "<html><body><table id='data'><tbody></tbody></table></body></html>"
+
+
+async def _committed_counts(test_engine):
+    """Open a fresh session (sees only COMMITTED data) and count FantasyPros
+    projection + ADP rows. Used to prove fetch() persisted exactly what its
+    SourceResult reports — no phantom rows left for a later commit to pick up."""
+    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    async with session_factory() as fresh:
+        n_proj = len((await fresh.scalars(
+            select(Projection).where(Projection.source == "fantasypros"))).all())
+        n_adp = len((await fresh.scalars(
+            select(ADPData).where(ADPData.adp_source == "fantasypros"))).all())
+    return n_proj, n_adp
+
+
+@pytest.mark.asyncio
+async def test_fantasypros_isolates_midloop_adp_failure(test_db, test_engine):
+    """Issue #834: a transient failure on one ADP request must not abort the run
+    nor silently commit rows the SourceResult claims don't exist. The successful
+    iterations are committed, rows_upserted matches exactly what persisted, and
+    success is False because a sub-fetch failed."""
+    test_db.add(Player(id="6794", name="Ja'Marr Chase", position="WR", team="CIN"))
+    await test_db.commit()
+
+    wr_html = _projections_html([("Ja'Marr Chase", "CIN", 340.5)])
+
+    with respx.mock(base_url="https://www.fantasypros.com") as router:
+        # WR projections succeed for all three scoring formats → 3 rows.
+        router.get(url__regex=r"/nfl/projections/wr\.php.*").mock(
+            return_value=Response(200, text=wr_html))
+        router.get(url__regex=r"/nfl/projections/(qb|rb|te|k|dst)\.php.*").mock(
+            return_value=Response(200, text=_EMPTY_TABLE))
+        # One ADP request fails mid-loop with a transient 503.
+        router.get(url__regex=r"/nfl/adp/ppr\.php").mock(
+            return_value=Response(503, text="upstream unavailable"))
+        router.get(url__regex=r"/nfl/adp/(overall|half-point-ppr)\.php").mock(
+            return_value=Response(200, text=_EMPTY_TABLE))
+
+        result = await FantasyProsFetcher().fetch(test_db)
+
+    # Simulate DataFetcher.refresh_all's end-of-run commit. If a regression let
+    # phantom rows autoflush into the open transaction instead of being isolated,
+    # this final commit is what would persist them — so the committed-count check
+    # below only detects that mismatch once the orchestrator's commit is modelled.
+    await test_db.commit()
+
+    # A sub-fetch failed → success is False and the error names the failure.
+    assert result.success is False
+    assert "adp ppr" in result.error
+    # rows_upserted equals what actually committed: 3 WR projections, no ADP.
+    assert result.rows_upserted == 3
+
+    n_proj, n_adp = await _committed_counts(test_engine)
+    assert n_proj == result.rows_upserted == 3
+    assert n_adp == 0
+
+
+@pytest.mark.asyncio
+async def test_fantasypros_isolates_midloop_projection_failure(test_db, test_engine):
+    """A transient failure on one projection request is skipped; the other
+    formats still commit and are reported. Covers the projection-branch guard."""
+    test_db.add(Player(id="6794", name="Ja'Marr Chase", position="WR", team="CIN"))
+    await test_db.commit()
+
+    wr_html = _projections_html([("Ja'Marr Chase", "CIN", 340.5)])
+
+    with respx.mock(base_url="https://www.fantasypros.com") as router:
+        # WR HALF projections fail; WR STD + PPR succeed → 2 rows.
+        router.get(url__regex=r"/nfl/projections/wr\.php\?scoring=HALF.*").mock(
+            return_value=Response(503, text="upstream unavailable"))
+        router.get(url__regex=r"/nfl/projections/wr\.php.*").mock(
+            return_value=Response(200, text=wr_html))
+        router.get(url__regex=r"/nfl/projections/(qb|rb|te|k|dst)\.php.*").mock(
+            return_value=Response(200, text=_EMPTY_TABLE))
+        router.get(url__regex=r"/nfl/adp/.*").mock(
+            return_value=Response(200, text=_EMPTY_TABLE))
+
+        result = await FantasyProsFetcher().fetch(test_db)
+
+    # Model the orchestrator's end-of-run commit (see the ADP-failure test): only
+    # then would a regression that autoflushes phantom rows into the shared
+    # transaction be caught by the committed-count assertion below.
+    await test_db.commit()
+
+    assert result.success is False
+    assert "projections wr/half_ppr" in result.error
+    assert result.rows_upserted == 2
+
+    n_proj, n_adp = await _committed_counts(test_engine)
+    assert n_proj == result.rows_upserted == 2
+    assert n_adp == 0
+
+
+@pytest.mark.asyncio
+async def test_fantasypros_all_success_commits_and_reports_true(test_db, test_engine, mock_fantasypros):
+    """When every sub-fetch succeeds, success is True and the committed row count
+    matches rows_upserted — the happy path still behaves as before."""
+    test_db.add(Player(id="6794", name="Ja'Marr Chase", position="WR", team="CIN"))
+    test_db.add(Player(id="6786", name="Justin Jefferson", position="WR", team="MIN"))
+    await test_db.commit()
+
+    result = await FantasyProsFetcher().fetch(test_db)
+    assert result.success is True
+    assert result.error is None
+
+    n_proj, n_adp = await _committed_counts(test_engine)
+    assert n_proj + n_adp == result.rows_upserted
+
+
+@pytest.mark.asyncio
+async def test_fantasypros_outer_failure_rolls_back(test_db, test_engine, monkeypatch):
+    """A failure outside the per-request guards (here: client teardown, after rows
+    were already flushed) rolls back FantasyPros' own writes via the SAVEPOINT, so
+    none survive the orchestrator's final commit, and reports rows_upserted=0 /
+    success=False. Crucially, the rollback is scoped to this source: pending work
+    another source staged earlier on the shared session (a DataSourceStatus row
+    from DataFetcher._persist) must NOT be discarded."""
+    test_db.add(Player(id="6794", name="Ja'Marr Chase", position="WR", team="CIN"))
+    await test_db.commit()
+
+    # An earlier source's status row, staged by the orchestrator on the shared
+    # session and not yet committed when FantasyPros runs. The savepoint rollback
+    # must leave this intact for the orchestrator's end-of-run commit.
+    test_db.add(DataSourceStatus(source="nfl_data_py", last_attempted=datetime.utcnow(),
+                                 rows_upserted=5))
+    await test_db.flush()
+
+    wr_html = _projections_html([("Ja'Marr Chase", "CIN", 340.5)])
+
+    # A client whose teardown raises: every request succeeds and flushes rows into
+    # the savepoint, then __aexit__ blows up — landing in fetch()'s outer except
+    # with FantasyPros writes already pending. This is the case the savepoint must
+    # unwind (client construction never entering the loop stages nothing to test).
+    class _RaiseOnExit(httpx.AsyncClient):
+        async def __aexit__(self, *exc):
+            await super().__aexit__(*exc)
+            raise RuntimeError("client teardown failed")
+
+    monkeypatch.setattr("app.data.sources.fantasypros.httpx.AsyncClient", _RaiseOnExit)
+
+    with respx.mock(base_url="https://www.fantasypros.com") as router:
+        # WR projections succeed for all three formats → 3 rows flushed pre-failure.
+        router.get(url__regex=r"/nfl/projections/wr\.php.*").mock(
+            return_value=Response(200, text=wr_html))
+        router.get(url__regex=r"/nfl/projections/(qb|rb|te|k|dst)\.php.*").mock(
+            return_value=Response(200, text=_EMPTY_TABLE))
+        router.get(url__regex=r"/nfl/adp/.*").mock(
+            return_value=Response(200, text=_EMPTY_TABLE))
+
+        result = await FantasyProsFetcher().fetch(test_db)
+
+    assert result.success is False
+    assert result.rows_upserted == 0
+
+    # Simulate DataFetcher.refresh_all's end-of-run commit. Without the fix a
+    # missing rollback would let this commit persist the 3 flushed FantasyPros rows.
+    await test_db.commit()
+
+    # FantasyPros' flushed rows were rolled back to the savepoint — none committed.
+    n_proj, _ = await _committed_counts(test_engine)
+    assert n_proj == 0
+
+    # ...but the earlier source's pending status row survived the scoped rollback.
+    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    async with session_factory() as fresh:
+        prior = (await fresh.scalars(
+            select(DataSourceStatus).where(DataSourceStatus.source == "nfl_data_py"))).all()
+    assert len(prior) == 1
 
 
 @pytest.mark.asyncio

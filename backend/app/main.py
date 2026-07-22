@@ -3,20 +3,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 from app.api import generate, rules, data
-from app.api import auth as auth_api
-from app.api import profiles_api
-from app.api import favorites_api
 from app.api import players_search
 from app.api import feedback
-from app.api.linked_league import router as linked_league_router
 from app.scheduler import setup_scheduler, scheduler
 from app.config import settings
-from app.email import make_email_sender
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.email_sender = make_email_sender()
     if settings.run_scheduler:
         setup_scheduler()
     yield
@@ -38,7 +32,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_credentials=True,  # required so the session cookie travels
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -46,11 +40,7 @@ app.add_middleware(
 app.include_router(generate.router, prefix="/api")
 app.include_router(rules.router, prefix="/api")
 app.include_router(data.router, prefix="/api")
-app.include_router(auth_api.router, prefix="/api")
-app.include_router(profiles_api.router, prefix="/api")
-app.include_router(favorites_api.router, prefix="/api")
 app.include_router(players_search.router, prefix="/api")
-app.include_router(linked_league_router, prefix="/api")
 app.include_router(feedback.router, prefix="/api")
 
 

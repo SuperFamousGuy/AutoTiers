@@ -1,9 +1,10 @@
-"""Auth-gated player lookup. Powers the favorites picker UI.
+"""Public player lookup. Powers the client-side (localStorage) favorites picker.
 
-Every route here requires auth and is capped: `?q=` substring search returns
-at most 25 rows and `/batch` accepts at most 20 ids. There is no unbounded
-full-table dump endpoint — the old anonymous `GET /players` was removed as an
-unauthenticated scrape/DoS surface (#807).
+Anonymous, and capped: `?q=` substring search returns at most 25 rows and
+`/batch` accepts at most 20 ids. There is no unbounded full-table dump
+endpoint — the old anonymous `GET /players` was removed as a scrape/DoS
+surface (#807); these caps are what keep this endpoint from reintroducing
+that risk now that per-user auth is gone entirely (v1 accounts teardown).
 """
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -12,9 +13,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import User
 from app.models.player import Player
-from app.auth.dependencies import require_user
 
 router = APIRouter(prefix="/players", tags=["players-search"])
 
@@ -45,7 +44,6 @@ class PlayerSearchResult(BaseModel):
 @router.get("/batch", response_model=list[PlayerSearchResult])
 async def batch_players(
     ids: Annotated[str, Query(min_length=1, max_length=400)],
-    user: User = require_user,
     db: AsyncSession = Depends(get_db),
 ) -> list[PlayerSearchResult]:
     id_list = [x.strip() for x in ids.split(",") if x.strip()]
@@ -63,7 +61,6 @@ async def batch_players(
 @router.get("/search", response_model=list[PlayerSearchResult])
 async def search_players(
     q: Annotated[str, Query(min_length=1, max_length=80)],
-    user: User = require_user,
     db: AsyncSession = Depends(get_db),
 ) -> list[PlayerSearchResult]:
     """Case-insensitive substring match on Player.name. Returns up to 25 rows."""

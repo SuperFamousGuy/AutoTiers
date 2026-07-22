@@ -85,6 +85,39 @@ async def test_sleeper_populates_cross_ids(test_db, mock_sleeper):
 
 
 @pytest.mark.asyncio
+async def test_sleeper_preserves_cross_ids_on_transient_omission(test_db):
+    """Sleeper transiently drops gsis_id/espn_id; a re-fetch must NOT wipe them.
+
+    Regression for #837: an unconditional overwrite silently nulls a
+    previously-correct gsis_id, dropping the player from every downstream
+    nfl_data_py join (which keys on Player.gsis_id.is_not(None)).
+    """
+    # Seed the player as if a prior pull correctly populated its cross-IDs.
+    test_db.add(Player(
+        id="4017", name="Josh Allen", position="QB", team="BUF", active=True,
+        gsis_id="00-0034796", espn_id="3918298",
+    ))
+    await test_db.commit()
+
+    # Fixture payload where 4017's cross-id fields are absent (gsis_id) / null (espn_id).
+    payload = {
+        "4017": {
+            "player_id": "4017", "full_name": "Josh Allen",
+            "position": "QB", "team": "BUF", "active": True,
+            "espn_id": None,
+        },
+    }
+    with respx.mock(base_url="https://api.sleeper.app") as router:
+        router.get("/v1/players/nfl").mock(return_value=Response(200, json=payload))
+        result = await SleeperFetcher().fetch(test_db)
+        assert result.success
+
+    allen = await test_db.scalar(select(Player).where(Player.id == "4017"))
+    assert allen.gsis_id == "00-0034796"  # unchanged, not wiped to None
+    assert allen.espn_id == "3918298"     # unchanged, not wiped to None
+
+
+@pytest.mark.asyncio
 async def test_sleeper_normalizes_def_to_dst(test_db, mock_sleeper):
     """Sleeper returns team defenses with position 'DEF'; we store them as 'DST'."""
     fetcher = SleeperFetcher()

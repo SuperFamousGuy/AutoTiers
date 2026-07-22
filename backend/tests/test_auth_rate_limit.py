@@ -1,16 +1,16 @@
 import time
-from app.auth.rate_limit import LoginRateLimiter
+from app.auth.rate_limit import SlidingWindowRateLimiter
 
 
 def test_allows_under_limit():
-    rl = LoginRateLimiter(max_attempts=3, window_seconds=60)
+    rl = SlidingWindowRateLimiter(max_attempts=3, window_seconds=60)
     assert rl.check_and_record("alice@x.com") is True
     assert rl.check_and_record("alice@x.com") is True
     assert rl.check_and_record("alice@x.com") is True
 
 
 def test_blocks_after_limit():
-    rl = LoginRateLimiter(max_attempts=3, window_seconds=60)
+    rl = SlidingWindowRateLimiter(max_attempts=3, window_seconds=60)
     rl.check_and_record("alice@x.com")
     rl.check_and_record("alice@x.com")
     rl.check_and_record("alice@x.com")
@@ -18,7 +18,7 @@ def test_blocks_after_limit():
 
 
 def test_window_expires(monkeypatch):
-    rl = LoginRateLimiter(max_attempts=2, window_seconds=10)
+    rl = SlidingWindowRateLimiter(max_attempts=2, window_seconds=10)
     rl.check_and_record("alice@x.com")
     rl.check_and_record("alice@x.com")
     assert rl.check_and_record("alice@x.com") is False
@@ -30,7 +30,7 @@ def test_window_expires(monkeypatch):
 
 
 def test_keys_are_independent():
-    rl = LoginRateLimiter(max_attempts=2, window_seconds=60)
+    rl = SlidingWindowRateLimiter(max_attempts=2, window_seconds=60)
     rl.check_and_record("alice@x.com")
     rl.check_and_record("alice@x.com")
     assert rl.check_and_record("alice@x.com") is False
