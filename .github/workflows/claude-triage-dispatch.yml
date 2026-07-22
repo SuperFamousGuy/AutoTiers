@@ -13,6 +13,10 @@ name: claude-triage-dispatch
 # by GitHub's recursion guard (same rule as the orphan sweeper). Label writes use
 # the built-in GITHUB_TOKEN.
 #
+# Ships DRY_RUN-safe: report-only until a human confirms the dispatch decisions
+# against real backlog state, then flip DRY_RUN to "false" in a one-line commit
+# to arm real label removal + dispatch (mirrors the orphan sweeper's rollout).
+#
 # Design: docs/superpowers/specs/2026-07-21-triage-dispatch-throttle-design.md
 
 on:
@@ -20,7 +24,12 @@ on:
     types: [closed] # a slot may have freed
   issues:
     types: [opened, reopened] # cold-start seed: start an empty pipe
-  workflow_dispatch: {} # manual recovery lever
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Override DRY_RUN for a single manual run (true/false)."
+        required: false
+        type: string
 
 concurrency:
   # Serialize ticks so two events never both dispatch (and double-drain) slots.
@@ -33,6 +42,9 @@ permissions:
   pull-requests: read # count in-flight claude/issue-* PRs
 
 env:
+  # Ship SAFE: report-only until a human confirms the dispatch decisions against
+  # real backlog state, then flip to "false" in a one-line commit to arm it.
+  DRY_RUN: "true"
   CAP: "2" # max concurrent open auto-implement PRs
   QUEUED_LABEL: "triage-queued"
   IMPLEMENT_WORKFLOW: claude-implement-issue.yml
@@ -54,8 +66,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_AUTHOR_PAT: ${{ secrets.PR_AUTHOR_PAT }}
           REPO: ${{ github.repository }}
+          DRY_RUN_OVERRIDE: ${{ github.event.inputs.dry_run }}
         run: |
           set -euo pipefail
+          dry_run="${DRY_RUN_OVERRIDE:-$DRY_RUN}"
+          echo "DRY_RUN=$dry_run"
 
           # --- Gather the world -----------------------------------------------
           # In-flight = open PRs whose head is a `claude/issue-N` branch.
@@ -93,6 +108,7 @@ jobs:
             echo "| in-flight PRs | $inflight |"
             echo "| free slots | $slots |"
             echo "| dispatched | $count |"
+            echo "| DRY_RUN | $dry_run |"
           } >> "$GITHUB_STEP_SUMMARY"
 
           # --- Act ------------------------------------------------------------
@@ -104,6 +120,10 @@ jobs:
             n="$(echo "$row" | jq -r .number)"
             s="$(echo "$row" | jq -r .score)"
             echo "dispatch #$n (score $s)"
+            if [ "$dry_run" = "true" ]; then
+              echo "(dry-run) would drop '$QUEUED_LABEL' and dispatch $IMPLEMENT_WORKFLOW for #$n."
+              continue
+            fi
             gh issue edit "$n" --repo "$REPO" --remove-label "$QUEUED_LABEL"
             GH_TOKEN="$PR_AUTHOR_PAT" gh workflow run "$IMPLEMENT_WORKFLOW" \
               --repo "$REPO" -f issue_number="$n"
