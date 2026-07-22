@@ -1,6 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { useLocalProfiles } from "./useLocalProfiles";
+import { MAX_PROFILES, useLocalProfiles } from "./useLocalProfiles";
 
 beforeEach(() => localStorage.clear());
 
@@ -29,6 +29,16 @@ describe("useLocalProfiles", () => {
     const { result } = renderHook(() => useLocalProfiles());
     act(() => result.current.create("A", {}, {}));
     expect(() => act(() => result.current.create("A", {}, {}))).toThrow();
+  });
+
+  it("enforces the hard cap on create()", () => {
+    const { result } = renderHook(() => useLocalProfiles());
+    act(() => {
+      for (let i = 0; i < MAX_PROFILES; i++) result.current.create(`P${i}`, {}, {});
+    });
+    expect(result.current.profiles).toHaveLength(MAX_PROFILES);
+    expect(() => act(() => result.current.create("overflow", {}, {}))).toThrow();
+    expect(result.current.profiles).toHaveLength(MAX_PROFILES);
   });
 
   it("rejects renaming onto another profile's name but allows a self-rename", () => {

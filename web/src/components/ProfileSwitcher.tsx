@@ -46,6 +46,11 @@ export function ProfileSwitcher({ profiles, activeId, onSelect, onNew, onManage,
         <DropdownMenuItem
           onSelect={onNew}
           disabled={!canCreate}
+          // DropdownMenuItem sets `data-[disabled]:pointer-events-none`, which
+          // suppresses hover on the disabled item and hides the `title` tooltip.
+          // Restore pointer-events (with a not-allowed cursor) so the reason the
+          // affordance is disabled stays discoverable on hover.
+          className={cn(!canCreate && "data-[disabled]:pointer-events-auto data-[disabled]:cursor-not-allowed")}
           title={canCreate ? undefined : `Profile limit reached (${profiles.length}/${MAX_PROFILES}). Delete one to add another.`}
         >
           + New Profile

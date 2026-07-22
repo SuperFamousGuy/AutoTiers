@@ -52,6 +52,12 @@ export function useLocalProfiles() {
     (name: string, settings: Record<string, unknown>, rules: Record<string, unknown>) => {
       const trimmed = name.trim();
       if (!trimmed) throw new Error("Profile name required");
+      // Enforce the hard cap here too, not just in the UI's `canCreate` gate,
+      // so the invariant the docstring promises holds even if a caller reaches
+      // create() without checking (#855).
+      if (profilesRef.current.length >= MAX_PROFILES) {
+        throw new Error("Profile limit reached");
+      }
       if (profilesRef.current.some((p) => p.name === trimmed)) {
         throw new Error("Duplicate profile name");
       }
