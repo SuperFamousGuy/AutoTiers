@@ -3,14 +3,17 @@
 ``backend/app/models/adp.py`` documents ``format`` as
 "standard | half_ppr | ppr | dynasty" and ``generate.py`` selects
 ``tiebreak_adp_attr = "adp_dynasty"`` for dynasty leagues, but no fetcher ever
-writes a ``format="dynasty"`` row. So ``_get_adp(entries, "dynasty")`` always
-returned ``None``, ``adp_dynasty`` was always null, and the tiers.py sort key
+writes a ``format="dynasty"`` row. So ``_get_adp(entries, scoring_fmt,
+league_type="dynasty")`` always returned ``None``, ``adp_dynasty`` was always
+null, and the tiers.py sort key
 collapsed to a constant 9999 for every dynasty player — equal-VBD ties resolved
 on arbitrary insertion order.
 
 Part 1 locks the root cause (no dynasty rows exist, so ``adp_dynasty`` is None).
 Part 2 proves the short-term fallback: dynasty ties break on ``adp_ppr`` order.
 """
+from typing import Optional
+
 from app.api.generate import _get_adp
 from app.engine.tiers import TieredPlayer, assign_tiers
 from app.models.adp import ADPData
@@ -38,7 +41,7 @@ def test_get_adp_dynasty_is_none_even_when_redraft_formats_present():
 
 # --- Part 2: fallback — dynasty ties break on adp_ppr, not insertion order ---
 
-def _tied_player(pid: str, adp_ppr: float) -> TieredPlayer:
+def _tied_player(pid: str, adp_ppr: Optional[float]) -> TieredPlayer:
     # Identical adjusted_score (→ identical VBD) so ranking depends purely on
     # the ADP tiebreak. adp_dynasty is None, mirroring production data.
     return TieredPlayer(
