@@ -207,10 +207,10 @@ async def test_nfl_fetcher_populates_team_seasons(test_db, mock_nfl_data_with_sc
 
 @pytest.fixture
 def mock_nfl_data_with_postseason(monkeypatch):
-    """Like mock_nfl_data but the schedule mixes REG and postseason rows for KC.
+    """Like mock_nfl_data but the schedule mixes REG and postseason rows.
 
-    KC has a regular-season game plus a Super Bowl row; SF only plays the
-    regular season. Only the REG scores should count toward points_scored (#860).
+    Both KC and SF play two regular-season games (SF@KC and KC@SF) plus a shared
+    Super Bowl row. Only the REG scores should count toward points_scored (#860).
     """
     seasonal_df = pd.read_csv(FIXTURES / "nfl_data_seasonal.csv")
     snap_df = pd.read_csv(FIXTURES / "nfl_data_snap_counts.csv")
@@ -229,6 +229,9 @@ def mock_nfl_data_with_postseason(monkeypatch):
     monkeypatch.setattr(mod, "import_snap_counts", lambda years: snap_df.copy())
     monkeypatch.setattr(mod, "import_pbp_data", lambda years: pd.DataFrame())
     monkeypatch.setattr(mod, "import_schedules", lambda years: schedule_df.copy())
+    # Draft picks aren't exercised here — stub so fetch() never reaches the
+    # network for draft capital and the test stays hermetic (#770).
+    monkeypatch.setattr(mod, "import_draft_picks", lambda years: pd.DataFrame())
 
 
 @pytest.mark.asyncio
