@@ -22,8 +22,11 @@ world (input dict):
       ]
     }
 
-result (return value): the surviving candidates, ordered best-first, capped:
-    [{"title": "...", "area": "...", "body": "..."}]
+result (return value): the surviving candidates, ordered best-first, capped.
+`score` is carried through (coerced to float, defaulting to 0.0) so the
+downstream triage dispatcher can meter issues best-score-first without
+re-parsing the filed issue body:
+    [{"title": "...", "area": "...", "body": "...", "score": 8.5}]
 """
 from __future__ import annotations
 
@@ -102,7 +105,7 @@ def select(world: dict) -> list[dict]:
             continue  # malformed candidate — needs both a title and a spec body
         if _is_duplicate(title, seen_titles):
             continue  # duplicates an existing issue OR an already-kept candidate
-        kept.append({"title": title, "area": _text(c.get("area")), "body": body})
+        kept.append({"title": title, "area": _text(c.get("area")), "body": body, "score": _score(c)})
         seen_titles.append(title)
         if len(kept) >= max_issues:
             break
