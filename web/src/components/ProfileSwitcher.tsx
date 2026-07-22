@@ -2,7 +2,7 @@ import { Check, ChevronDown } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { LocalProfile } from "@/hooks/useLocalProfiles";
+import { MAX_PROFILES, type LocalProfile } from "@/hooks/useLocalProfiles";
 
 interface ProfileSwitcherProps {
   profiles: LocalProfile[];
@@ -43,7 +43,18 @@ export function ProfileSwitcher({ profiles, activeId, onSelect, onNew, onManage,
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={onNew} disabled={!canCreate}>+ New Profile</DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={onNew}
+          disabled={!canCreate}
+          title={canCreate ? undefined : `Profile limit reached (${profiles.length}/${MAX_PROFILES}). Delete one to add another.`}
+        >
+          + New Profile
+          {!canCreate && (
+            <span className="ml-1 text-xs text-muted-foreground">
+              ({profiles.length}/{MAX_PROFILES} — delete one to add another)
+            </span>
+          )}
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={onManage}>Manage Profiles…</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

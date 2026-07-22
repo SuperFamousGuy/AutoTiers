@@ -48,6 +48,28 @@ describe("ProfileSwitcher", () => {
     expect(item).toHaveAttribute("data-disabled");
   });
 
+  it("explains why + New Profile is disabled at the profile cap (#855)", async () => {
+    const capped = Array.from({ length: 5 }, (_, i) => ({ id: `p${i}`, name: `Profile ${i}`, settings: {}, rules: {} }));
+    render(<ProfileSwitcher profiles={capped} activeId="p0" onSelect={() => {}} onNew={() => {}} onManage={() => {}} canCreate={false} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Profile 0/ }));
+    const item = screen.getByRole("menuitem", { name: /\+ New Profile/i });
+    expect(item).toHaveAttribute("data-disabled");
+    // Reason is part of the accessible name so screen-reader users hear it.
+    expect(item).toHaveAccessibleName(/5\/5.*delete one to add another/i);
+    expect(item).toHaveAttribute("title", expect.stringMatching(/limit reached/i));
+  });
+
+  it("shows no cap copy while below the profile cap (#855)", async () => {
+    render(<ProfileSwitcher profiles={profiles} activeId="p1" onSelect={() => {}} onNew={() => {}} onManage={() => {}} canCreate />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /PPR 12-team/ }));
+    const item = screen.getByRole("menuitem", { name: /\+ New Profile/i });
+    expect(item).not.toHaveAttribute("data-disabled");
+    expect(item).not.toHaveAttribute("title");
+    expect(item.textContent).not.toMatch(/delete one to add another/i);
+  });
+
   it("calls onManage when 'Manage Profiles…' is chosen", async () => {
     const onManage = vi.fn();
     render(<ProfileSwitcher profiles={profiles} activeId="p1" onSelect={() => {}} onNew={() => {}} onManage={onManage} canCreate />);

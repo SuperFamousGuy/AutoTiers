@@ -3,6 +3,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 const KEY = "autotiers.profiles.v1";
 const ACTIVE_KEY = "autotiers.activeProfile.v1";
 
+/**
+ * Hard cap on locally-stored profiles. Single source of truth: App derives
+ * `canCreate` from it and the profile menus render the "N/MAX" cap copy from
+ * it, so the disabled "+ New Profile" affordance and the reason it shows can't
+ * drift out of sync (#855).
+ */
+export const MAX_PROFILES = 5;
+
 export interface LocalProfile {
   id: string;
   name: string;
