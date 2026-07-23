@@ -7,7 +7,7 @@ from app.config import settings
 from app.database import get_db, AsyncSessionLocal
 from app.data.fetcher import fetcher
 from app.data.freshness import evaluate_data_freshness
-from app.data.status import get_all_status
+from app.data.status import get_all_status, RETIRED_SOURCES
 from app.auth.admin import require_admin
 
 logger = logging.getLogger(__name__)
@@ -45,8 +45,19 @@ async def data_health(db: AsyncSession = Depends(get_db)) -> JSONResponse:
     instead of waiting for a user to report the stale banner.
     """
     statuses = await get_all_status(db)
+    # Exclude retired sources (#402) from the freshness verdict. Their rows stop
+    # advancing `last_attempted` after retirement and are only deleted by
+    # `purge_retired_status()` on the next scheduler cycle; between a retirement
+    # deploy and that purge, a lingering row would become the "oldest attempt"
+    # and trip a false 503 stale alarm even while every live source refreshes
+    # normally (#786). Same exclusion `_compute_data_as_of` already applies for
+    # the freshness banner (#579). Filtered here rather than in `get_all_status`
+    # so `/api/data/status`'s response shape is unchanged.
+    live_statuses = {
+        source: row for source, row in statuses.items() if source not in RETIRED_SOURCES
+    }
     verdict = evaluate_data_freshness(
-        statuses, threshold_hours=settings.data_freshness_threshold_hours
+        live_statuses, threshold_hours=settings.data_freshness_threshold_hours
     )
     status_code = 503 if verdict.stale else 200
     return JSONResponse(status_code=status_code, content=verdict.to_dict())
