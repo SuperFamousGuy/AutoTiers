@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { uuidv4 } from "@/lib/uuid";
 
 const KEY = "autotiers.profiles.v1";
@@ -19,7 +19,7 @@ export interface LocalProfile {
   rules: Record<string, unknown>;
 }
 
-function load(): LocalProfile[] {
+function loadProfiles(): LocalProfile[] {
   try {
     const raw = localStorage.getItem(KEY);
     return raw ? (JSON.parse(raw) as LocalProfile[]) : [];
@@ -28,78 +28,126 @@ function load(): LocalProfile[] {
   }
 }
 
-export function useLocalProfiles() {
-  const [profiles, setProfiles] = useState<LocalProfile[]>(load);
-  const [activeId, setActiveId] = useState<string | null>(
-    () => localStorage.getItem(ACTIVE_KEY),
-  );
-  // Mirrors `profiles` synchronously so validation (e.g. duplicate-name
-  // checks) can run BEFORE calling setState. Throwing from inside a React
-  // state updater function is unreliable (React may invoke updaters more
-  // than once, e.g. under StrictMode, and swallow/re-throw inconsistently),
-  // so reads for validation purposes go through this ref instead.
-  const profilesRef = useRef(profiles);
-  profilesRef.current = profiles;
+function loadActiveId(): string | null {
+  try {
+    return localStorage.getItem(ACTIVE_KEY);
+  } catch {
+    return null;
+  }
+}
 
-  useEffect(() => {
-    localStorage.setItem(KEY, JSON.stringify(profiles));
-  }, [profiles]);
-  useEffect(() => {
-    if (activeId) localStorage.setItem(ACTIVE_KEY, activeId);
+// localStorage is the single source of truth. Every hook instance subscribes to
+// this shared listener set, and every write re-notifies all instances to
+// re-read — so two independent `useLocalProfiles()` callers (e.g. App's
+// autosave and the profile switcher, or two browser tabs) never drift out of
+// sync. Mirrors `useLocalFavorites.ts`; without it a second tab's stale
+// autosave would clobber a profile the first tab just created (#854). As there,
+// we deliberately do NOT cache the value in a module-level variable: reading
+// straight from localStorage keeps test isolation intact (a test's
+// `localStorage.clear()` is immediately observed by the next mount).
+const listeners = new Set<() => void>();
+
+function notify(): void {
+  listeners.forEach((l) => l());
+}
+
+function persistProfiles(next: LocalProfile[]): void {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(next));
+  } catch {
+    // Storage full / disabled (private mode) — persistence is best-effort.
+  }
+  notify();
+}
+
+function persistActiveId(id: string | null): void {
+  try {
+    if (id) localStorage.setItem(ACTIVE_KEY, id);
     else localStorage.removeItem(ACTIVE_KEY);
-  }, [activeId]);
+  } catch {
+    // Storage full / disabled (private mode) — persistence is best-effort.
+  }
+  notify();
+}
 
+export function useLocalProfiles() {
+  const [profiles, setProfiles] = useState<LocalProfile[]>(loadProfiles);
+  const [activeId, setActiveId] = useState<string | null>(loadActiveId);
+
+  useEffect(() => {
+    const refresh = () => {
+      setProfiles(loadProfiles());
+      setActiveId(loadActiveId());
+    };
+    listeners.add(refresh);
+    // Cross-tab sync: another tab's write fires a `storage` event here.
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === KEY || e.key === ACTIVE_KEY || e.key === null) refresh();
+    };
+    window.addEventListener("storage", onStorage);
+    // Re-sync on mount in case another instance wrote before this one mounted.
+    refresh();
+    return () => {
+      listeners.delete(refresh);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
+
+  // Every mutation reads current state straight from localStorage before
+  // mutating, rather than trusting this instance's React snapshot — the
+  // snapshot can be stale if another instance/tab wrote after this one
+  // rendered. notify() then re-syncs every instance (including this one).
   const create = useCallback(
     (name: string, settings: Record<string, unknown>, rules: Record<string, unknown>) => {
       const trimmed = name.trim();
       if (!trimmed) throw new Error("Profile name required");
+      const current = loadProfiles();
       // Enforce the hard cap here too, not just in the UI's `canCreate` gate,
       // so the invariant the docstring promises holds even if a caller reaches
       // create() without checking (#855).
-      if (profilesRef.current.length >= MAX_PROFILES) {
+      if (current.length >= MAX_PROFILES) {
         throw new Error("Profile limit reached");
       }
-      if (profilesRef.current.some((p) => p.name === trimmed)) {
+      if (current.some((p) => p.name === trimmed)) {
         throw new Error("Duplicate profile name");
       }
       // `crypto.randomUUID` only exists in secure contexts; use a fallback so
       // ID generation can't throw and crash the first-run mount effect (#859).
       const id = uuidv4();
-      const next = [...profilesRef.current, { id, name: trimmed, settings, rules }];
-      profilesRef.current = next;
-      setProfiles(next);
-      setActiveId(id);
+      persistProfiles([...current, { id, name: trimmed, settings, rules }]);
+      persistActiveId(id);
       return id;
     },
     [],
   );
 
   const update = useCallback(
-    (id: string, patch: Partial<Pick<LocalProfile, "settings" | "rules">>) =>
-      setProfiles((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p))),
+    (id: string, patch: Partial<Pick<LocalProfile, "settings" | "rules">>) => {
+      const current = loadProfiles();
+      persistProfiles(current.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+    },
     [],
   );
 
   const rename = useCallback((id: string, name: string) => {
     const trimmed = name.trim();
     if (!trimmed) throw new Error("Profile name required");
+    const current = loadProfiles();
     // Reject collision with a *different* profile; renaming to the current
     // name (or same after trim) is a no-op-safe allow. Mirrors create()'s
     // duplicate guard so the two entry points can't drift.
-    if (profilesRef.current.some((p) => p.id !== id && p.name === trimmed)) {
+    if (current.some((p) => p.id !== id && p.name === trimmed)) {
       throw new Error("Duplicate profile name");
     }
-    const next = profilesRef.current.map((p) => (p.id === id ? { ...p, name: trimmed } : p));
-    profilesRef.current = next;
-    setProfiles(next);
+    persistProfiles(current.map((p) => (p.id === id ? { ...p, name: trimmed } : p)));
   }, []);
 
   const remove = useCallback((id: string) => {
-    setProfiles((prev) => prev.filter((p) => p.id !== id));
-    setActiveId((cur) => (cur === id ? null : cur));
+    persistProfiles(loadProfiles().filter((p) => p.id !== id));
+    if (loadActiveId() === id) persistActiveId(null);
   }, []);
 
-  const activate = useCallback((id: string) => setActiveId(id), []);
+  const activate = useCallback((id: string) => persistActiveId(id), []);
 
   const active = profiles.find((p) => p.id === activeId) ?? null;
 
