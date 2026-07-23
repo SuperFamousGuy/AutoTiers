@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.data.freshness import FreshnessVerdict, evaluate_data_freshness
-from app.data.status import upsert_status
+from app.data.status import RETIRED_SOURCES, upsert_status
 
 NOW = datetime(2026, 6, 22, 13, 0, 0, tzinfo=timezone.utc)
 
@@ -180,3 +180,50 @@ async def test_health_endpoint_stale_returns_503(async_client, test_db):
     assert body["stale"] is True
     assert body["status"] == "stale"
     assert body["oldest_source"] == "sleeper"
+
+
+@pytest.mark.asyncio
+async def test_health_endpoint_retired_stale_source_ignored(async_client, test_db):
+    """A lingering retired-source row must not fire a false 503 (#786).
+
+    Between a retirement deploy and the next `purge_retired_status()` cycle, a
+    retired source's row stops advancing `last_attempted`. It must not become the
+    "oldest attempt" that trips the stale alarm while every live source is fresh.
+    """
+    retired = RETIRED_SOURCES[0]
+    stale_ts = datetime.utcnow() - timedelta(hours=12)
+    await upsert_status(
+        test_db, source=retired, last_attempted=stale_ts,
+        success=False, rows_upserted=0, error="retired",
+    )
+    await upsert_status(
+        test_db, source="sleeper", last_attempted=datetime.utcnow(),
+        success=True, rows_upserted=10, error=None,
+    )
+    await test_db.commit()
+    resp = await async_client.get("/api/data/health")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["stale"] is False
+    assert body["oldest_source"] == "sleeper"
+
+
+@pytest.mark.asyncio
+async def test_health_endpoint_only_retired_stale_source_is_no_data(async_client, test_db):
+    """If the ONLY tracked row is a stale retired source, that's not an alarm.
+
+    Excluding it leaves no live source with a usable attempt, which reads as
+    `no_data` (200), never a stale 503.
+    """
+    retired = RETIRED_SOURCES[0]
+    stale_ts = datetime.utcnow() - timedelta(hours=12)
+    await upsert_status(
+        test_db, source=retired, last_attempted=stale_ts,
+        success=False, rows_upserted=0, error="retired",
+    )
+    await test_db.commit()
+    resp = await async_client.get("/api/data/health")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["stale"] is False
+    assert body["status"] == "no_data"

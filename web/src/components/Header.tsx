@@ -59,6 +59,7 @@ function HamburgerMenu({ mobileProfileMenu, isDark, onToggleDark, onShowOnboardi
 
 interface HeaderProps {
   generateDisabled: boolean;
+  generateDisabledReason?: string | null;
   generateIsPending: boolean;
   onGenerate: () => void;
   profilePicker?: React.ReactNode;
@@ -69,7 +70,7 @@ interface HeaderProps {
 }
 
 export function Header({
-  generateDisabled, generateIsPending, onGenerate, profilePicker, isDark, onToggleDark, onShowOnboarding, mobileProfileMenu,
+  generateDisabled, generateDisabledReason, generateIsPending, onGenerate, profilePicker, isDark, onToggleDark, onShowOnboarding, mobileProfileMenu,
 }: HeaderProps) {
   return (
     <header className="flex items-center justify-between border-b bg-card px-4 py-3 lg:px-6 lg:py-4">
@@ -87,6 +88,7 @@ export function Header({
         </div>
         <GenerateButton
           disabled={generateDisabled}
+          disabledReason={generateDisabledReason}
           isPending={generateIsPending}
           onClick={onGenerate}
         />

@@ -7,7 +7,7 @@ name = "autotiers-backend"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.139.0",
+    "fastapi>=0.139.2",
     "orjson>=3.11.9",
     "uvicorn[standard]>=0.51.0",
     "sqlalchemy[asyncio]>=2.0.51",
@@ -16,7 +16,7 @@ dependencies = [
     "psycopg2-binary>=2.9.12",
     "pydantic[email]>=2.13.4",
     "pydantic-settings>=2.14.2",
-    "pandas>=3.0.3",
+    "pandas>=3.0.5",
     "jenkspy>=0.4.1",
     "httpx>=0.28.1",
     "apscheduler>=3.11.3",
@@ -28,7 +28,7 @@ dependencies = [
     "argon2-cffi>=25.1.0",
     "pyjwt>=2.13.0",
     "cryptography>=49.0.0",
-    "aiobotocore[boto3]>=3.7.0",
+    "aiobotocore[boto3]>=3.8.0",
 ]
 
 [project.optional-dependencies]
@@ -36,7 +36,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
-    "hypothesis>=6.156.6",
+    "hypothesis>=6.160.0",
     "aiosqlite>=0.22.1",
     "respx>=0.23.1",
     # test_infra_apply_workflow.py parses the infra workflow YAML; pin PyYAML
