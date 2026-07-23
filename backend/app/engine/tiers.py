@@ -333,9 +333,22 @@ def assign_tiers(
         _cluster_position(group, position, _max_tiers(position))
 
     # Step 2: overall ranking by vbd_score, with format-appropriate ADP as tiebreaker
+    def _tiebreak_adp(p: TieredPlayer) -> float:
+        adp = getattr(p, tiebreak_adp_attr, None)
+        # No source writes format="dynasty" ADP rows yet (issue #858), so
+        # adp_dynasty is always None; without a fallback the dynasty tiebreak
+        # collapses to a constant 9999 and equal-VBD ties resolve on arbitrary
+        # insertion order. Dynasty startup drafts track PPR redraft ADP closely,
+        # so fall back to adp_ppr when a dynasty ADP is absent. If a real dynasty
+        # source ships, its populated adp_dynasty is used first (this branch is
+        # only reached when adp_dynasty is None).
+        if adp is None and tiebreak_adp_attr == "adp_dynasty":
+            adp = p.adp_ppr
+        return adp if adp is not None else 9999
+
     ranked = sorted(
         all_players,
-        key=lambda p: (-p.vbd_score, getattr(p, tiebreak_adp_attr, None) or 9999),
+        key=lambda p: (-p.vbd_score, _tiebreak_adp(p)),
     )
     for rank, player in enumerate(ranked, start=1):
         player.overall_rank = rank
