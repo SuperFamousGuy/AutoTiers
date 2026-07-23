@@ -24,8 +24,10 @@ describe("useLocalFavorites", () => {
   });
 
   it("keeps independent hook instances in sync within a session", () => {
-    // Mirrors the real app: App.tsx reads favorites for the tier-list star
-    // badges while the Favorites swimlane toggles them from a separate hook instance.
+    // App.tsx itself uses a single useLocalFavorites instance for both the
+    // tier-list star badges and the Favorites swimlane, but the hook must still
+    // keep any two live instances in the same session in sync — this exercises
+    // that cross-instance broadcast directly.
     const reader = renderHook(() => useLocalFavorites());
     const toggler = renderHook(() => useLocalFavorites());
 

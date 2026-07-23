@@ -381,12 +381,20 @@ export default function App() {
       <a
         href="#main-content"
         onClick={(e) => {
-          e.preventDefault();
+          // Let modified activations (Ctrl/⌘/Shift/Alt-click, non-primary
+          // button) fall through to the browser so users can still open the
+          // fragment in a new tab/window. Only hijack a plain click, and only
+          // when the target actually exists.
+          if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
           const main = document.getElementById("main-content");
-          if (main) {
-            main.focus();
-            main.scrollIntoView();
-          }
+          if (!main) return;
+          e.preventDefault();
+          // Mirror what a real fragment link does — update the URL hash — then
+          // move focus explicitly, since bare fragment navigation doesn't
+          // reliably shift focus across browsers/AT.
+          window.history.pushState(null, "", "#main-content");
+          main.focus();
+          main.scrollIntoView();
         }}
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-background focus:px-4 focus:py-2 focus:text-foreground focus:shadow-lg focus:ring-2 focus:ring-ring"
       >
