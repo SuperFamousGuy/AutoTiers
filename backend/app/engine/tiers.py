@@ -76,6 +76,7 @@ class TieredPlayer:
     prior_year_actual: Optional[float]
     adp_standard: Optional[float]
     adp_ppr: Optional[float]
+    adp_half_ppr: Optional[float]
     adp_dynasty: Optional[float]
     flags: list[str]
     rules_applied: list[str]

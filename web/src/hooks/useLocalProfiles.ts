@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { uuidv4 } from "@/lib/uuid";
 
 const KEY = "autotiers.profiles.v1";
 const ACTIVE_KEY = "autotiers.activeProfile.v1";
@@ -61,7 +62,9 @@ export function useLocalProfiles() {
       if (profilesRef.current.some((p) => p.name === trimmed)) {
         throw new Error("Duplicate profile name");
       }
-      const id = crypto.randomUUID();
+      // `crypto.randomUUID` only exists in secure contexts; use a fallback so
+      // ID generation can't throw and crash the first-run mount effect (#859).
+      const id = uuidv4();
       const next = [...profilesRef.current, { id, name: trimmed, settings, rules }];
       profilesRef.current = next;
       setProfiles(next);

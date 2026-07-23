@@ -20,7 +20,7 @@ def _player(pid: str, position: str, score: float) -> TieredPlayer:
         player_id=pid, name=f"Player {pid}", position=position,
         team="NE", age=25, adjusted_score=score,
         projected_score_raw=score, prior_year_actual=score,
-        adp_standard=None, adp_ppr=None, adp_dynasty=None,
+        adp_standard=None, adp_ppr=None, adp_half_ppr=None, adp_dynasty=None,
         flags=[], rules_applied=[],
         overall_rank=0, overall_tier=0, positional_tier="",
     )

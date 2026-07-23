@@ -19,7 +19,7 @@ def _player(pid: str, position: str, score: float, **kwargs) -> TieredPlayer:
         player_id=pid, name=f"Player {pid}", position=position,
         team="NE", age=25, adjusted_score=score,
         projected_score_raw=score, prior_year_actual=score,
-        adp_standard=None, adp_ppr=None, adp_dynasty=None,
+        adp_standard=None, adp_ppr=None, adp_half_ppr=None, adp_dynasty=None,
         flags=[], rules_applied=[],
         overall_rank=0, overall_tier=0, positional_tier="",
         **kwargs,
@@ -136,7 +136,7 @@ def test_vbd_subtracts_position_replacement():
             adjusted_score=400.0 - i * 10,
             projected_score_raw=400.0 - i * 10,
             prior_year_actual=None,
-            adp_standard=float(i + 1), adp_ppr=float(i + 1), adp_dynasty=float(i + 1),
+            adp_standard=float(i + 1), adp_ppr=float(i + 1), adp_half_ppr=float(i + 1), adp_dynasty=float(i + 1),
             flags=[], rules_applied=[],
             overall_rank=0, overall_tier=0, positional_tier="",
         )
@@ -236,7 +236,7 @@ def test_vbd_ranking_top_rb_beats_top_qb():
             player_id=f"qb_{i}", name=f"QB{i}", position="QB", team="X", age=27,
             adjusted_score=400.0 - i * 10, projected_score_raw=400.0 - i * 10,
             prior_year_actual=None,
-            adp_standard=float(i + 1), adp_ppr=float(i + 1), adp_dynasty=None,
+            adp_standard=float(i + 1), adp_ppr=float(i + 1), adp_half_ppr=float(i + 1), adp_dynasty=None,
             flags=[], rules_applied=[],
             overall_rank=0, overall_tier=0, positional_tier="",
         ))
@@ -246,7 +246,7 @@ def test_vbd_ranking_top_rb_beats_top_qb():
             player_id=f"rb_{i}", name=f"RB{i}", position="RB", team="X", age=27,
             adjusted_score=300.0 - i * 7.5, projected_score_raw=300.0 - i * 7.5,
             prior_year_actual=None,
-            adp_standard=float(i + 1), adp_ppr=float(i + 1), adp_dynasty=None,
+            adp_standard=float(i + 1), adp_ppr=float(i + 1), adp_half_ppr=float(i + 1), adp_dynasty=None,
             flags=[], rules_applied=[],
             overall_rank=0, overall_tier=0, positional_tier="",
         ))
@@ -315,7 +315,7 @@ def _kicker(pid: str, score: float, adp: float) -> TieredPlayer:
     return TieredPlayer(
         player_id=pid, name=f"K {pid}", position="K", team="X", age=27,
         adjusted_score=score, projected_score_raw=score, prior_year_actual=None,
-        adp_standard=adp, adp_ppr=adp, adp_dynasty=adp,
+        adp_standard=adp, adp_ppr=adp, adp_half_ppr=adp, adp_dynasty=adp,
         flags=[], rules_applied=[],
         overall_rank=0, overall_tier=0, positional_tier="",
     )
@@ -353,7 +353,7 @@ def test_cluster_position_with_two_value_clusters():
             player_id=f"k_top_{i}", name=f"KT{i}", position="K", team="X", age=27,
             adjusted_score=5.62, projected_score_raw=5.62,
             prior_year_actual=None,
-            adp_standard=float(i + 200), adp_ppr=float(i + 200), adp_dynasty=float(i + 200),
+            adp_standard=float(i + 200), adp_ppr=float(i + 200), adp_half_ppr=float(i + 200), adp_dynasty=float(i + 200),
             flags=[], rules_applied=[],
             overall_rank=0, overall_tier=0, positional_tier="",
         ))
@@ -362,7 +362,7 @@ def test_cluster_position_with_two_value_clusters():
             player_id=f"k_bot_{i}", name=f"KB{i}", position="K", team="X", age=27,
             adjusted_score=0.0, projected_score_raw=0.0,
             prior_year_actual=None,
-            adp_standard=float(i + 300), adp_ppr=float(i + 300), adp_dynasty=float(i + 300),
+            adp_standard=float(i + 300), adp_ppr=float(i + 300), adp_half_ppr=float(i + 300), adp_dynasty=float(i + 300),
             flags=[], rules_applied=[],
             overall_rank=0, overall_tier=0, positional_tier="",
         ))
@@ -608,7 +608,7 @@ def _seed_tiered_players():
             player_id=p["id"], name=p["name"], position=p["position"], team=p["team"],
             age=p["age"], adjusted_score=espn, projected_score_raw=espn,
             prior_year_actual=None, adp_standard=None, adp_ppr=p["adp"]["ppr"],
-            adp_dynasty=None, flags=[], rules_applied=[],
+            adp_half_ppr=p["adp"].get("half_ppr"), adp_dynasty=None, flags=[], rules_applied=[],
             overall_rank=0, overall_tier=0, positional_tier="",
         ))
     return out

@@ -403,12 +403,16 @@ jobs:
             gh label create "$REC_LABEL" --repo "$REPO" \
               --color 0e8a16 --description "Proactive improvement recommendation (auto-filed)" \
               2>/dev/null || true
+            gh label create "triage-queued" --repo "$REPO" \
+              --color 1d76db --description "Recommendation awaiting the triage dispatcher" \
+              2>/dev/null || true
           fi
 
           jq -c '.[]' recommendations.json | while read -r row; do
             title="$(echo "$row" | jq -r .title)"
             body="$(echo "$row" | jq -r .body)"
             area="$(echo "$row" | jq -r .area)"
+            score="$(echo "$row" | jq -r '.score // 0')"
             echo "recommendation [$area]: $title"
             # Defense-in-depth: the selector already drops empty-title/body
             # candidates, so an empty field here means malformed selector output
@@ -428,8 +432,8 @@ jobs:
             # guarantee that the `recommendation` label actually lands — and it
             # FAILS LOUDLY if it can't, so a future silent drop is visible in the
             # run instead of quietly breaking the recommender's label-based dedup.
-            issue_url="$(printf '%s\n\n_Filed by `claude-improvement-recommender.yml` (area: %s)._' \
-              "$body" "$area" \
+            issue_url="$(printf '%s\n\n_Filed by `claude-improvement-recommender.yml` (area: %s)._\n\n<!-- autotiers:rec score=%s -->' \
+              "$body" "$area" "$score" \
               | gh issue create --repo "$REPO" --label "$REC_LABEL" \
                   --title "$title" --body-file -)"
             echo "created: $issue_url"
@@ -444,9 +448,10 @@ jobs:
             fi
             # Re-apply the label explicitly and verify it succeeds. NO `|| true`:
             # if this fails, the step must fail so the drop is never swallowed.
-            if ! gh issue edit "$issue_num" --repo "$REPO" --add-label "$REC_LABEL"; then
-              echo "::error::failed to apply the '$REC_LABEL' label to issue #$issue_num (does PR_AUTHOR_PAT have Issues:Write?); refusing to continue with unlabeled recommendation issues"
+            if ! gh issue edit "$issue_num" --repo "$REPO" \
+                 --add-label "$REC_LABEL" --add-label "triage-queued"; then
+              echo "::error::failed to apply the '$REC_LABEL'/'triage-queued' labels to issue #$issue_num (does PR_AUTHOR_PAT have Issues:Write?); refusing to continue with unlabeled recommendation issues"
               exit 1
             fi
-            echo "labeled #$issue_num with '$REC_LABEL'"
+            echo "labeled #$issue_num with '$REC_LABEL' + 'triage-queued'"
           done
