@@ -3,7 +3,6 @@ import { useState } from "react";
 import { DataFreshness } from "./DataFreshness";
 import { Logo } from "./Logo";
 import { GenerateButton } from "./GenerateButton";
-import { FavoritesDialog } from "./FavoritesDialog";
 import { FeedbackDialog } from "./FeedbackDialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
@@ -16,7 +15,6 @@ interface HamburgerProps {
 }
 
 function HamburgerMenu({ mobileProfileMenu, isDark, onToggleDark, onShowOnboarding }: HamburgerProps) {
-  const [favoritesOpen, setFavoritesOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   return (
@@ -30,7 +28,6 @@ function HamburgerMenu({ mobileProfileMenu, isDark, onToggleDark, onShowOnboardi
         <DropdownMenuContent>
           {/* Profile switch/create/manage — mobile only; desktop uses ProfileSwitcher (#499). */}
           {mobileProfileMenu}
-          <DropdownMenuItem onSelect={() => setFavoritesOpen(true)}>Favorites</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setFeedbackOpen(true)}>Provide Feedback</DropdownMenuItem>
           {onShowOnboarding && (
             <DropdownMenuItem className="lg:hidden" onSelect={() => onShowOnboarding()}>
@@ -55,7 +52,6 @@ function HamburgerMenu({ mobileProfileMenu, isDark, onToggleDark, onShowOnboardi
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <FavoritesDialog open={favoritesOpen} onOpenChange={setFavoritesOpen} />
       <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
     </>
   );

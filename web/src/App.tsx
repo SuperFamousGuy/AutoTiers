@@ -17,6 +17,8 @@ import { useToast } from "@/components/ui/toast";
 import { useRules, useGenerateMutation, downloadDraftXlsx, downloadDebugCsv } from "@/api/hooks";
 import { useLocalProfiles } from "@/hooks/useLocalProfiles";
 import { useLocalFavorites } from "@/hooks/useLocalFavorites";
+import { FavoritesPanel } from "@/components/FavoritesPanel";
+import { searchPlayers, batchPlayers } from "@/api/favorites";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { describeGenerateError } from "@/lib/errors";
 import { weightsAreValid } from "@/lib/weights";
@@ -61,7 +63,14 @@ export default function App() {
     skip: tourSkip,
   } = useOnboarding(ONBOARDING_STEPS.length);
   const { profiles, active: activeProfile, create, update, rename, remove, activate } = useLocalProfiles();
-  const { isFavoritePlayer, isFavoriteTeam } = useLocalFavorites();
+  const {
+    isFavoritePlayer,
+    isFavoriteTeam,
+    players: favoritePlayers,
+    teams: favoriteTeams,
+    togglePlayer: toggleFavoritePlayer,
+    toggleTeam: toggleFavoriteTeam,
+  } = useLocalFavorites();
   const { toast } = useToast();
   const [settings, setSettings] = useState<SettingsState>(DEFAULT_SETTINGS);
   // Dev-only debug export: surfaces the full debug CSV button when the app URL
@@ -435,7 +444,7 @@ export default function App() {
       <main
         id="main-content"
         tabIndex={-1}
-        className="flex-1 grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_minmax(0,1.5fr)] lg:grid-rows-1 overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        className="flex-1 grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_240px_minmax(0,1.5fr)] lg:grid-rows-1 overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       >
         <div
           id="panel-settings"
@@ -461,6 +470,24 @@ export default function App() {
             isError={rulesError}
             onRetry={refetchRules}
           />
+        </div>
+        <div
+          id="panel-favorites"
+          role="tabpanel"
+          aria-label="Favorites"
+          className={mobilePanel === "favorites" ? "contents lg:contents" : "hidden lg:contents"}
+        >
+          <aside className="border-r bg-card overflow-y-auto min-h-0">
+            <h2 className="px-4 pt-4 text-lg font-semibold">Favorites</h2>
+            <FavoritesPanel
+              favoritePlayerIds={favoritePlayers}
+              favoriteTeams={favoriteTeams}
+              onTogglePlayer={toggleFavoritePlayer}
+              onToggleTeam={toggleFavoriteTeam}
+              searchPlayers={searchPlayers}
+              batchPlayers={batchPlayers}
+            />
+          </aside>
         </div>
         <div
           id="panel-tiers"

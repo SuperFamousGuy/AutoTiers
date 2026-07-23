@@ -1,11 +1,12 @@
 import { useRef } from "react";
 import { cn } from "@/lib/utils";
 
-export type MobilePanel = "settings" | "rules" | "tiers";
+export type MobilePanel = "settings" | "rules" | "favorites" | "tiers";
 
 const TABS: { id: MobilePanel; label: string }[] = [
   { id: "settings", label: "Settings" },
   { id: "rules", label: "Rules" },
+  { id: "favorites", label: "Favorites" },
   { id: "tiers", label: "Tiers" },
 ];
 

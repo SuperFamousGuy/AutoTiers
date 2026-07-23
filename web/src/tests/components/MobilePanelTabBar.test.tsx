@@ -4,11 +4,32 @@ import userEvent from "@testing-library/user-event";
 import { MobilePanelTabBar } from "@/components/MobilePanelTabBar";
 
 describe("MobilePanelTabBar", () => {
-  it("renders all three tab buttons", () => {
+  it("renders all four tab buttons", () => {
     render(<MobilePanelTabBar active="settings" onChange={() => {}} />);
     expect(screen.getByRole("tab", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Rules" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Favorites" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Tiers" })).toBeInTheDocument();
+  });
+
+  it("ArrowRight moves from Rules to the Favorites tab", async () => {
+    const onChange = vi.fn();
+    render(<MobilePanelTabBar active="rules" onChange={onChange} />);
+    const user = userEvent.setup();
+    screen.getByRole("tab", { name: "Rules" }).focus();
+    await user.keyboard("{ArrowRight}");
+    expect(onChange).toHaveBeenCalledWith("favorites");
+    expect(screen.getByRole("tab", { name: "Favorites" })).toHaveFocus();
+  });
+
+  it("ArrowRight moves from Favorites to the Tiers tab", async () => {
+    const onChange = vi.fn();
+    render(<MobilePanelTabBar active="favorites" onChange={onChange} />);
+    const user = userEvent.setup();
+    screen.getByRole("tab", { name: "Favorites" }).focus();
+    await user.keyboard("{ArrowRight}");
+    expect(onChange).toHaveBeenCalledWith("tiers");
+    expect(screen.getByRole("tab", { name: "Tiers" })).toHaveFocus();
   });
 
   it("marks the active tab as aria-selected=true", () => {
