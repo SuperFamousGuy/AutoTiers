@@ -50,3 +50,24 @@
     font-family: 'Inter', system-ui, sans-serif;
   }
 }
+
+/*
+ * Honor the OS/browser "reduce motion" preference (issue #810).
+ *
+ * Neutralize the Tailwind animation utilities the app fires unconditionally —
+ * spinners (animate-spin), skeleton pulses (animate-pulse), and the
+ * dialog/toast enter/exit transitions (animate-in / animate-out). Spinners and
+ * skeletons stay visually present (busy state is still conveyed via aria-busy /
+ * role="status"); they simply stop animating. Users without the preference set
+ * see no change.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
