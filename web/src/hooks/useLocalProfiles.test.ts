@@ -1,6 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type LocalProfile, useLocalProfiles } from "./useLocalProfiles";
+import { MAX_PROFILES, type LocalProfile, useLocalProfiles } from "./useLocalProfiles";
 
 beforeEach(() => localStorage.clear());
 
@@ -29,6 +29,16 @@ describe("useLocalProfiles", () => {
     const { result } = renderHook(() => useLocalProfiles());
     act(() => result.current.create("A", {}, {}));
     expect(() => act(() => result.current.create("A", {}, {}))).toThrow();
+  });
+
+  it("enforces the hard cap on create()", () => {
+    const { result } = renderHook(() => useLocalProfiles());
+    act(() => {
+      for (let i = 0; i < MAX_PROFILES; i++) result.current.create(`P${i}`, {}, {});
+    });
+    expect(result.current.profiles).toHaveLength(MAX_PROFILES);
+    expect(() => act(() => result.current.create("overflow", {}, {}))).toThrow();
+    expect(result.current.profiles).toHaveLength(MAX_PROFILES);
   });
 
   describe("insecure context (crypto.randomUUID undefined) — #859", () => {

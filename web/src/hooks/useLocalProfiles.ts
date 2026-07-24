@@ -4,6 +4,14 @@ import { uuidv4 } from "@/lib/uuid";
 const KEY = "autotiers.profiles.v1";
 const ACTIVE_KEY = "autotiers.activeProfile.v1";
 
+/**
+ * Hard cap on locally-stored profiles. Single source of truth: App derives
+ * `canCreate` from it and the profile menus render the "N/MAX" cap copy from
+ * it, so the disabled "+ New Profile" affordance and the reason it shows can't
+ * drift out of sync (#855).
+ */
+export const MAX_PROFILES = 5;
+
 export interface LocalProfile {
   id: string;
   name: string;
@@ -94,6 +102,12 @@ export function useLocalProfiles() {
       const trimmed = name.trim();
       if (!trimmed) throw new Error("Profile name required");
       const current = loadProfiles();
+      // Enforce the hard cap here too, not just in the UI's `canCreate` gate,
+      // so the invariant the docstring promises holds even if a caller reaches
+      // create() without checking (#855).
+      if (current.length >= MAX_PROFILES) {
+        throw new Error("Profile limit reached");
+      }
       if (current.some((p) => p.name === trimmed)) {
         throw new Error("Duplicate profile name");
       }

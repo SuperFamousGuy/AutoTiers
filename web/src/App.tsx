@@ -15,7 +15,7 @@ import { AdSlot } from "@/components/AdSlot";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { useRules, useGenerateMutation, downloadDraftXlsx, downloadDebugCsv } from "@/api/hooks";
-import { useLocalProfiles } from "@/hooks/useLocalProfiles";
+import { useLocalProfiles, MAX_PROFILES } from "@/hooks/useLocalProfiles";
 import { useLocalFavorites } from "@/hooks/useLocalFavorites";
 import { FavoritesPanel } from "@/components/FavoritesPanel";
 import { searchPlayers, batchPlayers } from "@/api/favorites";
@@ -415,7 +415,7 @@ export default function App() {
             onSelect={handleSelectProfile}
             onNew={handleNewProfile}
             onManage={() => setManageOpen(true)}
-            canCreate={profiles.length < 5}
+            canCreate={profiles.length < MAX_PROFILES}
             onUndo={handleUndo}
             canUndo={canUndo}
           />
@@ -428,7 +428,7 @@ export default function App() {
               onSelect={handleSelectProfile}
               onNew={handleNewProfile}
               onManage={() => setManageOpen(true)}
-              canCreate={profiles.length < 5}
+              canCreate={profiles.length < MAX_PROFILES}
             />
             {canUndo && (
               <Button

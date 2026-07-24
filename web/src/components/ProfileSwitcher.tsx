@@ -2,7 +2,7 @@ import { Check, ChevronDown } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { LocalProfile } from "@/hooks/useLocalProfiles";
+import { MAX_PROFILES, type LocalProfile } from "@/hooks/useLocalProfiles";
 
 interface ProfileSwitcherProps {
   profiles: LocalProfile[];
@@ -43,7 +43,23 @@ export function ProfileSwitcher({ profiles, activeId, onSelect, onNew, onManage,
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={onNew} disabled={!canCreate}>+ New Profile</DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={onNew}
+          disabled={!canCreate}
+          // DropdownMenuItem sets `data-[disabled]:pointer-events-none`, which
+          // suppresses hover on the disabled item and hides the `title` tooltip.
+          // Restore pointer-events (with a not-allowed cursor) so the reason the
+          // affordance is disabled stays discoverable on hover.
+          className={cn(!canCreate && "data-[disabled]:pointer-events-auto data-[disabled]:cursor-not-allowed")}
+          title={canCreate ? undefined : `Profile limit reached (${profiles.length}/${MAX_PROFILES}). Delete one to add another.`}
+        >
+          + New Profile
+          {!canCreate && (
+            <span className="ml-1 text-xs text-muted-foreground">
+              ({profiles.length}/{MAX_PROFILES} — delete one to add another)
+            </span>
+          )}
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={onManage}>Manage Profiles…</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

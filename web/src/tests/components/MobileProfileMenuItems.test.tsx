@@ -62,6 +62,27 @@ describe("MobileProfileMenuItems", () => {
     expect(screen.getByRole("menuitem", { name: /\+ New Profile/i })).toHaveAttribute("data-disabled");
   });
 
+  it("explains why + New Profile is disabled at the profile cap (#855)", () => {
+    const capped = Array.from({ length: 5 }, (_, i) => ({ id: `p${i}`, name: `Profile ${i}`, settings: {}, rules: {} }));
+    renderInMenu(
+      <MobileProfileMenuItems profiles={capped} activeId="p0" onSelect={() => {}} onNew={() => {}} onManage={() => {}} canCreate={false} />,
+    );
+    const item = screen.getByRole("menuitem", { name: /\+ New Profile/i });
+    expect(item).toHaveAttribute("data-disabled");
+    expect(item).toHaveAccessibleName(/5\/5.*delete one to add another/i);
+    expect(item).toHaveAttribute("title", expect.stringMatching(/limit reached/i));
+  });
+
+  it("shows no cap copy while below the profile cap (#855)", () => {
+    renderInMenu(
+      <MobileProfileMenuItems profiles={profiles} activeId="p1" onSelect={() => {}} onNew={() => {}} onManage={() => {}} canCreate />,
+    );
+    const item = screen.getByRole("menuitem", { name: /\+ New Profile/i });
+    expect(item).not.toHaveAttribute("data-disabled");
+    expect(item).not.toHaveAttribute("title");
+    expect(item.textContent).not.toMatch(/delete one to add another/i);
+  });
+
   it("still offers create/manage when the user has no profiles", () => {
     renderInMenu(
       <MobileProfileMenuItems profiles={[]} activeId={null} onSelect={() => {}} onNew={() => {}} onManage={() => {}} canCreate />,

@@ -1,5 +1,6 @@
 import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
-import type { LocalProfile } from "@/hooks/useLocalProfiles";
+import { MAX_PROFILES, type LocalProfile } from "@/hooks/useLocalProfiles";
+import { cn } from "@/lib/utils";
 
 interface MobileProfileMenuItemsProps {
   profiles: LocalProfile[];
@@ -35,8 +36,22 @@ export function MobileProfileMenuItems({ profiles, activeId, onSelect, onNew, on
           {p.id === activeId ? "✓ " : "  "}{p.name}
         </DropdownMenuItem>
       ))}
-      <DropdownMenuItem className="lg:hidden" onSelect={onNew} disabled={!canCreate}>
+      <DropdownMenuItem
+        // DropdownMenuItem sets `data-[disabled]:pointer-events-none`, which
+        // suppresses hover on the disabled item and hides the `title` tooltip.
+        // Restore pointer-events (with a not-allowed cursor) so the reason the
+        // affordance is disabled stays discoverable on hover.
+        className={cn("lg:hidden", !canCreate && "data-[disabled]:pointer-events-auto data-[disabled]:cursor-not-allowed")}
+        onSelect={onNew}
+        disabled={!canCreate}
+        title={canCreate ? undefined : `Profile limit reached (${profiles.length}/${MAX_PROFILES}). Delete one to add another.`}
+      >
         + New Profile
+        {!canCreate && (
+          <span className="ml-1 text-xs text-muted-foreground">
+            ({profiles.length}/{MAX_PROFILES} — delete one to add another)
+          </span>
+        )}
       </DropdownMenuItem>
       <DropdownMenuItem className="lg:hidden" onSelect={onManage}>
         Manage Profiles…
