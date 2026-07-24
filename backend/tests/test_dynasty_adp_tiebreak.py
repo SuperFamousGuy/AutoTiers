@@ -48,7 +48,7 @@ def _tied_player(pid: str, adp_ppr: Optional[float]) -> TieredPlayer:
         player_id=pid, name=f"Player {pid}", position="RB",
         team="NE", age=25, adjusted_score=100.0,
         projected_score_raw=100.0, prior_year_actual=100.0,
-        adp_standard=None, adp_ppr=adp_ppr, adp_dynasty=None,
+        adp_standard=None, adp_ppr=adp_ppr, adp_half_ppr=None, adp_dynasty=None,
         flags=[], rules_applied=[],
         overall_rank=0, overall_tier=0, positional_tier="",
     )

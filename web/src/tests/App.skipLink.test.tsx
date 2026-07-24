@@ -18,6 +18,9 @@ function renderApp() {
 
 describe("App skip-to-main-content link (#811)", () => {
   beforeEach(() => {
+    // Start from a clean slate so keys left behind by other test files can't
+    // make these order-dependent.
+    localStorage.clear();
     // Mark onboarding as already seen so the first-run tour doesn't auto-start
     // and trap focus in its popover — that would steal the first Tab stop we're
     // asserting on. Orthogonal to the skip link itself.

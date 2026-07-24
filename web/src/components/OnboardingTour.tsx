@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ONBOARDING_STEPS } from "@/lib/onboardingSteps";
+import type { MobilePanel } from "@/components/MobilePanelTabBar";
 
 interface OnboardingTourProps {
   stepIndex: number;
@@ -12,7 +13,7 @@ interface OnboardingTourProps {
   onGoTo: (i: number) => void;
   onSkip: () => void;
   /** Called on step entry so the parent can switch the active mobile panel. */
-  onStepPanel?: (panel: "settings" | "rules" | "tiers") => void;
+  onStepPanel?: (panel: MobilePanel) => void;
 }
 
 interface Rect {
