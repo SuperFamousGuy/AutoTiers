@@ -20,12 +20,13 @@ function renderApp() {
 }
 
 describe("App mobile tab bar", () => {
-  it("renders the mobile panel tab bar with all three tabs", async () => {
+  it("renders the mobile panel tab bar with all four tabs", async () => {
     renderApp();
     const tablist = screen.getByRole("tablist", { name: "Panel navigation" });
     expect(tablist).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Rules" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Favorites" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Tiers" })).toBeInTheDocument();
   });
 
@@ -65,7 +66,7 @@ describe("App mobile tab bar", () => {
     expect(screen.getByRole("tab", { name: "Settings" })).toHaveAttribute("aria-selected", "false");
   });
 
-  it("all three panels are present in the DOM (desktop layout: all panels always rendered)", async () => {
+  it("all four panels are present in the DOM (desktop layout: all panels always rendered)", async () => {
     renderApp();
 
     await waitFor(() => {
@@ -80,6 +81,11 @@ describe("App mobile tab bar", () => {
     expect(screen.getByRole("tabpanel", { name: "Tiers" })).toBeInTheDocument();
     expect(screen.getByRole("tabpanel", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByRole("tabpanel", { name: "Rules" })).toBeInTheDocument();
+    // Favorites panel content (the promoted swimlane)
+    expect(screen.getByRole("tabpanel", { name: "Favorites" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Favorites" }),
+    ).toBeInTheDocument();
   });
 
   it("the settings panel wrapper has 'hidden' class when rules tab is active", async () => {
