@@ -27,7 +27,7 @@ dependencies = [
     "lxml>=6.1.1",
     "argon2-cffi>=25.1.0",
     "pyjwt>=2.13.0",
-    "cryptography>=49.0.0",
+    "cryptography>=50.0.0",
     "aiobotocore[boto3]>=3.9.0",
 ]
 
