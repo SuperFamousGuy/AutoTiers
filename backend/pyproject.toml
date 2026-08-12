@@ -36,7 +36,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
-    "hypothesis>=6.165.0",
+    "hypothesis>=6.165.2",
     "aiosqlite>=0.22.1",
     "respx>=0.23.1",
     # test_infra_apply_workflow.py parses the infra workflow YAML; pin PyYAML
