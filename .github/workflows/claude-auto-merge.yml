@@ -50,23 +50,47 @@ name: claude-auto-merge
 #                       holds a Copilot license, so it NEVER reviews
 #                       Dependabot/bot PRs (community #185376) and this predicate
 #                       is permanently unsatisfiable for them. Bots stay gated by
-#                       1/2/4/5.
+#                       1/2/4/5 — and because predicate 5's human path is built
+#                       on the same Copilot review, the waiver is what keeps the
+#                       quiet window alive for bots there.
 #  4. No open threads : zero reviewThreads with isResolved==false, AND no human's
 #                       latest review is CHANGES_REQUESTED.
-#  5. Quiet window    : now - max(last commit, comments, review comments, reviews)
-#                       >= QUIET_HOURS (see env below for the current value).
-#                       REBASE EXEMPTION (issue #473): for BOT
-#                       authors the commit stamp is the head commit's AUTHOR
-#                       date, not its COMMITTER date. A Dependabot rebase (e.g.
-#                       onto an updated main after a sibling PR merges) force-
-#                       pushes a commit whose committer date is "now" but whose
-#                       author date is preserved from the original bump, so
-#                       committer date would reset this quiet clock on every
-#                       sibling merge and could stall the PR forever. Author
-#                       date only advances on genuinely new authorship, so a
-#                       rebase-only push no longer resets the clock while a
-#                       substantive change still does. Humans keep committer date
-#                       (a new human commit is real activity).
+#  5. Settled         : SPLIT by author, on the same is_bot test as predicate 3.
+#                       HUMANS -- "Copilot signed off on THIS code": a Copilot
+#                       review must name the CURRENT head commit
+#                       (review.commit.oid == head oid). With predicate 4 already
+#                       guaranteeing nothing is outstanding, that review IS the
+#                       approval and the PR merges on the next tick. This
+#                       REPLACED a blanket inactivity window (24h, later 12h),
+#                       which only ever proxied for "Copilot has had time to
+#                       look at it" at the cost of ~half a day of latency per PR.
+#                       Two things make the swap safe rather than merely faster:
+#                       the head-commit pin (a push after a clean review
+#                       de-qualifies the PR until Copilot re-reviews -- without
+#                       it, never-reviewed code would merge on the next tick,
+#                       the one real thing the quiet window was covering), and
+#                       treating RESOLVED threads as clean rather than demanding
+#                       a literally 0-comment review (final-resolve at
+#                       MAX_PASSES resolves threads WITHOUT pushing, so no
+#                       re-review is ever triggered and a strict reading would
+#                       park the PR forever -- the capped-PR livelock again).
+#                       Fails CLOSED: null review commit / missing head oid skip.
+#                       BOTS -- the quiet window, unchanged: now - max(last
+#                       commit, comments, review comments, reviews) >=
+#                       QUIET_HOURS. Predicate 3 is waived for bots, so there is
+#                       no review signal for the human path to use and the clock
+#                       stays their only settling gate.
+#                       REBASE EXEMPTION (issue #473), bot-only and therefore now
+#                       wholly inside that branch: the commit stamp is the head
+#                       commit's AUTHOR date, not its COMMITTER date. A
+#                       Dependabot rebase (e.g. onto an updated main after a
+#                       sibling PR merges) force-pushes a commit whose committer
+#                       date is "now" but whose author date is preserved from the
+#                       original bump, so committer date would reset this quiet
+#                       clock on every sibling merge and could stall the PR
+#                       forever. Author date only advances on genuinely new
+#                       authorship, so a rebase-only push no longer resets the
+#                       clock while a substantive change still does.
 #  6. Trusted author  : author is a Bot (__typename Bot / login ends [bot]) OR a
 #                       repo collaborator with admin|write|maintain permission.
 #
@@ -111,11 +135,12 @@ env:
   # ARMED (2026-06-23): predicate previewed correct ELIGIBLE verdicts on real
   # PRs before arming. Set back to "true" to return to report-only.
   DRY_RUN: "false"
-  # Criterion 5 threshold (hours of inactivity required before merge).
-  # Lowered 24 -> 12 (2026-07-12): with the review-pass pipeline healthy, a
-  # full day of silence added ~1 day of latency per PR for no extra safety —
-  # Copilot reviews and sweeper passes all land well within 12h of the last
-  # push, so anything still quiet after 12h is as settled as it was at 24.
+  # Criterion 5 threshold (hours of inactivity required before merge) — now
+  # BOT-ONLY. History: 24 -> 12 (2026-07-12), then removed for HUMAN-authored
+  # PRs entirely (2026-08-23) in favour of "Copilot reviewed the head commit
+  # and has nothing outstanding", which is a direct signal rather than a proxy
+  # for one. It survives for bots because predicate 3 is waived for them
+  # (Copilot never reviews bot PRs), leaving no review signal to key off.
   QUIET_HOURS: "12"
   # Criterion 2 (mergeable) settling retries. GitHub computes `mergeable` async;
   # a first read is often UNKNOWN. On UNKNOWN we re-fetch the PR up to
@@ -234,18 +259,58 @@ jobs:
           if any(state == "CHANGES_REQUESTED" for _, state in latest.values()):
               print("SKIP:changes-requested"); sys.exit(0)
 
-          # Predicate 5 rebase exemption (issue #473). A bot rebase (Dependabot
-          # rebasing onto an updated main after a sibling PR merges) force-pushes
-          # a new commit whose COMMITTER date is "now" but whose AUTHOR date is
-          # preserved from the original bump. Counting committedDate would reset
-          # the quiet clock on every sibling merge, so a PR that keeps getting
-          # rebased never ages into eligibility. For bots we use authoredDate,
-          # which only advances on genuinely new authorship (a real new commit by
-          # anyone has a fresh author date) -- so a rebase-only push no longer
-          # resets the clock while a substantive change still does. Humans keep
-          # committedDate (a new human commit is real activity). Fall back to
-          # committedDate if authoredDate is somehow absent.
-          commit_stamp = (head.get("authoredDate") if is_bot else None) or head["committedDate"]
+          # --- Predicate 5 -----------------------------------------------------
+          # HUMAN path: "Copilot signed off on THIS code." A Copilot review
+          # pinned to the CURRENT head commit, combined with predicate 4 above
+          # (zero unresolved threads, no CHANGES_REQUESTED), means Copilot has
+          # read exactly the code we are about to merge and has nothing
+          # outstanding. That review IS the approval, so there is nothing left
+          # to wait for -- this replaces the old blanket quiet window, which
+          # added ~half a day of latency per PR for no added signal.
+          #
+          # "Nothing outstanding" is deliberately NOT "the review carried zero
+          # comments". A Copilot review whose threads were addressed and
+          # RESOLVED counts as clean: the address-review sweeper's final-resolve
+          # path (at MAX_PASSES) resolves the remaining nitpick threads WITHOUT
+          # pushing, so Copilot is never re-triggered and a literal 0-comment
+          # review would never arrive -- parking the PR forever. That is exactly
+          # the capped-PR livelock that pipeline already fought once.
+          #
+          # The head-commit pin is what keeps this safe. Accepting any historical
+          # clean review would let a push land on top of it and merge
+          # never-reviewed code on the very next tick -- previously the quiet
+          # window covered that exposure. Requiring the review to name the head
+          # commit means a push de-qualifies the PR until Copilot re-reviews.
+          # Fails CLOSED: a null review commit, or a missing head oid, skips.
+          if not is_bot:
+              head_oid = head.get("oid")
+              if not head_oid:
+                  print("SKIP:no-head-oid"); sys.exit(0)
+              reviewed_head = any(
+                  _norm_login((r.get("author") or {}).get("login")) == copilot
+                  and ((r.get("commit") or {}).get("oid")) == head_oid
+                  for r in reviews
+              )
+              if not reviewed_head:
+                  print("SKIP:copilot-review-not-current"); sys.exit(0)
+              print(f"NEEDS_COLLAB:{author_login}"); sys.exit(0)
+
+          # BOT path: the quiet window, now bot-only. Predicate 3 is waived for
+          # bots (Copilot never reviews them), so there is no review signal for
+          # the human path above to key off and the inactivity clock remains
+          # their only settling gate.
+          #
+          # Rebase exemption (issue #473). A bot rebase (Dependabot rebasing onto
+          # an updated main after a sibling PR merges) force-pushes a new commit
+          # whose COMMITTER date is "now" but whose AUTHOR date is preserved from
+          # the original bump. Counting committedDate would reset the quiet clock
+          # on every sibling merge, so a PR that keeps getting rebased never ages
+          # into eligibility. authoredDate only advances on genuinely new
+          # authorship, so a rebase-only push no longer resets the clock while a
+          # substantive change still does. Fall back to committedDate if
+          # authoredDate is somehow absent. (This exemption was always bot-only;
+          # with humans no longer on a clock it now lives wholly in this branch.)
+          commit_stamp = head.get("authoredDate") or head["committedDate"]
           stamps = [commit_stamp]
           for c in (pull.get("comments") or {}).get("nodes", []):
               stamps.append(c["createdAt"])
@@ -261,10 +326,9 @@ jobs:
           if age_h < quiet:
               print(f"SKIP:active-{age_h:.1f}h-ago"); sys.exit(0)
 
-          if is_bot:
-              print("ELIGIBLE"); sys.exit(0)
-
-          print(f"NEEDS_COLLAB:{author_login}"); sys.exit(0)
+          # Only bots reach here (the human path returned above), and predicate 6
+          # trusts a Bot author outright -- no collaborator lookup needed.
+          print("ELIGIBLE"); sys.exit(0)
           PY
           echo "predicate written:"; head -3 /tmp/predicate.py
 
@@ -346,12 +410,13 @@ jobs:
                       author{ __typename login }
                       labels(first:50){ nodes{ name } }
                       commits(last:1){ nodes{ commit{
+                        oid
                         committedDate
                         authoredDate
                         statusCheckRollup{ state }
                       }}}
                       comments(last:100){ nodes{ createdAt } }
-                      reviews(last:100){ nodes{ author{ login } state submittedAt } }
+                      reviews(last:100){ nodes{ author{ login } state submittedAt commit{ oid } } }
                       reviewThreads(first:100){ nodes{
                         isResolved
                         comments(last:50){ nodes{ createdAt updatedAt } }
