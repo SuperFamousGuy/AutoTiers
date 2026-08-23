@@ -65,6 +65,53 @@ resource "aws_s3_bucket_policy" "frontend" {
 }
 
 ###############################################################################
+# CloudFront Function (viewer-request) — SPA route allowlist
+#
+# CloudFront + a private S3 origin returns 403/404 for any object that is not in
+# the bucket. The old config mapped BOTH of those to `200 /index.html` for every
+# path, so `https://auto-tiers.com/anything-at-all` served the app shell with a
+# 200 — a soft 404 across the whole URL space that Google penalizes as thin
+# content (issue #1251).
+#
+# We still want client-side (SPA) routes to serve index.html once React routing
+# is added, but a genuinely unknown path must return a real 404. A file-extension
+# heuristic cannot tell them apart (an unknown `/foo` and a future route `/draft`
+# are both extension-less), so we distinguish with an EXPLICIT allowlist: only a
+# URI listed here is rewritten to /index.html; everything else falls through to
+# S3 and, if absent, returns a real 404 (see custom_error_response below).
+#
+# To add a client-side route, add its exact path to `spaRoutes` here.
+###############################################################################
+resource "aws_cloudfront_function" "spa_router" {
+  name    = "${var.app_name}-${var.environment}-spa-router"
+  runtime = "cloudfront-js-2.0"
+  comment = "Rewrite allowlisted SPA routes to /index.html; everything else 404s (issue #1251)"
+  publish = true
+
+  code = <<-EOT
+    function handler(event) {
+      var request = event.request;
+      var uri = request.uri;
+
+      // Explicit allowlist of client-side (SPA) routes that must serve the app
+      // shell (index.html). A path that is NOT listed here is left untouched, so
+      // it falls through to S3 and a genuinely unknown path returns a real 404
+      // instead of a soft 404 (issue #1251). Add a route's exact path here when
+      // React client-side routing introduces it.
+      var spaRoutes = {
+        "/": true
+      };
+
+      if (spaRoutes[uri] === true) {
+        request.uri = "/index.html";
+      }
+
+      return request;
+    }
+  EOT
+}
+
+###############################################################################
 # CloudFront Distribution
 ###############################################################################
 resource "aws_cloudfront_distribution" "frontend" {
@@ -89,6 +136,13 @@ resource "aws_cloudfront_distribution" "frontend" {
     viewer_protocol_policy = "redirect-to-https"
     compress               = true
 
+    # Rewrite allowlisted client-side routes to /index.html; leave every other
+    # path alone so unknown URLs surface as real 404s (issue #1251).
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.spa_router.arn
+    }
+
     forwarded_values {
       query_string = false
 
@@ -102,20 +156,25 @@ resource "aws_cloudfront_distribution" "frontend" {
     max_ttl     = 86400
   }
 
-  # SPA routing — return index.html (200) for 403 (object not found in private
-  # bucket) and 404, so React Router can handle client-side routing.
+  # Real 404s for unknown paths (issue #1251). A private S3 origin behind OAC
+  # returns 403 (AccessDenied) for a missing object — it lacks s3:ListBucket, so
+  # it cannot reveal whether the key exists — and 404 when the key is genuinely
+  # absent. For a static site both mean "not found", so map each to a real 404
+  # served from /404.html rather than a soft 200. Allowlisted SPA routes never
+  # reach this path: the viewer-request function above rewrote them to
+  # /index.html, which exists and returns 200.
   custom_error_response {
     error_code            = 403
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 0
+    response_code         = 404
+    response_page_path    = "/404.html"
+    error_caching_min_ttl = 10
   }
 
   custom_error_response {
     error_code            = 404
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 0
+    response_code         = 404
+    response_page_path    = "/404.html"
+    error_caching_min_ttl = 10
   }
 
   restrictions {

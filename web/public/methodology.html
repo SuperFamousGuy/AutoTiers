@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="How AutoTiers turns your league settings and scoring rules into draft tiers: projection blending, rule-based score adjustments, value-based drafting, and Jenks natural-breaks clustering."
+    />
+    <title>Methodology — AutoTiers</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+      :root {
+        --bg: #ffffff;
+        --fg: #111111;
+        --muted: #555555;
+        --border: #e2e8f0;
+        --link: #2563eb;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f1117;
+          --fg: #f1f5f9;
+          --muted: #94a3b8;
+          --border: #1e293b;
+          --link: #60a5fa;
+        }
+      }
+
+      body {
+        font-family: 'Inter', sans-serif;
+        background: var(--bg);
+        color: var(--fg);
+        line-height: 1.7;
+        padding: 3rem 1.5rem 6rem;
+      }
+
+      .container { max-width: 680px; margin: 0 auto; }
+
+      .back {
+        display: inline-block;
+        margin-bottom: 2rem;
+        color: var(--link);
+        text-decoration: none;
+        font-size: 0.9rem;
+      }
+      .back:hover { text-decoration: underline; }
+
+      h1 { font-size: 1.875rem; font-weight: 600; margin-bottom: 0.25rem; }
+
+      .lede { color: var(--muted); font-size: 0.95rem; margin-bottom: 2.5rem; }
+
+      h2 {
+        font-size: 1.125rem;
+        font-weight: 600;
+        margin-top: 2rem;
+        margin-bottom: 0.5rem;
+      }
+
+      p { margin-bottom: 0.75rem; }
+
+      ol, ul { padding-left: 1.25rem; margin-bottom: 0.75rem; }
+      li { margin-bottom: 0.4rem; }
+
+      a { color: var(--link); }
+
+      footer {
+        margin-top: 3rem;
+        padding-top: 1.5rem;
+        border-top: 1px solid var(--border);
+        font-size: 0.875rem;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <a class="back" href="https://auto-tiers.com">← Back to AutoTiers</a>
+
+      <h1>How AutoTiers Builds Your Tiers</h1>
+      <p class="lede">
+        AutoTiers turns your league's scoring settings and a set of heuristic
+        rules into a draft board grouped into tiers. Here is what happens between
+        the settings you choose and the CSV you download.
+      </p>
+
+      <h2>1. Start from projections</h2>
+      <p>
+        Every player begins with a baseline projection for the upcoming season.
+        You control how that baseline is formed by weighting the available
+        inputs — for example prior-year production and current consensus
+        projections — so the board reflects the sources you trust most.
+      </p>
+
+      <h2>2. Score for your scoring format</h2>
+      <p>
+        Projections are converted into fantasy points using <em>your</em> league
+        settings: PPR / half-PPR / standard receptions, passing-touchdown value,
+        and optional bonuses such as 100-yard rushing or receiving games and
+        first-down scoring. The same player can rank differently in two leagues,
+        which is the point.
+      </p>
+
+      <h2>3. Apply the rules you enable</h2>
+      <p>
+        On top of the raw projection, AutoTiers applies a configurable set of
+        heuristic rules as score modifiers. Each rule nudges a player up or down
+        for a reason a drafter would recognize — positional context, workload
+        signals, and similar factors — and you decide which rules are active and
+        how heavily they count. Rules you leave off have no effect on the board.
+      </p>
+
+      <h2>4. Convert to value over replacement</h2>
+      <p>
+        Raw points don't tell you how <em>scarce</em> a player is. AutoTiers
+        compares each player against the replacement-level player at the same
+        position for your league size — the value-based-drafting (VBD) idea — so
+        a running back and a quarterback with similar point totals are ranked by
+        how much of an edge they give you over what you could stream instead.
+      </p>
+
+      <h2>5. Cluster into tiers</h2>
+      <p>
+        Within each position, AutoTiers groups players into tiers using
+        <a href="https://en.wikipedia.org/wiki/Jenks_natural_breaks_optimization">Jenks natural breaks</a>,
+        a clustering method that finds the natural gaps in the value curve rather
+        than cutting every N players. That is why tiers have uneven sizes: a tier
+        boundary lands where there is a real drop-off in value, so you know when
+        it is safe to wait and when the position is about to fall off a cliff.
+      </p>
+
+      <h2>6. Merge into one board and export</h2>
+      <p>
+        The per-position tiers are merged into a single overall draft board, and
+        you can download the result as a CSV to bring into your draft.
+      </p>
+
+      <h2>What AutoTiers is not</h2>
+      <p>
+        AutoTiers is a decision aid, not a guarantee. Projections are uncertain,
+        rules encode conventional wisdom that can be wrong in a given season, and
+        no tool can predict injuries or breakouts. Treat the tiers as an informed
+        starting point and apply your own judgment on draft day.
+      </p>
+
+      <footer>
+        &copy; 2026 AutoTiers &mdash; <a href="https://auto-tiers.com">auto-tiers.com</a>
+      </footer>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,6 @@
+# AutoTiers — https://auto-tiers.com
+# Public marketing/content pages are crawlable; the app runs client-side.
+User-agent: *
+Allow: /
+
+Sitemap: https://auto-tiers.com/sitemap.xml
