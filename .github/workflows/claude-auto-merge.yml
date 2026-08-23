@@ -74,7 +74,12 @@ name: claude-auto-merge
 #                       MAX_PASSES resolves threads WITHOUT pushing, so no
 #                       re-review is ever triggered and a strict reading would
 #                       park the PR forever -- the capped-PR livelock again).
-#                       Fails CLOSED: null review commit / missing head oid skip.
+#                       The review must also be SUBMITTED (submittedAt set,
+#                       state != PENDING): a pending/draft review can carry the
+#                       head oid before Copilot has finished, and counting it
+#                       would merge on a review that never landed.
+#                       Fails CLOSED: null review commit / missing head oid /
+#                       unsubmitted (PENDING) review all skip.
 #                       BOTS -- the quiet window, unchanged: now - max(last
 #                       commit, comments, review comments, reviews) >=
 #                       QUIET_HOURS. Predicate 3 is waived for bots, so there is
@@ -281,13 +286,21 @@ jobs:
           # never-reviewed code on the very next tick -- previously the quiet
           # window covered that exposure. Requiring the review to name the head
           # commit means a push de-qualifies the PR until Copilot re-reviews.
-          # Fails CLOSED: a null review commit, or a missing head oid, skips.
+          #
+          # The review must also be SUBMITTED: a pending/draft review node
+          # (submittedAt null, state PENDING) can carry the head oid before
+          # Copilot has actually finished, and counting it would merge on a
+          # review that never landed. We require submittedAt AND state!=PENDING.
+          # Fails CLOSED: a null review commit, a missing head oid, or an
+          # unsubmitted/PENDING review all skip.
           if not is_bot:
               head_oid = head.get("oid")
               if not head_oid:
                   print("SKIP:no-head-oid"); sys.exit(0)
               reviewed_head = any(
                   _norm_login((r.get("author") or {}).get("login")) == copilot
+                  and r.get("submittedAt")
+                  and r.get("state") != "PENDING"
                   and ((r.get("commit") or {}).get("oid")) == head_oid
                   for r in reviews
               )

@@ -301,6 +301,35 @@ def test_human_copilot_review_with_null_commit_is_not_current():
     assert _verdict(pull) == "SKIP:copilot-review-not-current"
 
 
+def test_human_pending_copilot_review_on_head_is_not_current():
+    """Defensive: a Copilot review pinned to the head commit but still PENDING
+    (unsubmitted -- submittedAt null, state PENDING) fails CLOSED. GitHub can
+    surface a draft review node with the head oid before Copilot has actually
+    finished; with the human quiet window gone, counting it would merge on a
+    review that never landed."""
+    pull = _clean_pull(
+        author={"__typename": "User", "login": "alice"},
+        reviews={"nodes": [_copilot_review(state="PENDING", submittedAt=None)]},
+    )
+    assert _verdict(pull) == "SKIP:copilot-review-not-current"
+
+
+def test_human_current_review_plus_pending_reviews_is_current():
+    """A submitted Copilot review of the head still qualifies even when a later
+    PENDING/unsubmitted Copilot review node for the same head is also present --
+    the submitted one carries the sign-off, the pending one is simply ignored."""
+    pull = _clean_pull(
+        author={"__typename": "User", "login": "alice"},
+        reviews={
+            "nodes": [
+                _copilot_review(),
+                _copilot_review(state="PENDING", submittedAt=None),
+            ]
+        },
+    )
+    assert _verdict(pull) == "NEEDS_COLLAB:alice"
+
+
 def test_human_stale_review_plus_current_review_is_current():
     """Copilot's re-review of the new head qualifies even though the earlier
     review of the old commit is still in the list (the normal push+re-review
