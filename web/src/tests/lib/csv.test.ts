@@ -61,6 +61,22 @@ describe("generateDraftCsvString", () => {
     expect(columns[9]).toBe("87.5");
   });
 
+  // #1019: a negative VBD (every player at/below their position's replacement
+  // level) was pre-formatted to a string via .toFixed(1) and then apostrophe-
+  // prefixed by the formula-injection guard, corrupting the Value cell to '-5.2
+  // and breaking numeric sort/filter in Excel/Sheets.
+  it("Value column keeps a negative vbd_score as a plain number (no leading apostrophe)", () => {
+    const csv = generateDraftCsvString([makePlayer({ vbd_score: -5.2 })], draftOpts());
+    const columns = csv.split("\r\n")[1].split(",");
+    expect(columns[9]).toBe("-5.2");
+  });
+
+  it("Value column rounds a negative vbd_score to 1 decimal without an apostrophe", () => {
+    const csv = generateDraftCsvString([makePlayer({ vbd_score: -12.34 })], draftOpts());
+    const columns = csv.split("\r\n")[1].split(",");
+    expect(columns[9]).toBe("-12.3");
+  });
+
   it("standard format selects adp_standard", () => {
     const csv = generateDraftCsvString([makePlayer({ adp_standard: 5, adp_ppr: 3 })], draftOpts("standard"));
     const columns = csv.split("\r\n")[1].split(",");
@@ -169,8 +185,7 @@ describe("generateDraftCsvString", () => {
   describe("formula injection in tier labels (#555)", () => {
     const cases: [string, string][] = [
       ["=2+2", "'=2+2"],
-      ["+1", "'+1"],
-      ["-1", "'-1"],
+      ["=1+cmd|'/c calc'!A0", "'=1+cmd|'/c calc'!A0"],
       ["@SUM(A1:A2)", "'@SUM(A1:A2)"],
     ];
 
@@ -179,6 +194,18 @@ describe("generateDraftCsvString", () => {
       const columns = csv.split("\r\n")[1].split(",");
       expect(columns[6]).toBe(expected);
     });
+
+    // #1019: a tier label that is a genuine numeric literal (optional sign, digits,
+    // at most one decimal) can't express a formula/command, so it is exempt from
+    // neutralization — the same exemption that keeps a negative vbd_score numeric.
+    it.each(["+1", "-1", "-5.2", "3.5", "42"])(
+      "leaves a numeric-literal tier label of %s untouched (no apostrophe)",
+      (label) => {
+        const csv = generateDraftCsvString([makePlayer({ overall_tier: 1 })], draftOpts("standard", { 1: label }));
+        const columns = csv.split("\r\n")[1].split(",");
+        expect(columns[6]).toBe(label);
+      },
+    );
 
     it("neutralizes a tab-led label", () => {
       const csv = generateDraftCsvString([makePlayer({ overall_tier: 1 })], draftOpts("standard", { 1: "\tcmd" }));

@@ -2,6 +2,19 @@ import type { ScoringFormat, TieredPlayer } from "@/api/types";
 import { getCustomTierLabel } from "@/lib/tiers";
 
 /**
+ * A genuine numeric literal: an optional leading sign, digits, and at most one
+ * decimal part — e.g. `-5.2`, `+3`, `150.0`. Numeric columns like vbd_score are
+ * pre-formatted to a string via `.toFixed(1)` before they reach csvField, so a
+ * negative value arrives as the string `"-5.2"`. That string begins with `-`,
+ * which the formula guard below would otherwise apostrophe-prefix, corrupting it
+ * into text and breaking numeric sort/filter in Excel/Sheets for every player
+ * with a negative VBD (#1019). A string matching this pattern cannot express a
+ * formula, DDE command, or cell reference, so exempting it does not weaken the
+ * injection protection that still applies to labels/names/flags.
+ */
+const NUMERIC_LITERAL = /^[+-]?\d+(\.\d+)?$/;
+
+/**
  * Neutralizes spreadsheet formula injection (OWASP "CSV Injection"): Excel,
  * Google Sheets, and LibreOffice interpret a cell whose text begins with `=`,
  * `+`, `-`, `@`, tab, or CR as the start of a formula/command when the .csv is
@@ -11,8 +24,12 @@ import { getCustomTierLabel } from "@/lib/tiers";
  * apostrophe is not shown by the spreadsheet once imported. Applied to the raw
  * value before RFC 4180 quoting so the neutralized cell is still quoted when it
  * also contains a comma/quote/newline.
+ *
+ * Pure numeric literals (see NUMERIC_LITERAL) are exempt so pre-formatted numeric
+ * strings such as a negative vbd_score (`"-5.2"`) stay numbers in the spreadsheet.
  */
 function neutralizeFormula(str: string): string {
+  if (NUMERIC_LITERAL.test(str)) return str;
   return /^[=+\-@\t\r]/.test(str) ? `'${str}` : str;
 }
 
@@ -26,6 +43,8 @@ function neutralizeFormula(str: string): string {
  * player/team names, flags, etc.). Numeric inputs are exempt: a negative number
  * like vbd_score = -5.2 starts with `-`, which would otherwise be apostrophe-
  * prefixed and imported as text, breaking numeric sorting/calcs in spreadsheets.
+ * The same exemption applies to string inputs that are genuine numeric literals
+ * (e.g. a `.toFixed(1)`-formatted `"-5.2"`) via neutralizeFormula — see #1019.
  */
 function csvField(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return "";
