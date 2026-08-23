@@ -28,6 +28,11 @@ function HamburgerMenu({ mobileProfileMenu, isDark, onToggleDark, onShowOnboardi
         <DropdownMenuContent>
           {/* Profile switch/create/manage — mobile only; desktop uses ProfileSwitcher (#499). */}
           {mobileProfileMenu}
+          <DropdownMenuItem asChild>
+            <a href="/content.html" target="_blank" rel="noopener noreferrer">
+              Guides &amp; Glossary
+            </a>
+          </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setFeedbackOpen(true)}>Provide Feedback</DropdownMenuItem>
           {onShowOnboarding && (
             <DropdownMenuItem className="lg:hidden" onSelect={() => onShowOnboarding()}>

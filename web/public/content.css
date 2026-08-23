@@ -1,0 +1,171 @@
+/* Shared styles for AutoTiers static content pages (guides, glossary, FAQ).
+ * Linked from every page under web/public/ that is part of the content library.
+ * privacy.html and terms.html keep their own inline styles and do not use this.
+ * Palette and typography mirror privacy.html so the content pages read as one
+ * site with the legal pages and the app. */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #ffffff;
+  --fg: #111111;
+  --muted: #555555;
+  --border: #e2e8f0;
+  --link: #2563eb;
+  --card: #f8fafc;
+  --accent: #0f766e;
+  --penalty: #b91c1c;
+  --boost: #15803d;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1117;
+    --fg: #f1f5f9;
+    --muted: #94a3b8;
+    --border: #1e293b;
+    --link: #60a5fa;
+    --card: #161a23;
+    --accent: #2dd4bf;
+    --penalty: #f87171;
+    --boost: #4ade80;
+  }
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.7;
+  padding: 2.5rem 1.5rem 6rem;
+}
+
+.container { max-width: 720px; margin: 0 auto; }
+
+.breadcrumb {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 2rem;
+}
+.breadcrumb a { color: var(--link); text-decoration: none; }
+.breadcrumb a:hover { text-decoration: underline; }
+.breadcrumb span { margin: 0 0.4rem; }
+
+h1 {
+  font-size: 2rem;
+  font-weight: 600;
+  line-height: 1.25;
+  margin-bottom: 0.5rem;
+}
+
+.lead {
+  color: var(--muted);
+  font-size: 1.05rem;
+  margin-bottom: 2.5rem;
+}
+
+h2 {
+  font-size: 1.3rem;
+  font-weight: 600;
+  margin-top: 2.5rem;
+  margin-bottom: 0.6rem;
+  padding-top: 0.5rem;
+}
+
+h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 0.4rem;
+}
+
+p { margin-bottom: 0.9rem; }
+
+ul, ol { padding-left: 1.3rem; margin-bottom: 0.9rem; }
+li { margin-bottom: 0.35rem; }
+
+a { color: var(--link); }
+
+strong { font-weight: 600; }
+
+code {
+  font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, monospace;
+  font-size: 0.85em;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.05rem 0.3rem;
+}
+
+/* A rule explainer block: name + effect badge + prose. */
+.rule {
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 10px;
+  padding: 1.1rem 1.25rem;
+  margin-bottom: 1.25rem;
+}
+.rule h3 { margin-top: 0; }
+.effect {
+  display: inline-block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 0.1rem 0.6rem;
+  margin-left: 0.5rem;
+  vertical-align: middle;
+}
+.effect.penalty { color: var(--penalty); border: 1px solid var(--penalty); }
+.effect.boost { color: var(--boost); border: 1px solid var(--boost); }
+.effect.flag { color: var(--muted); border: 1px solid var(--muted); }
+
+/* Definition list for the glossary. */
+dl { margin-bottom: 1rem; }
+dt { font-weight: 600; margin-top: 1.4rem; }
+dd { margin-left: 0; color: var(--fg); }
+
+/* Card grid used on the hub page and "related guides" footers. */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.9rem;
+  margin: 1.25rem 0 0.5rem;
+}
+.card {
+  display: block;
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 10px;
+  padding: 1rem 1.1rem;
+  text-decoration: none;
+  color: var(--fg);
+  transition: border-color 0.15s ease;
+}
+.card:hover { border-color: var(--link); }
+.card .card-title { font-weight: 600; color: var(--link); display: block; margin-bottom: 0.25rem; }
+.card .card-desc { font-size: 0.88rem; color: var(--muted); }
+
+.related {
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+.related h2 { margin-top: 0; font-size: 1.1rem; }
+
+.back {
+  display: inline-block;
+  margin-top: 2.5rem;
+  color: var(--link);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+.back:hover { text-decoration: underline; }
+
+footer {
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+footer a { color: var(--link); }

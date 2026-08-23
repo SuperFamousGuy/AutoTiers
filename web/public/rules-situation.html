@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Team &amp; Contract Situation Rules — AutoTiers</title>
+    <meta name="description" content="How AutoTiers scores a player's context: new-team and new-coach uncertainty, chronically bad offenses, above-market contracts, contract-year flags, and personal favorites." />
+    <link rel="canonical" href="https://auto-tiers.com/rules-situation.html" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/content.css" />
+  </head>
+  <body>
+    <div class="container">
+      <nav class="breadcrumb" aria-label="Breadcrumb">
+        <a href="https://auto-tiers.com">AutoTiers</a><span>/</span>
+        <a href="/content.html">Guides</a><span>/</span>Team &amp; contract situation
+      </nav>
+
+      <h1>Team &amp; contract situation</h1>
+      <p class="lead">
+        No player produces in a vacuum. The offense he plays in, the coach calling
+        the plays, and the contract the team gave him all shape how much
+        opportunity he will actually see. These rules read a player's surrounding
+        context — the parts of his outlook that have nothing to do with his own
+        talent and everything to do with his situation.
+      </p>
+
+      <div class="rule">
+        <h3>New Team Penalty <span class="effect penalty">&minus;10%</span></h3>
+        <p>
+          <strong>Fires when</strong> a player changed teams in the offseason.
+        </p>
+        <p>
+          Moving teams introduces uncertainty that projections tend to underweight.
+          A player has to learn a new scheme, build timing with a new quarterback or
+          new receivers, and earn a role that was never guaranteed the way it was on
+          his old team. Even talented players frequently take time to settle, and the
+          first season in a new system is where the surprises — good and bad —
+          cluster. AutoTiers applies a 10% penalty to reflect that transition risk.
+        </p>
+      </div>
+
+      <div class="rule">
+        <h3>New Head Coach <span class="effect penalty">&minus;7%</span></h3>
+        <p>
+          <strong>Fires when</strong> a player's team hired a new head coach.
+        </p>
+        <p>
+          A coaching change is a system change. A new head coach usually brings a new
+          offensive philosophy, new personnel preferences, and a new distribution of
+          touches — and last season's usage becomes a less reliable guide to next
+          season's. The uncertainty is smaller than changing teams outright (the
+          player at least keeps his building and teammates), so the penalty is a
+          lighter 7%. It captures the general fog around an offense in transition
+          rather than any specific prediction about who wins or loses touches.
+        </p>
+      </div>
+
+      <div class="rule">
+        <h3>Bad Offense <span class="effect penalty">&minus;7%</span></h3>
+        <p>
+          <strong>Fires when</strong> a skill player is on a team ranked in the
+          bottom eight by three-year average points scored.
+        </p>
+        <p>
+          Chronically weak offenses cap the fantasy ceiling of everyone in them.
+          Fewer scoring drives means fewer touchdowns and fewer high-value touches to
+          go around, and a single-season slump can be noise — so this rule uses a
+          <em>three-year</em> average to isolate teams with structural, persistent
+          problems rather than one down year. Quarterbacks, running backs, receivers,
+          and tight ends on those bottom-eight offenses take a 7% penalty for the
+          suppressed environment around them.
+        </p>
+      </div>
+
+      <div class="rule">
+        <h3>Follow the Money <span class="effect boost">+5%</span></h3>
+        <p>
+          <strong>Fires when</strong> a player is on an above-market contract (cap
+          hit more than 1.5&times; the position median).
+        </p>
+        <p>
+          Coaches feed the players they are paid to feed. When a team commits real
+          money — a cap hit well above the positional median — it has a strong
+          incentive to justify the investment with touches, targets, and snaps. Money
+          is a public, hard-to-fake signal of how a team values a player and intends
+          to use him, which is exactly the opportunity logic behind the
+          <a href="/rules-rookies.html">rookie draft-capital rules</a>, applied to
+          veterans through contracts instead of draft slot. AutoTiers adds 5%.
+        </p>
+      </div>
+
+      <div class="rule">
+        <h3>Contract Year Flag <span class="effect flag">flag only</span></h3>
+        <p>
+          <strong>Fires when</strong> a veteran has more than three years of
+          experience — a rough proxy for players who may be playing for their next
+          deal.
+        </p>
+        <p>
+          This rule changes no scores; it is a label. The "contract-year push" — the
+          idea that players elevate their game with a payday on the line — is a
+          popular but genuinely contested effect, so AutoTiers surfaces it as
+          information rather than baking a number in. The flag is a broad heuristic
+          based on experience, not a verified contract lookup, so treat it as a
+          prompt to check the player's actual situation, not a conclusion.
+        </p>
+      </div>
+
+      <div class="rule">
+        <h3>Favorites <span class="effect boost">+5%</span></h3>
+        <p>
+          <strong>Fires when</strong> you have marked a player — or his team — as a
+          favorite.
+        </p>
+        <p>
+          This one is honest about what it is: a personalization layer, not a
+          statistical claim. If you want your board to lean toward players or teams
+          you are targeting, favoriting them nudges them up 5%. It exists so the tool
+          bends to your preferences when you want it to, clearly separated from the
+          evidence-based rules so you always know which is which.
+        </p>
+      </div>
+
+      <div class="related">
+        <h2>Related guides</h2>
+        <div class="cards">
+          <a class="card" href="/rules-rookies.html">
+            <span class="card-title">Rookies &amp; draft capital</span>
+            <span class="card-desc">The draft-slot version of Follow the Money.</span>
+          </a>
+          <a class="card" href="/rules-data.html">
+            <span class="card-title">Data confidence &amp; availability</span>
+            <span class="card-desc">How AutoTiers handles thin or missing information.</span>
+          </a>
+          <a class="card" href="/content.html">
+            <span class="card-title">All guides</span>
+            <span class="card-desc">The full content library.</span>
+          </a>
+        </div>
+      </div>
+
+      <a class="back" href="https://auto-tiers.com">← Back to AutoTiers</a>
+
+      <footer>
+        &copy; 2026 AutoTiers &mdash; <a href="https://auto-tiers.com">auto-tiers.com</a>.
+        See also our <a href="/privacy.html">Privacy Policy</a> and
+        <a href="/terms.html">Terms of Service</a>.
+      </footer>
+    </div>
+  </body>
+</html>
