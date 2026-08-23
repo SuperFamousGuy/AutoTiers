@@ -175,9 +175,31 @@ def _verdict(pull: dict) -> str:
     return result.stdout.strip()
 
 
+HEAD_OID = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+OLD_OID = "0123456789abcdef0123456789abcdef01234567"
+
+
+def _copilot_review(oid: str | None = HEAD_OID, **overrides) -> dict:
+    """A Copilot review tied to `oid` (default: the fixture's head commit).
+
+    Pass ``oid=None`` to model a review whose ``commit`` GraphQL field came
+    back null.
+    """
+    review = {
+        "author": {"login": "copilot-pull-request-reviewer"},
+        "state": "COMMENTED",
+        "submittedAt": "2020-01-01T00:00:00Z",
+        "commit": {"oid": oid} if oid is not None else None,
+    }
+    review.update(overrides)
+    return review
+
+
 def _clean_pull(**overrides) -> dict:
-    """A PR that passes predicates 1,2,4,5 (and 6 collab); caller sets author
-    and reviews. committedDate is far in the past so quiet-24h passes."""
+    """A PR that passes predicates 1,2,4 (and 6 collab); caller sets author
+    and reviews. committedDate is far in the past so the BOT quiet window
+    passes; the head commit carries HEAD_OID so a caller-supplied Copilot
+    review can be pinned to it for the HUMAN path."""
     pull = {
         "isDraft": False,
         "mergeable": "MERGEABLE",
@@ -186,6 +208,7 @@ def _clean_pull(**overrides) -> dict:
             "nodes": [
                 {
                     "commit": {
+                        "oid": HEAD_OID,
                         "committedDate": "2020-01-01T00:00:00Z",
                         "authoredDate": "2020-01-01T00:00:00Z",
                         "statusCheckRollup": {"state": "SUCCESS"},
@@ -225,17 +248,178 @@ def test_human_with_copilot_review_reaches_collab_check():
     the collaborator check (proving the waiver did not break the human path)."""
     pull = _clean_pull(
         author={"__typename": "User", "login": "alice"},
-        reviews={"nodes": [{"author": {"login": "copilot-pull-request-reviewer"}, "state": "COMMENTED", "submittedAt": "2020-01-01T00:00:00Z"}]},
+        reviews={"nodes": [_copilot_review()]},
     )
     assert _verdict(pull) == "NEEDS_COLLAB:alice"
 
 
-# --- Behavioural test of predicate 5's rebase exemption (issue #473) --------
+# --- Predicate 5, HUMAN path: "Copilot signed off on THIS code" -------------
+#
+# The blanket quiet window is GONE for humans. A Copilot review pinned to the
+# CURRENT head commit, with predicate 4 already guaranteeing zero unresolved
+# threads, IS the approval -- so there is nothing left to wait for and the PR
+# merges on the next tick instead of QUIET_HOURS later.
+#
+# Two invariants keep that safe, and these tests run the SHIPPED predicate.py:
+#   * the review must be tied to the head commit (a push after a clean review
+#     de-qualifies the PR until Copilot re-reviews); and
+#   * "clean" means no OUTSTANDING Copilot comments, not a literally
+#     0-comment review -- threads that were addressed and RESOLVED still
+#     count, otherwise a PR whose comments were resolved without a subsequent
+#     push would park forever (the capped-PR livelock).
+
+
+def test_human_recent_commit_merges_when_copilot_reviewed_head():
+    """THE headline change: a human PR pushed MINUTES ago is eligible as soon as
+    Copilot has reviewed that head commit -- no quiet window at all."""
+    pull = _clean_pull(
+        author={"__typename": "User", "login": "alice"},
+        reviews={"nodes": [_copilot_review(submittedAt=_iso(0.05))]},
+    )
+    pull["commits"]["nodes"][0]["commit"].update(
+        committedDate=_iso(0.1), authoredDate=_iso(0.1)
+    )
+    assert _verdict(pull) == "NEEDS_COLLAB:alice"
+
+
+def test_human_copilot_review_on_older_commit_is_not_current():
+    """A clean Copilot review of a PREVIOUS commit does not clear the new head:
+    otherwise pushing after a clean review would merge unreviewed code."""
+    pull = _clean_pull(
+        author={"__typename": "User", "login": "alice"},
+        reviews={"nodes": [_copilot_review(oid=OLD_OID)]},
+    )
+    assert _verdict(pull) == "SKIP:copilot-review-not-current"
+
+
+def test_human_copilot_review_with_null_commit_is_not_current():
+    """Defensive: a review whose `commit` came back null fails CLOSED (skip)."""
+    pull = _clean_pull(
+        author={"__typename": "User", "login": "alice"},
+        reviews={"nodes": [_copilot_review(oid=None)]},
+    )
+    assert _verdict(pull) == "SKIP:copilot-review-not-current"
+
+
+def test_human_pending_copilot_review_on_head_is_not_current():
+    """Defensive: a Copilot review pinned to the head commit but still PENDING
+    (unsubmitted -- submittedAt null, state PENDING) fails CLOSED. GitHub can
+    surface a draft review node with the head oid before Copilot has actually
+    finished; with the human quiet window gone, counting it would merge on a
+    review that never landed."""
+    pull = _clean_pull(
+        author={"__typename": "User", "login": "alice"},
+        reviews={"nodes": [_copilot_review(state="PENDING", submittedAt=None)]},
+    )
+    assert _verdict(pull) == "SKIP:copilot-review-not-current"
+
+
+def test_human_current_review_plus_pending_reviews_is_current():
+    """A submitted Copilot review of the head still qualifies even when a later
+    PENDING/unsubmitted Copilot review node for the same head is also present --
+    the submitted one carries the sign-off, the pending one is simply ignored."""
+    pull = _clean_pull(
+        author={"__typename": "User", "login": "alice"},
+        reviews={
+            "nodes": [
+                _copilot_review(),
+                _copilot_review(state="PENDING", submittedAt=None),
+            ]
+        },
+    )
+    assert _verdict(pull) == "NEEDS_COLLAB:alice"
+
+
+def test_human_stale_review_plus_current_review_is_current():
+    """Copilot's re-review of the new head qualifies even though the earlier
+    review of the old commit is still in the list (the normal push+re-review
+    sequence, where `reviews` accumulates)."""
+    pull = _clean_pull(
+        author={"__typename": "User", "login": "alice"},
+        reviews={"nodes": [_copilot_review(oid=OLD_OID), _copilot_review()]},
+    )
+    assert _verdict(pull) == "NEEDS_COLLAB:alice"
+
+
+def test_human_resolved_copilot_threads_count_as_clean():
+    """Copilot commented, the comments were addressed and RESOLVED, and Copilot
+    has not posted a fresh 0-comment review. Still eligible -- requiring a
+    literal 0-comment review would park this PR forever (final-resolve at cap
+    resolves threads WITHOUT pushing, so no re-review is ever triggered)."""
+    pull = _clean_pull(
+        author={"__typename": "User", "login": "alice"},
+        reviews={"nodes": [_copilot_review()]},
+        reviewThreads={
+            "nodes": [
+                {
+                    "isResolved": True,
+                    "comments": {"nodes": [{"createdAt": "2020-01-01T00:00:00Z"}]},
+                }
+            ]
+        },
+    )
+    assert _verdict(pull) == "NEEDS_COLLAB:alice"
+
+
+def test_human_unresolved_thread_still_blocks_despite_current_review():
+    """Predicate 4 survives the rewrite: an OUTSTANDING thread blocks even when
+    Copilot has reviewed the head commit."""
+    pull = _clean_pull(
+        author={"__typename": "User", "login": "alice"},
+        reviews={"nodes": [_copilot_review()]},
+        reviewThreads={
+            "nodes": [
+                {
+                    "isResolved": False,
+                    "comments": {"nodes": [{"createdAt": "2020-01-01T00:00:00Z"}]},
+                }
+            ]
+        },
+    )
+    assert _verdict(pull) == "SKIP:unresolved-threads"
+
+
+def test_human_changes_requested_still_blocks_despite_current_review():
+    """Predicate 4's second half survives too: a human CHANGES_REQUESTED review
+    blocks even with a current Copilot review."""
+    pull = _clean_pull(
+        author={"__typename": "User", "login": "alice"},
+        reviews={
+            "nodes": [
+                _copilot_review(),
+                {
+                    "author": {"login": "bob"},
+                    "state": "CHANGES_REQUESTED",
+                    "submittedAt": "2020-01-02T00:00:00Z",
+                    "commit": {"oid": HEAD_OID},
+                },
+            ]
+        },
+    )
+    assert _verdict(pull) == "SKIP:changes-requested"
+
+
+def test_human_missing_head_oid_is_not_eligible():
+    """Defensive: no head oid to compare against => fail closed."""
+    pull = _clean_pull(
+        author={"__typename": "User", "login": "alice"},
+        reviews={"nodes": [_copilot_review()]},
+    )
+    del pull["commits"]["nodes"][0]["commit"]["oid"]
+    assert _verdict(pull) == "SKIP:no-head-oid"
+
+
+# --- Predicate 5, BOT path: the quiet window (now bot-only) -----------------
+#
+# Copilot never reviews bot-authored PRs (predicate 3 is waived for them), so
+# there is no review signal to key the new human path off and the quiet window
+# stays their only settling gate. The rebase exemption below was always
+# bot-only, so it lives entirely in this branch now.
 #
 # When Dependabot rebases a PR onto an updated main (e.g. after a sibling PR
 # merges), it force-pushes a commit whose COMMITTER date is "now" but whose
 # AUTHOR date is preserved from the original bump. Counting committedDate resets
-# the 24h quiet clock on every sibling merge, so a repeatedly-rebased PR never
+# the quiet clock on every sibling merge, so a repeatedly-rebased PR never
 # ages into eligibility. The fix uses authoredDate for BOT authors, which only
 # advances on genuinely new authorship. These tests run the SHIPPED predicate.py
 # so they fail if that logic regresses -- not a copy of it.
@@ -249,7 +433,11 @@ def _iso(hours_ago: float) -> str:
 
 def _pull_with_commit(committed: str, *, authored=None, **overrides) -> dict:
     """A clean PR whose head commit carries the given date metadata."""
-    commit = {"committedDate": committed, "statusCheckRollup": {"state": "SUCCESS"}}
+    commit = {
+        "oid": HEAD_OID,
+        "committedDate": committed,
+        "statusCheckRollup": {"state": "SUCCESS"},
+    }
     if authored is not None:
         commit["authoredDate"] = authored
     pull = _clean_pull(**overrides)
@@ -259,7 +447,7 @@ def _pull_with_commit(committed: str, *, authored=None, **overrides) -> dict:
 
 def test_bot_rebase_only_push_does_not_reset_quiet_clock():
     """A Dependabot rebase (fresh committer date, preserved old author date) is
-    EXEMPT from resetting the 24h clock -> the PR stays ELIGIBLE."""
+    EXEMPT from resetting the quiet clock -> the PR stays ELIGIBLE."""
     pull = _pull_with_commit(
         committed=_iso(1),  # rebased 1h ago -> committer date is recent
         authored="2020-01-01T00:00:00Z",  # original bump, long quiet
@@ -270,7 +458,7 @@ def test_bot_rebase_only_push_does_not_reset_quiet_clock():
 
 def test_bot_fresh_bump_still_waits_quiet_window():
     """A genuinely new bump (author AND committer date both recent) is NOT
-    exempted -- it must still wait out the 24h quiet window."""
+    exempted -- it must still wait out the quiet window."""
     pull = _pull_with_commit(
         committed=_iso(1),
         authored=_iso(1),  # authored 1h ago -> substantive, not a rebase
@@ -279,16 +467,29 @@ def test_bot_fresh_bump_still_waits_quiet_window():
     assert _verdict(pull).startswith("SKIP:active-")
 
 
-def test_human_new_commit_still_resets_quiet_clock():
-    """The exemption is bot-only: a human's recent commit still resets the clock
-    via committedDate even if its author date is old (e.g. a cherry-pick)."""
+def test_bot_recent_comment_still_resets_quiet_clock():
+    """The quiet window still counts NON-commit activity for bots: a fresh
+    comment on an otherwise-old Dependabot PR keeps it parked."""
+    pull = _pull_with_commit(
+        committed="2020-01-01T00:00:00Z",
+        authored="2020-01-01T00:00:00Z",
+        author={"__typename": "Bot", "login": "dependabot"},
+        comments={"nodes": [{"createdAt": _iso(1)}]},
+    )
+    assert _verdict(pull).startswith("SKIP:active-")
+
+
+def test_human_quiet_window_no_longer_applies():
+    """The quiet window is now BOT-ONLY. A human's commit from 1h ago -- which
+    used to park the PR for QUIET_HOURS -- is eligible immediately, because
+    Copilot has reviewed that exact head commit."""
     pull = _pull_with_commit(
         committed=_iso(1),  # human pushed 1h ago
         authored="2020-01-01T00:00:00Z",
         author={"__typename": "User", "login": "alice"},
-        reviews={"nodes": [{"author": {"login": "copilot-pull-request-reviewer"}, "state": "COMMENTED", "submittedAt": "2020-01-01T00:00:00Z"}]},
+        reviews={"nodes": [_copilot_review()]},
     )
-    assert _verdict(pull).startswith("SKIP:active-")
+    assert _verdict(pull) == "NEEDS_COLLAB:alice"
 
 
 def test_bot_missing_authored_date_falls_back_to_committed():
@@ -317,6 +518,27 @@ def test_query_selects_authored_date():
     end = TEXT.index(GQL_END, start)
     query = TEXT[start:end]
     assert "authoredDate" in query
+
+
+def _graphql_query() -> str:
+    start = TEXT.index(GQL_START) + len(GQL_START)
+    return TEXT[start : TEXT.index(GQL_END, start)]
+
+
+def test_query_selects_head_commit_oid():
+    """Predicate 5's human path compares the head commit oid, so the query must
+    select it. Scoped to the query text (``oid`` appears in comments too)."""
+    query = _graphql_query()
+    head_block = query[query.index("commits(last:1)") : query.index("comments(last:100)")]
+    assert "oid" in head_block
+
+
+def test_query_selects_review_commit_oid():
+    """...and the oid of the commit each review was made against, which is how
+    a stale Copilot review is told apart from a current one."""
+    query = _graphql_query()
+    reviews_block = query[query.index("reviews(last:100)") : query.index("reviewThreads(first:100)")]
+    assert "commit{ oid }" in reviews_block or "commit { oid }" in reviews_block
 
 
 # --- Behavioural test of the REAL mergeable-UNKNOWN retry loop ---------------
