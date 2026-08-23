@@ -79,7 +79,13 @@ jobs:
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             num="$INPUT_ISSUE_NUMBER"
             title="$(gh issue view "$num" --repo "$REPO" --json title --jq .title)"
-            assoc="$(gh issue view "$num" --repo "$REPO" --json authorAssociation --jq .authorAssociation)"
+            # Read the association from REST, not `gh issue view --json`: gh
+            # dropped `authorAssociation` from its issue field set, so the CLI
+            # form exits 1 ("Unknown JSON field") and hard-fails this gate. The
+            # REST payload still carries the identical enum. Only this
+            # workflow_dispatch branch is affected — the webhook branch below
+            # reads author_association straight off the event payload.
+            assoc="$(gh api "repos/$REPO/issues/$num" --jq .author_association)"
             case "$assoc" in
               OWNER|MEMBER|COLLABORATOR) : ;;
               *)
