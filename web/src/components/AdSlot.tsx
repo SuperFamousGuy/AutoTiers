@@ -30,17 +30,35 @@ declare global {
 interface AdSlotProps {
   /** AdSense ad-unit slot id (data-ad-slot). Real ads only fill when present. */
   slot?: string;
+  /**
+   * Whether the screen currently shows real publisher content (i.e. generated
+   * tiers). AdSense policy forbids Google-served ads on screens without
+   * publisher content — the empty "Click Generate" state is exactly that, and
+   * serving there got the site flagged for "ads on screens without
+   * publisher-content".
+   *
+   * Defaults to FALSE deliberately: a caller that forgets to pass it shows no
+   * ad rather than an unlabelled policy violation. Fail closed, not open.
+   */
+  hasPublisherContent?: boolean;
   /** Whether the user can hide the ad for the session. Default true. */
   dismissible?: boolean;
   className?: string;
 }
 
-export function AdSlot({ slot, dismissible = true, className }: AdSlotProps) {
+export function AdSlot({
+  slot,
+  hasPublisherContent = false,
+  dismissible = true,
+  className,
+}: AdSlotProps) {
   const [dismissed, setDismissed] = useState(() => adsDismissed());
   // Guards the AdSense push so a re-render never double-fills the same slot.
   const pushed = useRef(false);
 
-  const enabled = adsEnabled();
+  // Both gates matter: the deployment must opt in AND the screen must actually
+  // have content to sit alongside. Neither alone is sufficient under policy.
+  const enabled = adsEnabled() && hasPublisherContent;
   const client = adsenseClientId();
   const showReal = enabled && Boolean(client) && Boolean(slot);
 

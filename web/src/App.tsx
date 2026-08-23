@@ -553,8 +553,13 @@ export default function App() {
         </div>
       </main>
       {/* Monetization: slim, dismissible sponsor strip. Renders nothing unless
-          the deployment opts in via VITE_ADS_ENABLED (#387). */}
-      <AdSlot slot={import.meta.env.VITE_ADSENSE_FOOTER_SLOT} />
+          the deployment opts in via VITE_ADS_ENABLED (#387) AND a generate
+          result is on screen — AdSense policy forbids ads on screens with no
+          publisher content, and the pre-generate empty state is exactly that. */}
+      <AdSlot
+        slot={import.meta.env.VITE_ADSENSE_FOOTER_SLOT}
+        hasPublisherContent={Boolean(generate.data)}
+      />
       <ProfileManagerDialog
         open={manageOpen}
         onOpenChange={setManageOpen}
