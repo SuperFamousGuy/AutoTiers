@@ -1,8 +1,12 @@
+import logging
+import math
 from typing import Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from app.engine.scoring import ScoringFormat, LeagueType, PriorYearRamp, FULL_SEASON_GAMES
 from app.engine.rules import EffectType
 from app.schemas.rules import RuleOverrideSchema
+
+logger = logging.getLogger(__name__)
 
 # /api/generate is fully anonymous (no accounts), so any caller can POST
 # arbitrarily large keepers/league_adp/rules payloads. Every
@@ -196,6 +200,38 @@ class TieredPlayerOut(BaseModel):
     rule_applications: list[RuleApplicationOut]
 
     model_config = {"from_attributes": True}
+
+    # The whole API serializes with ORJSONResponse, and both orjson.dumps and
+    # Pydantic's own model_dump_json() silently coerce NaN/Infinity floats to
+    # JSON `null` (orjson.dumps({"x": float("nan")}) -> {"x":null}). These four
+    # fields are typed non-optional `float`, so a NaN that slips out of scoring
+    # would ship to the client as `null` with no 500 and no validation error —
+    # and the frontend calls `.toFixed(1)` on them directly, crashing the whole
+    # Tiers view to a blank screen. Guard the response boundary: reject a
+    # non-finite score loudly here so an upstream NaN bug fails fast server-side
+    # instead of silently corrupting the wire response (#1186). This is a
+    # tripwire — a finite score is the invariant every code path already
+    # intends to uphold; a trip means a real upstream bug to fix, not input to
+    # sanitize away.
+    @model_validator(mode="after")
+    def _reject_non_finite_scores(self) -> "TieredPlayerOut":
+        non_finite = {
+            field: value
+            for field in ("adjusted_score", "projected_score_raw", "vbd_score", "position_replacement")
+            if not math.isfinite(value := getattr(self, field))
+        }
+        if non_finite:
+            logger.error(
+                "generate: non-finite score(s) for player %s (%r): %s — rejecting "
+                "response so the NaN cannot ship to the client as JSON null (#1186)",
+                self.player_id,
+                self.name,
+                non_finite,
+            )
+            raise ValueError(
+                f"non-finite score(s) for player {self.player_id!r}: {non_finite}"
+            )
+        return self
 
 
 class GenerateResponse(BaseModel):

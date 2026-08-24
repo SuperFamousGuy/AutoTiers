@@ -12,6 +12,7 @@ import { MobileProfileMenuItems } from "@/components/MobileProfileMenuItems";
 import { ProfileManagerDialog } from "@/components/ProfileManagerDialog";
 import { MobilePanelTabBar, type MobilePanel } from "@/components/MobilePanelTabBar";
 import { AdSlot } from "@/components/AdSlot";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { useRules, useGenerateMutation, downloadDraftXlsx, downloadDebugCsv } from "@/api/hooks";
@@ -514,6 +515,11 @@ export default function App() {
           aria-label="Tiers"
           className={mobilePanel === "tiers" ? "contents lg:contents" : "hidden lg:contents"}
         >
+          {/* A single malformed player (e.g. a NaN score that reached
+              `.toFixed(1)`) throwing during render must not blank the whole app.
+              Scope a boundary to the Tiers tree so the crash degrades to an
+              inline fallback with the rest of the UI intact (#1186). */}
+          <ErrorBoundary label="the tiers">
           <TiersPanel
             result={generate.data ?? null}
             isPending={generate.isPending}
@@ -550,6 +556,7 @@ export default function App() {
             isFavoriteTeam={isFavoriteTeam}
             leagueKey={activeProfileId ?? "default"}
           />
+          </ErrorBoundary>
         </div>
       </main>
       {/* Monetization: slim, dismissible sponsor strip. Renders nothing unless

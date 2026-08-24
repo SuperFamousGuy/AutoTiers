@@ -118,8 +118,23 @@ jobs:
           # For each selected issue: drop triage-queued (GITHUB_TOKEN) so it is
           # never re-selected, then dispatch implement (PR_AUTHOR_PAT — a
           # GITHUB_TOKEN dispatch no-ops). Order matters: remove the label first
-          # so a mid-loop failure can't leave a dispatched issue still queued.
-          jq -c '.dispatch[]' plan.json | while read -r row; do
+          # so a mid-loop failure can't leave a dispatched issue still queued
+          # (it would be re-selected next tick and burn a second Opus run on the
+          # same issue).
+          #
+          # That ordering needs a COMPENSATING RESTORE for the other direction.
+          # If the dispatch fails after the label is already gone, the issue is
+          # queued nowhere — invisible to this dispatcher and to the orphan
+          # sweeper — and is silently lost forever. That is not hypothetical: for
+          # ~1 month PR_AUTHOR_PAT lacked Actions:Write, every dispatch 403'd,
+          # and 89 issues had to be re-labelled by hand to recover them. So on a
+          # dispatch failure we put the label back, and the step still exits
+          # non-zero so the run goes RED rather than silently green.
+          #
+          # Loop reads from process substitution (not a `... | while` pipeline)
+          # so the failure counter lives in this shell, not a subshell.
+          dispatch_failures=0
+          while read -r row; do
             n="$(echo "$row" | jq -r .number)"
             s="$(echo "$row" | jq -r .score)"
             echo "dispatch #$n (score $s)"
@@ -130,7 +145,27 @@ jobs:
               echo "(dry-run) would drop '$QUEUED_LABEL' and dispatch $IMPLEMENT_WORKFLOW for #$n."
               continue
             fi
-            gh issue edit "$n" --repo "$REPO" --remove-label "$QUEUED_LABEL"
-            GH_TOKEN="$PR_AUTHOR_PAT" gh workflow run "$IMPLEMENT_WORKFLOW" \
-              --repo "$REPO" -f issue_number="$n"
-          done
+            # If the label removal itself fails, do NOT dispatch: the issue would
+            # be running AND still queued, i.e. double-dispatched next tick.
+            if ! gh issue edit "$n" --repo "$REPO" --remove-label "$QUEUED_LABEL"; then
+              echo "::error::could not remove '$QUEUED_LABEL' from #$n; skipping its dispatch to avoid a double-dispatch next tick."
+              dispatch_failures=$((dispatch_failures + 1))
+              continue
+            fi
+            if ! GH_TOKEN="$PR_AUTHOR_PAT" gh workflow run "$IMPLEMENT_WORKFLOW" \
+              --repo "$REPO" -f issue_number="$n"; then
+              echo "::error::dispatch of #$n failed; restoring '$QUEUED_LABEL' so it stays in the queue."
+              # Best-effort: if the restore ALSO fails the issue really is
+              # orphaned, so say so explicitly — that is the only signal a human
+              # gets that a specific issue needs re-labelling by hand.
+              gh issue edit "$n" --repo "$REPO" --add-label "$QUEUED_LABEL" \
+                || echo "::error::could not restore '$QUEUED_LABEL' on #$n — that issue is now ORPHANED (queued nowhere). Re-add the label manually."
+              dispatch_failures=$((dispatch_failures + 1))
+            fi
+          done < <(jq -c '.dispatch[]' plan.json)
+
+          if [ "$dispatch_failures" -gt 0 ]; then
+            echo "| dispatch failures | $dispatch_failures |" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::$dispatch_failures of $count dispatch(es) failed this tick."
+            exit 1
+          fi

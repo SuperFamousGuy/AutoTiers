@@ -1,0 +1,7 @@
+player_id,season,player_display_name,position,recent_team,attempts,completions,passing_yards,passing_tds,interceptions,carries,rushing_yards,rushing_tds,targets,receptions,receiving_yards,receiving_tds,games,rushing_fumbles_lost,receiving_fumbles_lost,sack_fumbles_lost,passing_2pt_conversions,rushing_2pt_conversions,receiving_2pt_conversions,rushing_first_downs,receiving_first_downs
+00-0000001,2025,Bell Cow,RB,AAA,0,0,0,0,0,200,900,10,30,24,180,1,17,0,0,0,0,0,0,50,10
+00-0000002,2025,Committee Back,RB,AAA,0,0,0,0,0,100,420,4,20,16,120,0,17,0,0,0,0,0,0,22,7
+00-0000003,2025,Alpha Wr,WR,AAA,0,0,0,0,0,0,0,0,150,105,1400,12,17,0,0,0,0,0,0,0,70
+00-0000004,2025,Possession Wr,WR,AAA,0,0,0,0,0,0,0,0,40,32,300,2,17,0,0,0,0,0,0,0,15
+00-0000005,2025,Team Qb,QB,AAA,500,340,4000,30,10,30,150,3,0,0,0,0,17,1,0,2,1,1,0,12,0
+00-0000006,2025,Zero Guy,K,ZZZ,0,0,0,0,0,0,0,0,0,0,0,0,17,0,0,0,0,0,0,0,0

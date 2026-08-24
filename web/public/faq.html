@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Frequently Asked Questions — AutoTiers</title>
+    <meta name="description" content="Answers to common AutoTiers questions: how scoring formats change the board, how superflex is handled, and why ADP is a tiebreaker and never a scoring input." />
+    <link rel="canonical" href="https://auto-tiers.com/faq.html" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/content.css" />
+  </head>
+  <body>
+    <div class="container">
+      <nav class="breadcrumb" aria-label="Breadcrumb">
+        <a href="https://auto-tiers.com">AutoTiers</a><span>/</span>
+        <a href="/content.html">Guides</a><span>/</span>FAQ
+      </nav>
+
+      <h1>Frequently asked questions</h1>
+      <p class="lead">
+        The questions we hear most often about how AutoTiers builds a board and
+        why it makes the choices it does.
+      </p>
+
+      <h2>What is AutoTiers, in one sentence?</h2>
+      <p>
+        AutoTiers takes fantasy football projections, adjusts them with a stack of
+        transparent rules you control, and clusters the result into draft tiers so
+        you can see where the real drop-offs are instead of staring at a flat list
+        of 200 names.
+      </p>
+
+      <h2>How do scoring formats change the rankings?</h2>
+      <p>
+        Dramatically. The reception-point setting — <strong>standard</strong> (no
+        points per catch), <strong>half-PPR</strong> (half a point), or
+        <strong>full PPR</strong> (a full point) — is not a cosmetic toggle; it
+        re-scores every player from scratch. Full PPR rewards volume pass-catchers
+        and pushes receiving running backs up the board, while standard scoring
+        leans toward touchdown-dependent, early-down runners. AutoTiers recomputes
+        each player's projected points, re-derives
+        <a href="/glossary.html#vbd">value over replacement</a>, and redraws the
+        tiers whenever you change the format. You never need to mentally translate
+        a PPR ranking into your standard league.
+      </p>
+
+      <h2>Does AutoTiers support superflex and 2-QB leagues?</h2>
+      <p>
+        Yes, and it is more than a label. In a
+        <a href="/glossary.html#superflex">superflex</a> league most teams start a
+        second quarterback, which roughly doubles quarterback demand. AutoTiers
+        responds by moving the <a href="/glossary.html#replacement-level">replacement-level</a>
+        quarterback much deeper — to around QB18 in a 12-team league instead of the
+        single-QB baseline near QB8. Because value is measured against that
+        baseline, elite quarterbacks gain a large, correct jump in value and stop
+        being buried beneath running backs and receivers the way they are in
+        one-QB formats. Set your QB starter count and the whole board reorganizes.
+      </p>
+
+      <h2>Why is ADP only a tiebreaker and not part of a player's score?</h2>
+      <p>
+        <a href="/glossary.html#adp">Average draft position</a> measures what the
+        <em>market</em> thinks, not what a player is projected to do. Folding ADP
+        into a player's score would make AutoTiers partly a mirror of the crowd —
+        and the entire value of a tiering tool is that it can disagree with the
+        crowd when the projections and rules point somewhere else. That is exactly
+        where drafts are won: on the players the room is mispricing.
+      </p>
+      <p>
+        So ADP never touches a player's <a href="/glossary.html#adjusted-score">adjusted
+        score</a>. It earns exactly one job: breaking ties <em>within</em> a tier.
+        When two players are close enough in value to land in the same tier —
+        genuinely interchangeable on the projections — ADP orders them, because at
+        that point the market's read on who tends to go first is useful,
+        low-stakes information. It decides presentation order inside a tier; it
+        never decides which tier you are in.
+      </p>
+
+      <h2>Where do the projections come from?</h2>
+      <p>
+        AutoTiers blends two things: a player's actual production from last season
+        and current-season consensus projections. You control the weight on each.
+        The prior-year term is <a href="/glossary.html#games-discount">discounted for
+        missed games</a> so an injury-shortened season is not read as a full, bad
+        year. Rookies, who have no NFL history, lean entirely on the consensus term.
+        See the <a href="/methodology.html">methodology page</a> for the exact blend.
+      </p>
+
+      <h2>What are "rules" and do I have to use them?</h2>
+      <p>
+        Rules are optional adjustments that encode a specific football idea — a
+        committee-backfield penalty, a target-share boost, a touchdown-regression
+        haircut, and so on. Every rule is <strong>off by default</strong>. You turn
+        on the ones you believe in and leave the rest alone. Nothing is hidden: the
+        app shows you how each enabled rule moves each player, and these guides
+        explain where every threshold comes from. Browse them by theme from the
+        <a href="/content.html">guides index</a>.
+      </p>
+
+      <h2>Can rules stack on the same player?</h2>
+      <p>
+        Yes. Effects are multiplicative, so a player can pick up several boosts or
+        penalties at once — for example an aging back who also carried a huge
+        workload last year. That compounding is deliberate and, in a few cases,
+        specifically calibrated (see <a href="/rules-workload.html">volume &amp;
+        workload</a> for how the 370-touch and over-the-hill penalties are tuned to
+        co-fire without double-counting). Because every effect is visible, you can
+        always see why a player moved.
+      </p>
+
+      <h2>Does AutoTiers store my league or account data?</h2>
+      <p>
+        Your settings and profiles are saved so your board persists between
+        sessions, and connected fantasy accounts are used only to read your league
+        setup. The full details — what is collected, how it is used, and how to
+        disconnect — are in our <a href="/privacy.html">Privacy Policy</a>.
+      </p>
+
+      <div class="related">
+        <h2>Related guides</h2>
+        <div class="cards">
+          <a class="card" href="/glossary.html">
+            <span class="card-title">Glossary</span>
+            <span class="card-desc">Every term used above, defined.</span>
+          </a>
+          <a class="card" href="/methodology.html">
+            <span class="card-title">How AutoTiers works</span>
+            <span class="card-desc">The full scoring and tiering pipeline.</span>
+          </a>
+          <a class="card" href="/content.html">
+            <span class="card-title">All guides</span>
+            <span class="card-desc">The full content library.</span>
+          </a>
+        </div>
+      </div>
+
+      <a class="back" href="https://auto-tiers.com">← Back to AutoTiers</a>
+
+      <footer>
+        &copy; 2026 AutoTiers &mdash; <a href="https://auto-tiers.com">auto-tiers.com</a>.
+        See also our <a href="/privacy.html">Privacy Policy</a> and
+        <a href="/terms.html">Terms of Service</a>.
+      </footer>
+    </div>
+  </body>
+</html>

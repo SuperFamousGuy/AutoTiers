@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Volume &amp; Workload Rules — AutoTiers</title>
+    <meta name="description" content="How AutoTiers scores running-back volume: the committee penalty, snap-share decline, the handcuff flag, and the age-conditioned 370-touch curse — with the evidence behind each threshold." />
+    <link rel="canonical" href="https://auto-tiers.com/rules-workload.html" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/content.css" />
+  </head>
+  <body>
+    <div class="container">
+      <nav class="breadcrumb" aria-label="Breadcrumb">
+        <a href="https://auto-tiers.com">AutoTiers</a><span>/</span>
+        <a href="/content.html">Guides</a><span>/</span>Volume &amp; workload
+      </nav>
+
+      <h1>Volume &amp; workload</h1>
+      <p class="lead">
+        For running backs especially, opportunity is destiny. A back cannot score
+        on carries he does not get, and the size and security of his workload is
+        the single most predictive thing about his fantasy season. These four
+        rules read that workload from different angles — how much of the backfield
+        a player owns, whether his role is growing or shrinking, and whether last
+        year's workload was so heavy it becomes a warning sign.
+      </p>
+
+      <div class="rule">
+        <h3>RB Committee Penalty <span class="effect penalty">&minus;15%</span></h3>
+        <p>
+          <strong>Fires when</strong> a running back's
+          <a href="/glossary.html#carry-share">carry share</a> is under 50% of his
+          team's carries.
+        </p>
+        <p>
+          A back who handles fewer than half of his team's carries is, by
+          definition, in a committee — and committees cap fantasy ceilings in two
+          ways at once. The obvious one is fewer touches. The subtler one is
+          <em>volatility</em>: in a timeshare, the split can shift week to week on
+          matchup, game script, or a hot hand, so even the projected touches carry
+          more risk than a bell-cow's. The 50% line is the natural boundary between
+          a lead back and a true committee; below it, AutoTiers trims 15% off the
+          projection to reflect both the lower volume and the lower reliability.
+        </p>
+      </div>
+
+      <div class="rule">
+        <h3>Declining Snap% <span class="effect penalty">&minus;10%</span></h3>
+        <p>
+          <strong>Fires when</strong> a player's offensive
+          <a href="/glossary.html#snap-share">snap share</a> falls under 55%.
+        </p>
+        <p>
+          Snap share is the broadest measure of a role because it counts every play
+          a player is on the field for, not just the ones the ball finds him.
+          Falling under 55% of snaps usually means the offense is trusting a player
+          less — a rotation, a committee, a rookie eating into the veteran's series.
+          Because production is downstream of being on the field, a shrinking snap
+          share is often the earliest visible sign of a shrinking fantasy role, and
+          AutoTiers applies a modest 10% penalty when it appears. It is available
+          for running backs, receivers, and tight ends.
+        </p>
+      </div>
+
+      <div class="rule">
+        <h3>Handcuff RB <span class="effect flag">flag only</span></h3>
+        <p>
+          <strong>Fires when</strong> a running back's carry share is under 30%.
+        </p>
+        <p>
+          This rule changes no scores — it is purely informational. A back under
+          30% carry share is a backup or change-of-pace piece today, but the ones
+          sitting behind a workhorse are exactly the players who become league-winners
+          the moment the starter is hurt. Flagging them helps you spot the
+          high-value handcuffs to target late without pretending their <em>current</em>
+          projection is anything but small. It is the low-volume companion to the
+          committee penalty above.
+        </p>
+      </div>
+
+      <div class="rule">
+        <h3>370 Touches — Young RB <span class="effect penalty">&minus;13%</span></h3>
+        <p>
+          <strong>Fires when</strong> a running back is 26 or younger and absorbed
+          370+ touches (carries plus receptions) last season.
+        </p>
+        <p>
+          The "370-touch curse" is one of the oldest observations in fantasy: backs
+          who carry an enormous workload tend to decline the following year, worn
+          down by the cumulative hits. But recent workload studies show the effect
+          is <strong>age-conditioned</strong>, not flat — young backs recover far
+          better than old ones. Backs first absorbing a monster load in their early
+          twenties decline roughly 24% in next-year points per game on average,
+          versus roughly 37% for backs 27 and up. So AutoTiers splits the rule into
+          two age bands. For the young band it applies a milder 13% penalty, because
+          the body still bounces back.
+        </p>
+      </div>
+
+      <div class="rule">
+        <h3>370 Touches — Veteran RB <span class="effect penalty">&minus;25%</span></h3>
+        <p>
+          <strong>Fires when</strong> a running back is 27 or older and absorbed
+          370+ touches last season.
+        </p>
+        <p>
+          Same gate, steeper cliff. For older backs the workhorse curse is severe:
+          across a decade of 350+ touch seasons, only a handful of backs beat their
+          prior year's per-game scoring the next season. The veteran band applies a
+          25% penalty. There is one deliberate subtlety worth knowing: for a back 28
+          or older, this penalty is designed to <em>stack</em> with the
+          <a href="/rules-aging.html">Over the Hill</a> age penalty, landing around
+          a combined &minus;36%. That compounding is intentional and was tuned to
+          stay under the ceiling where two penalties would start double-counting the
+          same aging story. The published coefficients are damped from the raw study
+          numbers precisely because the base projection already prices in some of
+          the expected decline.
+        </p>
+      </div>
+
+      <p>
+        Note that both 370-touch bands are contiguous — every age fires exactly one
+        of them, never both and never neither — and a back whose age is unknown fires
+        neither, because guessing an age band on missing data is worse than skipping
+        the penalty. A true 370-touch workhorse essentially always has a known age.
+      </p>
+
+      <div class="related">
+        <h2>Related guides</h2>
+        <div class="cards">
+          <a class="card" href="/rules-opportunity.html">
+            <span class="card-title">Opportunity &amp; usage</span>
+            <span class="card-desc">The target-share and red-zone boosts that reward volume.</span>
+          </a>
+          <a class="card" href="/rules-aging.html">
+            <span class="card-title">Age &amp; experience curves</span>
+            <span class="card-desc">The Over-the-Hill penalty that co-fires with the veteran workload band.</span>
+          </a>
+          <a class="card" href="/content.html">
+            <span class="card-title">All guides</span>
+            <span class="card-desc">The full content library.</span>
+          </a>
+        </div>
+      </div>
+
+      <a class="back" href="https://auto-tiers.com">← Back to AutoTiers</a>
+
+      <footer>
+        &copy; 2026 AutoTiers &mdash; <a href="https://auto-tiers.com">auto-tiers.com</a>.
+        See also our <a href="/privacy.html">Privacy Policy</a> and
+        <a href="/terms.html">Terms of Service</a>.
+      </footer>
+    </div>
+  </body>
+</html>
