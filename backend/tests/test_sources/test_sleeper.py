@@ -201,6 +201,46 @@ async def test_sleeper_inactive_player_still_pruned(test_db):
 
 
 @pytest.mark.asyncio
+async def test_sleeper_skips_non_fantasy_positions(test_db):
+    """The position gate stands on its own now that it no longer shares a
+    condition with the team check (#791): linemen, punters and entries with no
+    position at all are skipped regardless of team or ``active``, and an
+    existing row for one of them is pruned like any other unseen player."""
+    test_db.add(Player(id="ol_1", name="Some Guard", position="QB", team="DEN", active=True))
+    await test_db.commit()
+
+    payload = {
+        "4017": {
+            "player_id": "4017", "full_name": "Josh Allen", "position": "QB",
+            "team": "BUF", "active": True,
+        },
+        # Rostered and active, but not a fantasy position — must never persist.
+        "ol_1": {
+            "player_id": "ol_1", "full_name": "Some Guard", "position": "OL",
+            "team": "DEN", "active": True,
+        },
+        "p_1": {
+            "player_id": "p_1", "full_name": "Some Punter", "position": "P",
+            "team": "KC", "active": True,
+        },
+        # Sleeper occasionally emits entries with no position key at all.
+        "no_pos_1": {
+            "player_id": "no_pos_1", "full_name": "Mystery Man",
+            "team": "SF", "active": True,
+        },
+    }
+    with respx.mock(base_url="https://api.sleeper.app") as router:
+        router.get("/v1/players/nfl").mock(return_value=Response(200, json=payload))
+        fetcher = SleeperFetcher()
+        result = await fetcher.fetch(test_db)
+
+    assert result.success
+    assert result.rows_upserted == 1, "only the QB counts toward the upsert total"
+    ids = {p.id for p in (await test_db.scalars(select(Player))).all()}
+    assert ids == {"4017"}, f"non-fantasy positions leaked into the DB: {ids - {'4017'}}"
+
+
+@pytest.mark.asyncio
 async def test_sleeper_handles_http_error(test_db):
     with respx.mock(base_url="https://api.sleeper.app") as router:
         router.get("/v1/players/nfl").mock(return_value=Response(503, text="Service Unavailable"))
