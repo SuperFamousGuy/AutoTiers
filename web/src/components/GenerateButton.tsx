@@ -50,7 +50,12 @@ export function GenerateButton({ disabled, isPending, onClick, disabledReason }:
         // it, since the blend goes darker) across the aria-disabled (precondition) and
         // native disabled (pending) states. cn()/twMerge lets these override the
         // Button base's `disabled:opacity-50`.
-        className="bg-amber-700 hover:bg-amber-800 text-white border-0 disabled:bg-amber-900 disabled:opacity-90 aria-disabled:bg-amber-900 aria-disabled:opacity-90 aria-disabled:cursor-not-allowed lg:h-11 lg:px-8 lg:text-base"
+        // The aria-disabled path stays hoverable (native `disabled` would suppress
+        // hover), so pin its hover fill to amber-900 too — otherwise `hover:bg-amber-800`
+        // and `aria-disabled:bg-amber-900` both apply and the winner would depend on
+        // Tailwind variant ordering, risking a lighter fill (below 4.5:1) and a
+        // misleading hover affordance on a disabled control.
+        className="bg-amber-700 hover:bg-amber-800 text-white border-0 disabled:bg-amber-900 disabled:opacity-90 aria-disabled:bg-amber-900 aria-disabled:hover:bg-amber-900 aria-disabled:opacity-90 aria-disabled:cursor-not-allowed lg:h-11 lg:px-8 lg:text-base"
       >
         {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
         Generate

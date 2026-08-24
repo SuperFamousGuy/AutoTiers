@@ -81,6 +81,10 @@ describe("GenerateButton", () => {
     // Disabled states darken the fill instead of dimming into a low-contrast blend.
     expect(cls).toContain("disabled:bg-amber-900");
     expect(cls).toContain("aria-disabled:bg-amber-900");
+    // aria-disabled stays hoverable, so its hover fill must also be pinned to
+    // amber-900 — otherwise hover:bg-amber-800 could win by variant ordering and
+    // reintroduce a lighter, sub-4.5:1 fill on the disabled control.
+    expect(cls).toContain("aria-disabled:hover:bg-amber-900");
     expect(cls).toContain("disabled:opacity-90");
     expect(cls).toContain("aria-disabled:opacity-90");
     // The reported failing values must be gone. twMerge drops the base
