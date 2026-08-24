@@ -139,6 +139,25 @@ class NflDataFetcher:
                         rz_looks[receiver] = rz_looks.get(receiver, 0) + 1
                         xtds[receiver] = xtds.get(receiver, 0.0) + td_prob
 
+            # Team totals for carry_share / target_share (#1053). Group this
+            # season's rows by recent_team and sum carries/targets so each
+            # player's share is player_stat / team_total. ``seasonal_df`` is the
+            # only writer of these fields and is always present here (the season
+            # loop `continue`s on a failed pull), so — like the basic stat
+            # columns — every player row gets a value written every run. Sum
+            # through _safe_float so a NaN carries/targets cell contributes 0.0
+            # rather than poisoning the team total (NaN is truthy). A team with
+            # zero recorded carries/targets yields None per-player below, not a
+            # ZeroDivisionError.
+            team_carries: dict[str, float] = {}
+            team_targets: dict[str, float] = {}
+            for _, trow in seasonal_df.iterrows():
+                team = trow.get("recent_team")
+                if not isinstance(team, str) or not team:
+                    continue
+                team_carries[team] = team_carries.get(team, 0.0) + _safe_float(trow.get("carries"))
+                team_targets[team] = team_targets.get(team, 0.0) + _safe_float(trow.get("targets"))
+
             # Index existing stats by player_id for this season to allow upsert.
             existing_stats = (await db.scalars(
                 select(PlayerStat).where(PlayerStat.season == season)
@@ -190,6 +209,21 @@ class NflDataFetcher:
                 # columns default to 0.
                 stat.first_down_rush = int(row.get("rushing_first_downs") or 0)
                 stat.first_down_rec = int(row.get("receiving_first_downs") or 0)
+
+                # carry_share / target_share (#1053). Divide this player's
+                # carries/targets by the season team totals built above. A team
+                # with zero carries (or targets) resolves to None — the "unknown
+                # field = no match" convention the RB Committee Penalty, Target
+                # Share Premium, and Handcuff RB rules rely on — rather than
+                # raising ZeroDivisionError. NaN player cells contribute 0.0 via
+                # _safe_float, matching the null-vs-zero handling of the fields
+                # above (a real 0-carry player on an active team gets 0.0, not
+                # None).
+                team = row.get("recent_team")
+                tc = team_carries.get(team, 0.0) if isinstance(team, str) else 0.0
+                tt = team_targets.get(team, 0.0) if isinstance(team, str) else 0.0
+                stat.carry_share = (_safe_float(row.get("carries")) / tc) if tc > 0 else None
+                stat.target_share = (_safe_float(row.get("targets")) / tt) if tt > 0 else None
 
                 if snap_available:
                     # The source produced a season map this run, so write for every

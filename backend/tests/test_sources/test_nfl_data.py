@@ -388,6 +388,130 @@ async def test_nfl_data_empty_pbp_preserves_existing_rz_and_xtds(test_db, monkey
     assert allen.expected_tds == pytest.approx(2.1)
 
 
+@pytest.fixture
+def mock_nfl_data_shares(monkeypatch):
+    """Like mock_nfl_data but reads the multi-player-per-team shares fixture so
+    carry_share / target_share have real team totals to divide against (#1053)."""
+    seasonal_df = pd.read_csv(FIXTURES / "nfl_data_seasonal_shares.csv")
+
+    import app.data.sources.nfl_data as mod
+    monkeypatch.setattr(mod, "import_seasonal_data", lambda years: seasonal_df.copy())
+    monkeypatch.setattr(mod, "import_snap_counts", lambda years: pd.DataFrame())
+    monkeypatch.setattr(mod, "import_pbp_data", lambda years: pd.DataFrame())
+    monkeypatch.setattr(mod, "import_schedules", lambda years: pd.DataFrame())
+    monkeypatch.setattr(mod, "import_draft_picks", lambda years: pd.DataFrame())
+
+
+def _add_shares_players(test_db):
+    """The five AAA teammates plus the zero-volume ZZZ player from the fixture."""
+    test_db.add(Player(id="p1", name="Bell Cow", position="RB", team="AAA", gsis_id="00-0000001"))
+    test_db.add(Player(id="p2", name="Committee Back", position="RB", team="AAA", gsis_id="00-0000002"))
+    test_db.add(Player(id="p3", name="Alpha Wr", position="WR", team="AAA", gsis_id="00-0000003"))
+    test_db.add(Player(id="p4", name="Possession Wr", position="WR", team="AAA", gsis_id="00-0000004"))
+    test_db.add(Player(id="p5", name="Team Qb", position="QB", team="AAA", gsis_id="00-0000005"))
+    test_db.add(Player(id="p6", name="Zero Guy", position="K", team="ZZZ", gsis_id="00-0000006"))
+
+
+@pytest.mark.asyncio
+async def test_nfl_data_populates_carry_and_target_share(test_db, mock_nfl_data_shares):
+    """#1053: carry_share = player_carries / team_carries and
+    target_share = player_targets / team_targets, summed across every teammate."""
+    _add_shares_players(test_db)
+    await test_db.commit()
+
+    fetcher = NflDataFetcher(prior_seasons=1, latest_season=2025)
+    await fetcher.fetch(test_db)
+
+    async def stat(pid):
+        return await test_db.scalar(
+            select(PlayerStat).where(PlayerStat.player_id == pid, PlayerStat.season == 2025)
+        )
+
+    # Team AAA: carries 200+100+0+0+30 = 330; targets 30+20+150+40+0 = 240.
+    bell = await stat("p1")
+    assert bell.carry_share == pytest.approx(200 / 330)
+    assert bell.target_share == pytest.approx(30 / 240)
+
+    committee = await stat("p2")
+    assert committee.carry_share == pytest.approx(100 / 330)
+    assert committee.target_share == pytest.approx(20 / 240)
+
+    alpha = await stat("p3")
+    # A 0-carry receiver on an active team gets 0.0, not None.
+    assert alpha.carry_share == pytest.approx(0.0)
+    assert alpha.target_share == pytest.approx(150 / 240)
+
+    qb = await stat("p5")
+    assert qb.carry_share == pytest.approx(30 / 330)
+    # A 0-target player on a team with targets gets 0.0, not None.
+    assert qb.target_share == pytest.approx(0.0)
+
+
+@pytest.mark.asyncio
+async def test_nfl_data_zero_team_totals_yield_none_not_zerodiv(test_db, mock_nfl_data_shares):
+    """#1053: a player whose team recorded zero carries and zero targets that
+    season resolves to None for both shares — no ZeroDivisionError."""
+    _add_shares_players(test_db)
+    await test_db.commit()
+
+    fetcher = NflDataFetcher(prior_seasons=1, latest_season=2025)
+    result = await fetcher.fetch(test_db)
+    assert result.success
+
+    zero = await test_db.scalar(
+        select(PlayerStat).where(PlayerStat.player_id == "p6", PlayerStat.season == 2025)
+    )
+    assert zero.carry_share is None
+    assert zero.target_share is None
+
+
+@pytest.mark.asyncio
+async def test_committee_and_target_rules_fire_off_real_fetch(test_db, mock_nfl_data_shares):
+    """#1053: with carry_share / target_share now written by ingestion, the
+    RB Committee Penalty fires for a committee back but not a bell cow, and the
+    Target Share Premium fires for an alpha receiver but not a possession one —
+    previously impossible since both fields were always None."""
+    from copy import deepcopy
+    from app.engine.builtin_rules import BUILTIN_RULES
+    from app.engine.rules import PlayerContext, apply_rules
+
+    _add_shares_players(test_db)
+    await test_db.commit()
+
+    fetcher = NflDataFetcher(prior_seasons=1, latest_season=2025)
+    await fetcher.fetch(test_db)
+
+    def rule(name):
+        r = deepcopy(next(r for r in BUILTIN_RULES if r.name == name))
+        r.enabled = True
+        return r
+
+    committee_rule = rule("RB Committee Penalty")
+    target_rule = rule("Target Share Premium")
+
+    async def ctx(pid, position):
+        s = await test_db.scalar(
+            select(PlayerStat).where(PlayerStat.player_id == pid, PlayerStat.season == 2025)
+        )
+        return PlayerContext(
+            player_id=pid, position=position, age=25, snap_pct=None,
+            carry_share=s.carry_share, target_share=s.target_share,
+            games_played=s.games_played, years_exp=3, adp=None,
+            projected_score=100.0, new_team=False, new_coach=False,
+            actual_tds=None, expected_tds=None,
+        )
+
+    bell = apply_rules(100.0, await ctx("p1", "RB"), [committee_rule])
+    committee = apply_rules(100.0, await ctx("p2", "RB"), [committee_rule])
+    assert "RB Committee Penalty" not in bell.rules_applied      # carry_share 0.606 >= 0.50
+    assert "RB Committee Penalty" in committee.rules_applied      # carry_share 0.303 < 0.50
+
+    alpha = apply_rules(100.0, await ctx("p3", "WR"), [target_rule])
+    possession = apply_rules(100.0, await ctx("p4", "WR"), [target_rule])
+    assert "Target Share Premium" in alpha.rules_applied          # target_share 0.625 >= 0.25
+    assert "Target Share Premium" not in possession.rules_applied # target_share 0.167 < 0.25
+
+
 @pytest.mark.asyncio
 async def test_nfl_data_absent_from_snap_pull_resets_stale_snap_pct(test_db, monkeypatch):
     """A player with a stale snap_pct who has zero snap rows in the current
