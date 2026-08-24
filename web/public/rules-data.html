@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Data Confidence &amp; Availability Rules — AutoTiers</title>
+    <meta name="description" content="How AutoTiers handles uncertainty: the injury-history penalty, the availability-risk flag, and the heavy penalty for players with no current-season projection at all." />
+    <link rel="canonical" href="https://auto-tiers.com/rules-data.html" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/content.css" />
+  </head>
+  <body>
+    <div class="container">
+      <nav class="breadcrumb" aria-label="Breadcrumb">
+        <a href="https://auto-tiers.com">AutoTiers</a><span>/</span>
+        <a href="/content.html">Guides</a><span>/</span>Data confidence &amp; availability
+      </nav>
+
+      <h1>Data confidence &amp; availability</h1>
+      <p class="lead">
+        A projection is only as trustworthy as the data behind it, and a player is
+        only as valuable as the games he actually plays. These rules deal with the
+        two ways that trust breaks down: a player whose recent availability is
+        shaky, and a player the projection sources cannot see clearly at all. They
+        are the guardrails that keep a thin or missing signal from masquerading as
+        a confident one.
+      </p>
+
+      <div class="rule">
+        <h3>Injury History <span class="effect penalty">&minus;12%</span></h3>
+        <p>
+          <strong>Fires when</strong> a player appeared in fewer than 12 games last
+          season.
+        </p>
+        <p>
+          Availability is a skill, and recent injury is one of the better predictors
+          of future injury. A player who missed a meaningful chunk of last season —
+          fewer than 12 games — carries elevated risk into the next one, whether from
+          a recurring issue or a body that has shown it breaks down. AutoTiers applies
+          a 12% penalty to price that in. It pairs with the
+          <a href="/glossary.html#games-discount">prior-year games discount</a>, which
+          separately keeps those missed games from dragging the player's raw
+          production line down unfairly — the discount adjusts the <em>projection</em>
+          for missing data, while this rule adjusts for the <em>risk</em> the injury
+          implies. And note the counterweight two seasons out: the
+          <a href="/rules-regression.html">Year After the Year After</a> boost rewards
+          players who have since returned to full health.
+        </p>
+      </div>
+
+      <div class="rule">
+        <h3>Availability Risk <span class="effect flag">flag only</span></h3>
+        <p>
+          <strong>Fires when</strong> a player appeared in fewer than 8 games last
+          season.
+        </p>
+        <p>
+          This flag marks the most serious availability concerns without changing any
+          score — it stacks on top of the injury-history penalty as a visible warning
+          rather than a second haircut. A player who managed fewer than eight games is
+          in a different category of risk, and the flag makes sure that shows up on
+          your board even if his talent alone would place him high. It is there to
+          make you pause and check the situation, not to make the call for you.
+        </p>
+      </div>
+
+      <div class="rule">
+        <h3>Projection Unavailable <span class="effect penalty">&minus;50%</span></h3>
+        <p>
+          <strong>Fires when</strong> a player has no current-season projection from
+          any source.
+        </p>
+        <p>
+          This is the bluntest rule in the set, and it is about confidence, not
+          talent. When none of the projection sources carries a current-season number
+          for a player, AutoTiers is essentially flying blind — the player may be a
+          deep-roster afterthought, a name that failed to match across data sources, or
+          someone whose role is genuinely unknown. Rather than invent a projection or
+          rank the player as if the data were solid, the rule halves the score to push
+          low-confidence names down the board where they belong. If you know something
+          the data does not, you can always override it — but the default is to trust a
+          confident signal over a missing one.
+        </p>
+      </div>
+
+      <div class="related">
+        <h2>Related guides</h2>
+        <div class="cards">
+          <a class="card" href="/rules-regression.html">
+            <span class="card-title">Regression to the mean</span>
+            <span class="card-desc">The two-year injury bounce-back that offsets this penalty.</span>
+          </a>
+          <a class="card" href="/methodology.html">
+            <span class="card-title">How AutoTiers works</span>
+            <span class="card-desc">The games-played discount and the projection blend.</span>
+          </a>
+          <a class="card" href="/content.html">
+            <span class="card-title">All guides</span>
+            <span class="card-desc">The full content library.</span>
+          </a>
+        </div>
+      </div>
+
+      <a class="back" href="https://auto-tiers.com">← Back to AutoTiers</a>
+
+      <footer>
+        &copy; 2026 AutoTiers &mdash; <a href="https://auto-tiers.com">auto-tiers.com</a>.
+        See also our <a href="/privacy.html">Privacy Policy</a> and
+        <a href="/terms.html">Terms of Service</a>.
+      </footer>
+    </div>
+  </body>
+</html>

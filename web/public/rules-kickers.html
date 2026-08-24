@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kicker Environment Rules — AutoTiers</title>
+    <meta name="description" content="How AutoTiers scores the one position where the stadium matters as much as the leg: dome kickers, Denver's altitude advantage, and cold-weather markets — with the field-goal physics behind each." />
+    <link rel="canonical" href="https://auto-tiers.com/rules-kickers.html" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/content.css" />
+  </head>
+  <body>
+    <div class="container">
+      <nav class="breadcrumb" aria-label="Breadcrumb">
+        <a href="https://auto-tiers.com">AutoTiers</a><span>/</span>
+        <a href="/content.html">Guides</a><span>/</span>Kicker environment
+      </nav>
+
+      <h1>Kicker environment</h1>
+      <p class="lead">
+        Kicker is the one fantasy position where the building matters almost as
+        much as the leg. A field goal is a physics problem — air density, wind,
+        and temperature all change how far a ball will fly — and a kicker who
+        spends half his season indoors or a mile above sea level has a measurably
+        different job than one kicking into a January lake-effect wind. These
+        three rules price the venue. They are all small by design: the effects are
+        real but modest, and kicker is not a position to over-engineer.
+      </p>
+
+      <div class="rule">
+        <h3>Dome Kicker <span class="effect boost">+4%</span></h3>
+        <p>
+          <strong>Fires when</strong> a kicker's home venue is a dome or
+          retractable-roof stadium (DET, MIN, NO, LV, DAL, HOU, IND, ARI, ATL, LAR,
+          LAC).
+        </p>
+        <p>
+          A controlled indoor environment removes the two things that hurt kickers
+          most: wind and cold. Public data puts dome kickers modestly ahead of the
+          league average on a per-game basis, and the strongest driver is simply
+          <em>avoiding adverse wind</em> — 20-plus-mph gusts measurably drag kicker
+          scoring down, and a domed kicker never faces them at home. The honest
+          caveat, reflected in the small +4% size, is that the effect is weak and
+          inconsistent across multi-year studies, and part of the raw gap comes from
+          dome teams historically fielding good offenses that generate more scoring
+          chances regardless of roof. Retractable roofs add a wrinkle — the home team
+          decides whether it is open — so "dome" is a soft label for some of these
+          venues. A deliberately light boost is the appropriate response to a real
+          but noisy signal.
+        </p>
+      </div>
+
+      <div class="rule">
+        <h3>Mile High Kicker <span class="effect boost">+5%</span></h3>
+        <p>
+          <strong>Fires when</strong> the kicker plays home games for the Denver
+          Broncos.
+        </p>
+        <p>
+          Denver's altitude — about 5,280 feet — thins the air to roughly 82% of
+          sea-level density, cutting the aerodynamic drag on a kicked ball. Controlled
+          analysis of visiting kickers in Denver (which sidesteps any home-team
+          selection bias) found roughly five yards of extra effective range there,
+          and three of the five longest field goals in NFL history have been kicked in
+          Denver. Over eight home games a season, that range advantage is a real,
+          repeatable edge for the Broncos' kicker, worth a 5% boost. Note the rule
+          applies only to the home kicker: a visiting kicker gets the same physics but
+          for a single road game a year, which is noise across a season, so no
+          season-long boost is warranted for opponents. The altitude edge can also be
+          partly offset by cold in December games — which is exactly why Denver is
+          <em>excluded</em> from the cold-weather rule below, to avoid applying two
+          contradictory adjustments to the same player.
+        </p>
+      </div>
+
+      <div class="rule">
+        <h3>Cold-Weather Kicker <span class="effect penalty">&minus;4%</span></h3>
+        <p>
+          <strong>Fires when</strong> a kicker's home venue is a consistently cold,
+          windy outdoor market: GB, BUF, NE, CHI, CLE, PIT, CIN, or KC.
+        </p>
+        <p>
+          This is the mirror image of the dome boost. Cold, dense air and winter wind
+          both shorten a kicker's effective range and drop his accuracy: a 30-degree
+          temperature drop is worth roughly five extra yards of required distance, and
+          field-goal percentage falls meaningfully in the coldest conditions. The
+          eight teams in this set are the outdoor markets whose late-season game
+          conditions are reliably adverse — driven by temperature in places like Green
+          Bay and Buffalo and by wind in lake-effect cities like Cleveland and
+          Chicago. Domed teams are excluded (they have their own boost), and Denver is
+          excluded so its altitude advantage is not cancelled by a weather penalty.
+          The &minus;4% is set conservatively — the mirror of the dome boost — because
+          the team-by-team cutoff relies on climate averages rather than game-level
+          field-goal data.
+        </p>
+      </div>
+
+      <div class="related">
+        <h2>Related guides</h2>
+        <div class="cards">
+          <a class="card" href="/methodology.html">
+            <span class="card-title">How AutoTiers works</span>
+            <span class="card-desc">Where these per-position rules sit in the pipeline.</span>
+          </a>
+          <a class="card" href="/glossary.html">
+            <span class="card-title">Glossary</span>
+            <span class="card-desc">The terms behind the rules.</span>
+          </a>
+          <a class="card" href="/content.html">
+            <span class="card-title">All guides</span>
+            <span class="card-desc">The full content library.</span>
+          </a>
+        </div>
+      </div>
+
+      <a class="back" href="https://auto-tiers.com">← Back to AutoTiers</a>
+
+      <footer>
+        &copy; 2026 AutoTiers &mdash; <a href="https://auto-tiers.com">auto-tiers.com</a>.
+        See also our <a href="/privacy.html">Privacy Policy</a> and
+        <a href="/terms.html">Terms of Service</a>.
+      </footer>
+    </div>
+  </body>
+</html>
