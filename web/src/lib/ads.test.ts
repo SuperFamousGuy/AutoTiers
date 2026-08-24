@@ -8,11 +8,14 @@ import {
 } from "@/lib/ads";
 
 const SCRIPT_SELECTOR = "script[data-autotiers-adsense]";
+const ANY_ADSENSE_SELECTOR = 'script[src*="adsbygoogle.js"]';
 
 afterEach(() => {
   vi.unstubAllEnvs();
   sessionStorage.clear();
-  document.head.querySelectorAll(SCRIPT_SELECTOR).forEach((el) => el.remove());
+  document.head
+    .querySelectorAll(ANY_ADSENSE_SELECTOR)
+    .forEach((el) => el.remove());
 });
 
 describe("adsEnabled", () => {
@@ -78,5 +81,24 @@ describe("loadAdSenseScript", () => {
     const src = scripts[0].getAttribute("src") ?? "";
     expect(src).toContain("adsbygoogle.js");
     expect(src).toContain("client=ca-pub-123");
+  });
+
+  // index.html ships a static adsbygoogle.js tag for AdSense site verification.
+  // Matching only our own marker attribute meant production loaded Google's tag
+  // twice on every page; adsbygoogle.js is not safe to evaluate twice.
+  it("does not add a second loader when index.html already shipped one", () => {
+    vi.stubEnv("VITE_ADS_ENABLED", "true");
+    vi.stubEnv("VITE_ADSENSE_CLIENT_ID", "ca-pub-123");
+
+    const staticTag = document.createElement("script");
+    staticTag.src =
+      "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-123";
+    document.head.appendChild(staticTag);
+
+    loadAdSenseScript();
+
+    expect(document.querySelectorAll(ANY_ADSENSE_SELECTOR)).toHaveLength(1);
+    // The surviving tag is the static one — we injected nothing.
+    expect(document.querySelector(SCRIPT_SELECTOR)).toBeNull();
   });
 });

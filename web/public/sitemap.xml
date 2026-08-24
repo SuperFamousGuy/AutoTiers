@@ -1,8 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Kept by hand. Add an entry here whenever a new static page ships under
+  web/public/ — a page missing from the sitemap is a page Google may never
+  crawl, and thin crawl coverage is part of why AdSense flagged this site
+  for low value content.
+-->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://auto-tiers.com/</loc>
-    <changefreq>weekly</changefreq>
+    <changefreq>daily</changefreq>
     <priority>1.0</priority>
   </url>
   <url>

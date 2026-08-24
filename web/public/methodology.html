@@ -3,11 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>How AutoTiers Builds Its Tiers — Methodology</title>
     <meta
       name="description"
-      content="How AutoTiers turns your league settings and scoring rules into draft tiers: projection blending, rule-based score adjustments, value-based drafting, and Jenks natural-breaks clustering."
+      content="A full walkthrough of how AutoTiers turns raw fantasy football projections into draft tiers: source blending, situational rules, value-based drafting, and Jenks natural-breaks clustering."
     />
-    <title>Methodology — AutoTiers</title>
+    <link rel="canonical" href="https://auto-tiers.com/methodology.html" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -21,6 +22,7 @@
         --muted: #555555;
         --border: #e2e8f0;
         --link: #2563eb;
+        --code-bg: #f1f5f9;
       }
 
       @media (prefers-color-scheme: dark) {
@@ -30,6 +32,7 @@
           --muted: #94a3b8;
           --border: #1e293b;
           --link: #60a5fa;
+          --code-bg: #1e293b;
         }
       }
 
@@ -41,7 +44,7 @@
         padding: 3rem 1.5rem 6rem;
       }
 
-      .container { max-width: 680px; margin: 0 auto; }
+      .container { max-width: 720px; margin: 0 auto; }
 
       .back {
         display: inline-block;
@@ -54,21 +57,49 @@
 
       h1 { font-size: 1.875rem; font-weight: 600; margin-bottom: 0.25rem; }
 
-      .lede { color: var(--muted); font-size: 0.95rem; margin-bottom: 2.5rem; }
+      .standfirst { color: var(--muted); margin-bottom: 2.5rem; }
 
       h2 {
-        font-size: 1.125rem;
+        font-size: 1.25rem;
         font-weight: 600;
-        margin-top: 2rem;
+        margin-top: 2.5rem;
         margin-bottom: 0.5rem;
+      }
+
+      h3 {
+        font-size: 1rem;
+        font-weight: 600;
+        margin-top: 1.5rem;
+        margin-bottom: 0.35rem;
       }
 
       p { margin-bottom: 0.75rem; }
 
-      ol, ul { padding-left: 1.25rem; margin-bottom: 0.75rem; }
-      li { margin-bottom: 0.4rem; }
+      ul, ol { padding-left: 1.25rem; margin-bottom: 0.75rem; }
+      li { margin-bottom: 0.35rem; }
 
       a { color: var(--link); }
+
+      code {
+        background: var(--code-bg);
+        padding: 0.1rem 0.3rem;
+        border-radius: 3px;
+        font-size: 0.875em;
+      }
+
+      .table-wrap { overflow-x: auto; margin-bottom: 1rem; }
+
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 0.9rem;
+      }
+      th, td {
+        text-align: left;
+        padding: 0.45rem 0.75rem;
+        border-bottom: 1px solid var(--border);
+      }
+      th { font-weight: 600; }
 
       footer {
         margin-top: 3rem;
@@ -83,74 +114,217 @@
     <div class="container">
       <a class="back" href="https://auto-tiers.com">← Back to AutoTiers</a>
 
-      <h1>How AutoTiers Builds Your Tiers</h1>
-      <p class="lede">
-        AutoTiers turns your league's scoring settings and a set of heuristic
-        rules into a draft board grouped into tiers. Here is what happens between
-        the settings you choose and the CSV you download.
+      <h1>How AutoTiers Builds Its Tiers</h1>
+      <p class="standfirst">
+        Every number AutoTiers shows you is the output of four steps: blend the projections,
+        apply situational adjustments, convert points into value over replacement, then cut
+        the resulting curve into tiers. This page documents all four, including the constants
+        we chose and why.
       </p>
 
-      <h2>1. Start from projections</h2>
+      <h2>Why tiers instead of a ranking list</h2>
       <p>
-        Every player begins with a baseline projection for the upcoming season.
-        You control how that baseline is formed by weighting the available
-        inputs — for example prior-year production and current consensus
-        projections — so the board reflects the sources you trust most.
+        A ranked list implies precision that season-long projections do not have. The gap
+        between the RB4 and the RB5 on a cheat sheet is usually smaller than the error bar on
+        either projection — treating that ordering as meaningful leads to bad picks, because
+        you reach for a name instead of taking the best available player at a position of need.
+      </p>
+      <p>
+        Tiers encode the thing that actually matters on the clock: <em>where the real drop-offs
+        are</em>. If five running backs sit in the same tier, they are interchangeable enough
+        that you should take the one who fits your roster, trade down, or address another
+        position. If only one player remains in a tier, that is a genuine cliff and a reason to
+        reach. The whole point of the pipeline below is to find those cliffs honestly rather
+        than imposing a fixed number of tiers on the data.
       </p>
 
-      <h2>2. Score for your scoring format</h2>
+      <h2>Step 1 — Blending projection sources</h2>
       <p>
-        Projections are converted into fantasy points using <em>your</em> league
-        settings: PPR / half-PPR / standard receptions, passing-touchdown value,
-        and optional bonuses such as 100-yard rushing or receiving games and
-        first-down scoring. The same player can rank differently in two leagues,
-        which is the point.
+        AutoTiers starts from multiple projection sources plus last season's actual finish, and
+        computes a weighted average across them. You control the weights in Settings.
+      </p>
+      <p>
+        The important detail is what happens when a source is <em>missing</em>. A naive weighted
+        sum silently scores a player lower simply because one source had no line for them. Instead,
+        AutoTiers computes the average over the <strong>active</strong> sources only — those that
+        are both present and carry a non-zero weight — and redistributes the missing weight
+        proportionally across the rest. A player covered by two of three sources is scored on the
+        same scale as a fully covered player, preserving the relative importance you assigned.
+      </p>
+      <p>
+        Data confidence is expressed separately and explicitly, through the
+        <em>Projection Unavailable</em> rule (a −50% penalty at default weight), rather than being
+        smuggled in as an accidental side effect of arithmetic. Note also that a value of zero is
+        not treated as missing: a player who genuinely scored zero points is a different case from
+        a player with no stats on record.
       </p>
 
-      <h2>3. Apply the rules you enable</h2>
+      <h3>The games-played discount</h3>
       <p>
-        On top of the raw projection, AutoTiers applies a configurable set of
-        heuristic rules as score modifiers. Each rule nudges a player up or down
-        for a reason a drafter would recognize — positional context, workload
-        signals, and similar factors — and you decide which rules are active and
-        how heavily they count. Rules you leave off have no effect on the board.
+        Last season's point <em>total</em> understates a player who missed time, because the
+        missing games are baked into the total as zeros. A back who averaged elite production
+        across four games before getting hurt looks, by total, like a waiver-wire body.
+      </p>
+      <p>
+        So the prior-year term is scaled by games played before it enters the blend:
+        <code>scale = clamp(games / 14, 0, 1)</code>. Fourteen is deliberately set below a full
+        NFL schedule so that near-complete seasons still receive full weight; rookies (no prior
+        season) and healthy 15–17 game seasons are unaffected. The constant is calibrated so that
+        an injury-shortened star's season lands within roughly one tier of their projection-only
+        score.
+      </p>
+      <p>
+        A steeper option squares that fraction, discounting partial seasons more aggressively —
+        useful if you consider a half-season closer to noise than to signal.
       </p>
 
-      <h2>4. Convert to value over replacement</h2>
+      <h2>Step 2 — Situational rules</h2>
       <p>
-        Raw points don't tell you how <em>scarce</em> a player is. AutoTiers
-        compares each player against the replacement-level player at the same
-        position for your league size — the value-based-drafting (VBD) idea — so
-        a running back and a quarterback with similar point totals are ranked by
-        how much of an edge they give you over what you could stream instead.
+        The blended score is then adjusted by rules you switch on and weight yourself. Each rule
+        is a transparent, bounded percentage adjustment, and every rule that fired on a player is
+        recorded so you can see exactly why they moved. A representative sample of the defaults:
       </p>
 
-      <h2>5. Cluster into tiers</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Rule</th><th>Default effect</th><th>Trigger</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>RB Committee Penalty</td><td>−15%</td><td>Carry share under 50%</td></tr>
+            <tr><td>Target Share Premium</td><td>+7%</td><td>≥25% of team targets</td></tr>
+            <tr><td>Declining Snap%</td><td>−10%</td><td>Offensive snap share dropped under 55%</td></tr>
+            <tr><td>New Team Penalty</td><td>−10%</td><td>Adjusting to a new team or scheme</td></tr>
+            <tr><td>New Head Coach</td><td>−7%</td><td>Team hired a new head coach</td></tr>
+            <tr><td>Sophomore Leap</td><td>+8%</td><td>Second-year WR/QB</td></tr>
+            <tr><td>Injury History</td><td>−12%</td><td>Played under 12 games last season</td></tr>
+            <tr><td>TD Regression</td><td>−10%</td><td>Scored 3+ more TDs than red-zone opportunity implied</td></tr>
+            <tr><td>Red Zone Usage Premium</td><td>+7%</td><td>25+ looks inside the 20</td></tr>
+            <tr><td>Over the Hill</td><td>−15%</td><td>Past the position's decline age</td></tr>
+            <tr><td>Projection Unavailable</td><td>−50%</td><td>No current-season projection from any source</td></tr>
+          </tbody>
+        </table>
+      </div>
+
       <p>
-        Within each position, AutoTiers groups players into tiers using
-        <a href="https://en.wikipedia.org/wiki/Jenks_natural_breaks_optimization">Jenks natural breaks</a>,
-        a clustering method that finds the natural gaps in the value curve rather
-        than cutting every N players. That is why tiers have uneven sizes: a tier
-        boundary lands where there is a real drop-off in value, so you know when
-        it is safe to wait and when the position is about to fall off a cliff.
+        Some rules are informational only and change no score — <em>Contract Year Flag</em>,
+        <em>Handcuff RB</em>, and <em>Availability Risk</em> exist to surface context on the clock
+        without quietly moving a player for you.
+      </p>
+      <p>
+        The age thresholds in <em>Over the Hill</em> are position-specific rather than a single
+        cutoff: RB at 28, WR and TE at 31, K at 40. Quarterbacks are split by playing style,
+        because rushing production ages differently from pocket passing — a dual-threat QB (60+
+        rushing attempts the prior season) is treated as declining from 31, a pocket passer only
+        from 38.
       </p>
 
-      <h2>6. Merge into one board and export</h2>
+      <h2>Step 3 — Value over replacement (VBD)</h2>
       <p>
-        The per-position tiers are merged into a single overall draft board, and
-        you can download the result as a CSV to bring into your draft.
+        Raw projected points cannot be compared across positions. A quarterback projected for 320
+        points is not more valuable than a running back projected for 240, because the quarterback
+        you could stream instead also scores a lot. What matters is the gap between a player and
+        the player you would otherwise have gotten for free at that position — the
+        <strong>replacement level</strong>.
+      </p>
+      <p>
+        AutoTiers sets that baseline per position, as a multiple of your league size:
       </p>
 
-      <h2>What AutoTiers is not</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Position</th><th>Multiplier</th><th>Replacement rank in a 12-team league</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>QB (start 1)</td><td>0.67</td><td>~QB8</td></tr>
+            <tr><td>QB (superflex / 2QB)</td><td>1.5</td><td>~QB18</td></tr>
+            <tr><td>RB</td><td>2.5</td><td>RB30</td></tr>
+            <tr><td>WR</td><td>2.5</td><td>WR30</td></tr>
+            <tr><td>TE</td><td>1.25</td><td>~TE15</td></tr>
+            <tr><td>K / DST</td><td>1.0</td><td>12th</td></tr>
+          </tbody>
+        </table>
+      </div>
+
       <p>
-        AutoTiers is a decision aid, not a guarantee. Projections are uncertain,
-        rules encode conventional wisdom that can be wrong in a given season, and
-        no tool can predict injuries or breakouts. Treat the tiers as an informed
-        starting point and apply your own judgment on draft day.
+        The QB multiplier is the one worth explaining. A 12-team league starting one quarterback
+        does not have its replacement level at QB12 — it sits at the last <em>reliably startable</em>
+        quarterback, around QB8. Anchoring at QB12 inflates elite quarterback value enough to crowd
+        premium overall tiers ahead of elite receivers and backs, which is exactly the failure mode
+        that makes people take a quarterback two rounds too early.
+      </p>
+      <p>
+        Superflex and 2QB leagues invert that pressure. With two quarterbacks starting, replacement
+        drops roughly a full league deeper — to about QB18 rather than the literal QB24, with the
+        difference reflecting the streamers who remain available on waivers.
+      </p>
+
+      <h2>Step 4 — Cutting the curve into tiers</h2>
+      <p>
+        With every player on a common VBD scale, the last step is finding the breakpoints. AutoTiers
+        uses <strong>Jenks natural breaks</strong>, a one-dimensional clustering method that chooses
+        cut points minimising variance within each group and maximising it between groups. In plain
+        terms: it puts the boundaries where the data is already separating, which is precisely the
+        cliff-finding job described at the top of this page.
+      </p>
+      <p>
+        Jenks is not used unconditionally. Above 11 overall tiers, AutoTiers switches to quantile
+        splits (equal-size groups) instead. The reason is that the score distribution gets smooth at
+        high tier counts, and past that point Jenks starts fitting noise rather than real gaps in
+        player value — the goodness-of-variance-fit gain from each additional break falls below
+        0.002 around a dozen tiers, which makes 11 the last defensible Jenks count.
+      </p>
+      <p>
+        Positional tiers are capped separately, since positions differ in how many meaningful
+        strata they actually contain: 5 each for RB and WR, 3 each for QB, TE, and DST, and 2 for
+        kickers. Claiming eight distinct tiers of kicker would be false precision.
+      </p>
+      <p>
+        If clustering cannot run — every score identical, for example — AutoTiers falls back to
+        quantile tiers rather than collapsing everyone into a single group.
+      </p>
+
+      <h2>What this does not do</h2>
+      <p>
+        Being clear about the limits matters more than the feature list:
+      </p>
+      <ul>
+        <li>
+          <strong>ADP is a tiebreaker, not an input.</strong> Average draft position measures what
+          other drafters believe, not what a player is worth. Feeding it into the score would make
+          the output track consensus rather than diverge from it where the evidence supports doing so.
+        </li>
+        <li>
+          <strong>Tiers carry no uncertainty band.</strong> A player near a boundary is presented
+          the same as one at the centre of their tier, even though the former is far more sensitive
+          to small projection changes.
+        </li>
+        <li>
+          <strong>Projections are inherited, not produced.</strong> AutoTiers blends and adjusts
+          public projections; it does not build its own player-level forecasts, so it inherits
+          whatever systematic bias those sources carry.
+        </li>
+        <li>
+          <strong>Rules are heuristics, not causal models.</strong> A −15% committee penalty is a
+          reasonable prior, not a measured treatment effect for a specific player.
+        </li>
+      </ul>
+
+      <h2>Seeing it for yourself</h2>
+      <p>
+        Every tier list AutoTiers generates records which rules fired on which players. If a player
+        sits somewhere surprising, that trail tells you which adjustment moved them and by how much
+        — and if you disagree, you can down-weight or disable that rule and regenerate. The defaults
+        are a starting position, not a verdict.
       </p>
 
       <footer>
-        &copy; 2026 AutoTiers &mdash; <a href="https://auto-tiers.com">auto-tiers.com</a>
+        <p>
+          Questions about the methodology, or think one of these constants is wrong?
+          <a href="https://auto-tiers.com">Open AutoTiers</a> and use the feedback form — the
+          calibration decisions above are all revisitable.
+        </p>
       </footer>
     </div>
   </body>

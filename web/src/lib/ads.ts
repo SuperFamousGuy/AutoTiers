@@ -49,14 +49,18 @@ const SCRIPT_MARKER = "data-autotiers-adsense";
 /**
  * Inject the AdSense loader script exactly once. No-op when ads are disabled, no
  * client id is configured, the script is already present, or there's no DOM.
- * Safe to call from every AdSlot — the DOM marker guards against duplicates.
+ *
+ * The "already present" check matches ANY adsbygoogle.js tag, not just one we
+ * injected: index.html ships a static loader for AdSense site verification, and
+ * matching only our own marker meant every production page loaded Google's tag
+ * twice. adsbygoogle.js is not designed to be evaluated twice on one page.
  */
 export function loadAdSenseScript(): void {
   if (!adsEnabled()) return;
   const client = adsenseClientId();
   if (!client) return;
   if (typeof document === "undefined") return;
-  if (document.querySelector(`script[${SCRIPT_MARKER}]`)) return;
+  if (document.querySelector('script[src*="adsbygoogle.js"]')) return;
 
   const script = document.createElement("script");
   script.src =
