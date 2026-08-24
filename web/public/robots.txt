@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /
+
+# AdSense and Google's ad crawlers need to fetch pages to classify them for
+# ad targeting. Blocking these degrades ad relevance and can block serving.
+User-agent: Mediapartners-Google
+Allow: /
+
+User-agent: AdsBot-Google
+Allow: /
+
+Sitemap: https://auto-tiers.com/sitemap.xml

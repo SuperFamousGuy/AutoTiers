@@ -46,6 +46,11 @@ function HamburgerMenu({ mobileProfileMenu, isDark, onToggleDark, onShowOnboardi
           )}
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild>
+            <a href="/methodology.html" target="_blank" rel="noopener noreferrer">
+              How Tiers Are Built
+            </a>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
             <a href="/privacy.html" target="_blank" rel="noopener noreferrer">
               Privacy Policy
             </a>
