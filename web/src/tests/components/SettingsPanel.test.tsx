@@ -307,6 +307,48 @@ describe("SettingsPanel — Superflex / 2-QB toggle (#724)", () => {
   });
 });
 
+describe("SettingsPanel — First Down Bonus toggle (#1075)", () => {
+  it("renders the switch enabled and interactive (not disabled)", () => {
+    render(<StatefulFullPanel />);
+    const toggle = screen.getByRole("switch", { name: "First Down Bonus" });
+    expect(toggle).toBeEnabled();
+    expect(toggle).not.toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("no longer shows the 'Coming soon' copy", () => {
+    render(<StatefulFullPanel />);
+    expect(screen.queryByText(/coming soon/i)).not.toBeInTheDocument();
+  });
+
+  it("defaults to off (unchecked) when bonus_first_downs is false", () => {
+    render(<StatefulFullPanel />);
+    expect(screen.getByRole("switch", { name: "First Down Bonus" })).not.toBeChecked();
+  });
+
+  it("reflects a stored bonus_first_downs of true as checked", () => {
+    render(<StatefulFullPanel initial={{ bonus_first_downs: true }} />);
+    expect(screen.getByRole("switch", { name: "First Down Bonus" })).toBeChecked();
+  });
+
+  it("enabling the toggle flows bonus_first_downs: true into settings", async () => {
+    const spy = vi.fn();
+    render(<StatefulFullPanel onChangeSpy={spy} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("switch", { name: "First Down Bonus" }));
+    const last = spy.mock.calls[spy.mock.calls.length - 1][0] as SettingsState;
+    expect(last.bonus_first_downs).toBe(true);
+  });
+
+  it("disabling the toggle flows bonus_first_downs: false into settings", async () => {
+    const spy = vi.fn();
+    render(<StatefulFullPanel initial={{ bonus_first_downs: true }} onChangeSpy={spy} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("switch", { name: "First Down Bonus" }));
+    const last = spy.mock.calls[spy.mock.calls.length - 1][0] as SettingsState;
+    expect(last.bonus_first_downs).toBe(false);
+  });
+});
+
 describe("SettingsPanel — tier count control", () => {
   it("number of tiers select renders with default value equal to league_size when tier_count absent", () => {
     render(<StatefulPanel />);
