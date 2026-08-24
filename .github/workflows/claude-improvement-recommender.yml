@@ -96,7 +96,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # Mirrors tests.yml: jsdom 30's undici 8 dep calls
+          # worker_threads.markAsUncloneable, a Node 22+ API.
+          node-version: "22"
           cache: npm
           cache-dependency-path: web/package-lock.json
       - name: Install web deps
