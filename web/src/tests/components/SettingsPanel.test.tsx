@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { SettingsPanel, TIER_COUNT_OPTIONS, LEAGUE_SIZES } from "@/components/SettingsPanel";
@@ -315,9 +315,13 @@ describe("SettingsPanel — First Down Bonus toggle (#1075)", () => {
     expect(toggle).not.toHaveAttribute("aria-disabled", "true");
   });
 
-  it("no longer shows the 'Coming soon' copy", () => {
+  it("no longer shows the 'Coming soon' copy on the First Down Bonus row", () => {
     render(<StatefulFullPanel />);
-    expect(screen.queryByText(/coming soon/i)).not.toBeInTheDocument();
+    const row = screen
+      .getByRole("switch", { name: "First Down Bonus" })
+      .closest("div");
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).queryByText(/coming soon/i)).not.toBeInTheDocument();
   });
 
   it("defaults to off (unchecked) when bonus_first_downs is false", () => {
