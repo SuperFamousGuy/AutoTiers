@@ -71,6 +71,25 @@ describe("GenerateButton", () => {
     expect(onClick).not.toHaveBeenCalled();
   });
 
+  it("uses WCAG-AA amber classes, not the failing amber-500/opacity-70 (#1054)", () => {
+    render(<GenerateButton disabled={false} isPending={false} onClick={vi.fn()} />);
+    const cls = screen.getByRole("button", { name: /generate/i }).className;
+    // Enabled/hover fills that clear 4.5:1 against white text.
+    expect(cls).toContain("bg-amber-700");
+    expect(cls).toContain("hover:bg-amber-800");
+    expect(cls).toContain("text-white");
+    // Disabled states darken the fill instead of dimming into a low-contrast blend.
+    expect(cls).toContain("disabled:bg-amber-900");
+    expect(cls).toContain("aria-disabled:bg-amber-900");
+    expect(cls).toContain("disabled:opacity-90");
+    expect(cls).toContain("aria-disabled:opacity-90");
+    // The reported failing values must be gone. twMerge drops the base
+    // disabled:opacity-50 in favor of our opacity-90, so it should not survive.
+    expect(cls).not.toContain("bg-amber-500");
+    expect(cls).not.toContain("opacity-70");
+    expect(cls).not.toContain("opacity-50");
+  });
+
   it("adds no title or description when enabled", () => {
     render(<GenerateButton disabled={false} isPending={false} onClick={vi.fn()} disabledReason={null} />);
     const button = screen.getByRole("button", { name: /generate/i });
