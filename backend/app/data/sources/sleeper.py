@@ -41,10 +41,20 @@ class SleeperFetcher:
         upserted = 0
         for sleeper_id, raw in payload.items():
             position = raw.get("position")
-            team = raw.get("team")
-            if position not in _FANTASY_POSITIONS or team is None:
+            if position not in _FANTASY_POSITIONS:
+                continue
+            # Gate on Sleeper's own ``active`` flag, NOT on ``team`` (#791).
+            # A just-released *free agent* is still ``active=True`` but has
+            # ``team=None``; treating team-null as deletion-worthy hard-deleted
+            # him (and cascaded away his PlayerStat/Projection/ADPData history)
+            # the instant he showed up unrostered, even though every public ADP
+            # board still ranks him as a discounted-but-draftable option. Only
+            # genuinely retired/inactive players carry ``active=False`` — those
+            # we still skip (and thus prune) as before.
+            if not raw.get("active", True):
                 continue
 
+            team = raw.get("team")  # None for free agents — persisted as-is.
             seen_ids.add(sleeper_id)
             existing = existing_by_id.get(sleeper_id)
             if existing is None:
@@ -70,11 +80,12 @@ class SleeperFetcher:
             existing.active = True
             upserted += 1
 
-        # Hard-delete players not in the current Sleeper response.
-        # Cascade FKs on Player.stats/projections/adp_entries clean up dependent rows.
-        # Trade-off: loses history for traded/retired players who fall off the roster,
-        # but eliminates the duplicate-identity problem with seed data and ensures
-        # the post-refresh DB reflects exactly what Sleeper currently knows about.
+        # Hard-delete players Sleeper has dropped from its player list *entirely*
+        # (id absent from the response), plus any it now marks inactive. A player
+        # who is merely unrostered (team=None but still active) stays in
+        # ``seen_ids`` above and is preserved — see #791.
+        # Cascade FKs on Player.stats/projections/adp_entries clean up dependent
+        # rows for the players we do delete.
         for pid, p in existing_by_id.items():
             if pid not in seen_ids:
                 await db.delete(p)
