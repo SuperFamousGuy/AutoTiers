@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Age &amp; Experience Curve Rules — AutoTiers</title>
+    <meta name="description" content="How AutoTiers models aging and development: position-specific over-the-hill thresholds, the bimodal quarterback aging split, and the second- and third-year breakout leaps." />
+    <link rel="canonical" href="https://auto-tiers.com/rules-aging.html" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/content.css" />
+  </head>
+  <body>
+    <div class="container">
+      <nav class="breadcrumb" aria-label="Breadcrumb">
+        <a href="https://auto-tiers.com">AutoTiers</a><span>/</span>
+        <a href="/content.html">Guides</a><span>/</span>Age &amp; experience curves
+      </nav>
+
+      <h1>Age &amp; experience curves</h1>
+      <p class="lead">
+        Every position has an arc: a climb as young players learn the pro game, a
+        plateau in the prime years, and a decline as athleticism fades. But the
+        shape of that arc is different for a running back than for a quarterback,
+        and different again for a receiver or tight end. These rules encode where
+        the climbs and the cliffs actually sit, position by position.
+      </p>
+
+      <div class="rule">
+        <h3>Over the Hill <span class="effect penalty">&minus;15%</span></h3>
+        <p>
+          <strong>Fires when</strong> a player reaches his position's decline age:
+          running backs at 28, receivers and tight ends at 31, kickers at 40.
+          Quarterbacks are handled separately (see below). Team defenses have no
+          individual age and are excluded.
+        </p>
+        <p>
+          Aging is not uniform across positions, so a single age threshold would be
+          wrong for almost everyone. Running backs, who absorb the most contact and
+          lean hardest on explosiveness, fall off earliest — 28 is the well-known
+          inflection point. Receivers and tight ends, whose games depend more on
+          route craft and size than on raw burst, hold their value years longer, so
+          their threshold sits at 31. Kickers can play accurately deep into their
+          thirties; their line is 40. When a player crosses his position's age, the
+          projection is trimmed 15%.
+        </p>
+        <h3 style="margin-top:1.2rem">The quarterback split</h3>
+        <p>
+          Quarterback aging is <strong>bimodal</strong>, so AutoTiers refuses to
+          apply one flat age to the position. Dual-threat quarterbacks lean on a
+          rushing floor that erodes as mid-twenties lower-body explosiveness fades,
+          so they decline early. Pocket passers ride arm talent and a supporting
+          cast and can sustain elite play into their late thirties and beyond. To
+          tell them apart, the rule looks at prior-season rush attempts: a
+          quarterback with 60 or more (about 3.5 a game — the point where rushing
+          stops being incidental scramble yardage and becomes a real, legs-dependent
+          part of his value) is treated as mobile and gets the earlier cliff at 31.
+          Everyone else is treated as a pocket passer and gets the later cliff at 38.
+          A quarterback whose rushing volume is unknown is assumed to be a pocket
+          passer — the conservative choice, since it is better to under-penalize an
+          unknown-mobility quarterback than to falsely age a durable pocket passer.
+        </p>
+        <p>
+          One deliberate interaction: for a running back 28 or older who also carried
+          a monster workload last year, this penalty is designed to stack with the
+          veteran band of the <a href="/rules-workload.html">370-touch rule</a>. That
+          combined haircut is intended and carefully bounded so the two penalties
+          reinforce the same aging story without double-counting it.
+        </p>
+      </div>
+
+      <div class="rule">
+        <h3>Sophomore Leap <span class="effect boost">+8%</span></h3>
+        <p>
+          <strong>Fires when</strong> a receiver or quarterback is in his second NFL
+          season (one year of experience).
+        </p>
+        <p>
+          The second-year jump is one of the most dependable development patterns in
+          football. Rookie receivers and quarterbacks are usually learning the
+          playbook, the speed of the pro game, and their place in the offense all at
+          once; year two is when the game slows down, the role expands, and the
+          production catches up to the talent. AutoTiers adds 8% to second-year
+          receivers and quarterbacks to price in the expected leap before the market
+          fully does.
+        </p>
+      </div>
+
+      <div class="rule">
+        <h3>TE Year-3 Leap <span class="effect boost">+10%</span></h3>
+        <p>
+          <strong>Fires when</strong> a tight end is in his third NFL season (two
+          years of experience).
+        </p>
+        <p>
+          Tight end is the position where breakouts come <em>late</em>. Unlike
+          receivers — whose leap peaks in year two — tight ends have to master
+          blocking assignments and the route tree at the same time, and the position
+          is notorious for taking three years to click. The pattern shows up in the
+          hit-rate data: for tight ends drafted in the first two rounds, the rate of
+          finishing as a weekly starter jumps from roughly 11% as rookies to about
+          17% in year two to about 38% in year three. This rule captures that year-3
+          surge with a 10% boost and, unlike some development rules, applies to all
+          third-year tight ends rather than only high-draft-capital ones.
+        </p>
+      </div>
+
+      <div class="related">
+        <h2>Related guides</h2>
+        <div class="cards">
+          <a class="card" href="/rules-rookies.html">
+            <span class="card-title">Rookies &amp; draft capital</span>
+            <span class="card-desc">The year-zero rules that precede these development leaps.</span>
+          </a>
+          <a class="card" href="/rules-workload.html">
+            <span class="card-title">Volume &amp; workload</span>
+            <span class="card-desc">The veteran 370-touch band that stacks with Over the Hill.</span>
+          </a>
+          <a class="card" href="/content.html">
+            <span class="card-title">All guides</span>
+            <span class="card-desc">The full content library.</span>
+          </a>
+        </div>
+      </div>
+
+      <a class="back" href="https://auto-tiers.com">← Back to AutoTiers</a>
+
+      <footer>
+        &copy; 2026 AutoTiers &mdash; <a href="https://auto-tiers.com">auto-tiers.com</a>.
+        See also our <a href="/privacy.html">Privacy Policy</a> and
+        <a href="/terms.html">Terms of Service</a>.
+      </footer>
+    </div>
+  </body>
+</html>

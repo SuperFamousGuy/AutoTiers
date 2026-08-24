@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Regression to the Mean Rules — AutoTiers</title>
+    <meta name="description" content="How AutoTiers models regression: touchdown luck, over- and under-performed opportunity, and the two-year injury bounce-back — turning last year's noise into next year's edge." />
+    <link rel="canonical" href="https://auto-tiers.com/rules-regression.html" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/content.css" />
+  </head>
+  <body>
+    <div class="container">
+      <nav class="breadcrumb" aria-label="Breadcrumb">
+        <a href="https://auto-tiers.com">AutoTiers</a><span>/</span>
+        <a href="/content.html">Guides</a><span>/</span>Regression to the mean
+      </nav>
+
+      <h1>Regression to the mean</h1>
+      <p class="lead">
+        Last season's fantasy totals are a mix of skill, role, and luck — and luck
+        does not repeat. The art of drafting well is separating the production a
+        player earned from the production that happened to bounce his way, then
+        betting on the earned part. These rules do exactly that: they look at how a
+        player's results compared to his opportunity and nudge the outliers back
+        toward what they should have been.
+      </p>
+
+      <div class="rule">
+        <h3>TD Regression <span class="effect penalty">&minus;10%</span></h3>
+        <p>
+          <strong>Fires when</strong> a player scored 3 or more touchdowns above
+          what his red-zone opportunity implied last season.
+        </p>
+        <p>
+          Touchdowns are the noisiest input in fantasy scoring. A player who turns a
+          normal red-zone workload into an abnormal number of scores had a lucky
+          year, and luck does not carry forward — the touchdowns regress toward the
+          opportunity. When a player's actual touchdowns run three or more above his
+          expected total, AutoTiers reads it as a
+          <a href="/glossary.html#td-regression">sell signal</a> and trims 10% off
+          the projection. This is one of the most reliable ways to avoid paying full
+          price for a player coming off a career-high touchdown total he is unlikely
+          to match.
+        </p>
+      </div>
+
+      <div class="rule">
+        <h3>Opportunity Over-Producer <span class="effect penalty">&minus;8%</span></h3>
+        <p>
+          <strong>Fires when</strong> a player's production ran 1.5+ standard
+          deviations above his <a href="/glossary.html#opportunity-score">opportunity
+          score</a> — his targets, carries, and red-zone looks.
+        </p>
+        <p>
+          Where TD regression looks only at touchdowns, this rule looks at the whole
+          picture. A player who scored well beyond what his total usage justified —
+          more than 1.5 standard deviations above expectation — outran his
+          opportunity on efficiency that tends not to hold. Efficiency is far less
+          repeatable than volume, so an over-producer is a prime regression
+          candidate, and AutoTiers applies an 8% penalty. Think of it as fading the
+          player who "did more with less" last year, because "less" is usually what
+          the role actually supports.
+        </p>
+      </div>
+
+      <div class="rule">
+        <h3>Opportunity Under-Producer <span class="effect boost">+8%</span></h3>
+        <p>
+          <strong>Fires when</strong> a player's production ran 1.5+ standard
+          deviations <em>below</em> his opportunity score.
+        </p>
+        <p>
+          Regression cuts both ways. A player handed a big role who still failed to
+          produce — 1.5 standard deviations below what his usage implied — was
+          usually unlucky, not untalented: touchdowns that went to a teammate, drops,
+          a stretch of bad game scripts. The opportunity is real and sticky; the
+          poor conversion is not. AutoTiers rewards these positive-regression
+          candidates with an 8% boost. These are the buy-low players the market often
+          writes off after a disappointing box-score season without noticing the role
+          underneath is intact.
+        </p>
+      </div>
+
+      <div class="rule">
+        <h3>Year After the Year After <span class="effect boost">+10%</span></h3>
+        <p>
+          <strong>Fires when</strong> a skill player is two seasons removed from an
+          injury-shortened year (under 12 games), having returned to health in the
+          season between.
+        </p>
+        <p>
+          Fantasy managers reliably overreact to a lost season and then <em>underreact</em>
+          to the recovery. Soft-tissue and major-joint injuries often take a full
+          year to truly heal: the season immediately after an injury is frequently a
+          tentative, rusty one, and it is the <em>second</em> year back — the "year
+          after the year after" — when a player is finally all the way healthy and
+          the athleticism returns. By then the market has often moved on, leaving a
+          value gap. AutoTiers adds 10% to skill players in that second-year-back
+          window to capture it.
+        </p>
+      </div>
+
+      <div class="related">
+        <h2>Related guides</h2>
+        <div class="cards">
+          <a class="card" href="/rules-opportunity.html">
+            <span class="card-title">Opportunity &amp; usage</span>
+            <span class="card-desc">The volume signals these regression rules compare against.</span>
+          </a>
+          <a class="card" href="/rules-data.html">
+            <span class="card-title">Data confidence &amp; availability</span>
+            <span class="card-desc">How injury history is handled in the season it happens.</span>
+          </a>
+          <a class="card" href="/content.html">
+            <span class="card-title">All guides</span>
+            <span class="card-desc">The full content library.</span>
+          </a>
+        </div>
+      </div>
+
+      <a class="back" href="https://auto-tiers.com">← Back to AutoTiers</a>
+
+      <footer>
+        &copy; 2026 AutoTiers &mdash; <a href="https://auto-tiers.com">auto-tiers.com</a>.
+        See also our <a href="/privacy.html">Privacy Policy</a> and
+        <a href="/terms.html">Terms of Service</a>.
+      </footer>
+    </div>
+  </body>
+</html>

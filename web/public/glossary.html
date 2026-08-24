@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fantasy Football Glossary — AutoTiers</title>
+    <meta name="description" content="Plain-English definitions of the fantasy football and modeling terms AutoTiers uses: VBD, replacement level, target share, snap share, Jenks natural breaks, superflex, ADP, and more." />
+    <link rel="canonical" href="https://auto-tiers.com/glossary.html" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/content.css" />
+  </head>
+  <body>
+    <div class="container">
+      <nav class="breadcrumb" aria-label="Breadcrumb">
+        <a href="https://auto-tiers.com">AutoTiers</a><span>/</span>
+        <a href="/content.html">Guides</a><span>/</span>Glossary
+      </nav>
+
+      <h1>Glossary</h1>
+      <p class="lead">
+        The vocabulary AutoTiers uses, defined the way we actually mean it. Some
+        of these are league-wide fantasy terms; others are specific to how our
+        engine turns projections into tiers. Where a term drives a scoring rule,
+        we link the guide that explains it in depth.
+      </p>
+
+      <dl>
+        <dt id="vbd">VBD (value-based drafting)</dt>
+        <dd>
+          A method for comparing players <em>across</em> positions on a single
+          scale. Instead of asking "how many points will this player score?",
+          VBD asks "how many points does this player score <em>above the player
+          you could get for free at the same position</em>?" A quarterback who
+          scores 300 points is not necessarily more valuable than a running back
+          who scores 220, because good quarterbacks are plentiful and good
+          running backs are scarce. VBD makes that scarcity explicit by
+          subtracting a position-specific baseline — the
+          <a href="#replacement-level">replacement level</a> — from every
+          player's projected score. The remainder is the number AutoTiers
+          actually ranks and clusters on.
+        </dd>
+
+        <dt id="replacement-level">Replacement level</dt>
+        <dd>
+          The projected output of the <em>last startable player</em> at a
+          position — the quality you can expect to find on waivers or with a late
+          pick, essentially for free. AutoTiers sets it per position by
+          multiplying your league size by a position factor and reading the
+          player at that rank: running backs and receivers anchor at
+          <code>2.5 &times; league_size</code> (about RB30 / WR30 in a 12-team
+          league, reflecting how many start across flex spots), tight ends at
+          <code>1.25 &times;</code>, and single-QB leagues at
+          <code>0.67 &times;</code> (about QB8 — the last quarterback you can
+          reliably stream, not QB12). In <a href="#superflex">superflex</a>
+          leagues the quarterback baseline drops much deeper. That player's
+          score is the zero point; everyone else is measured against it. See the
+          <a href="/methodology.html">methodology page</a> for the full table.
+        </dd>
+
+        <dt id="adjusted-score">Adjusted score</dt>
+        <dd>
+          A player's blended projection <em>after</em> every enabled rule has
+          been applied. AutoTiers starts from a weighted blend of last season's
+          production and current consensus projections, discounts the prior-year
+          term if the player missed games, then multiplies in each rule's effect.
+          The adjusted score is what feeds VBD and, ultimately, the tiers.
+        </dd>
+
+        <dt id="target-share">Target share</dt>
+        <dd>
+          The percentage of a team's total pass targets that go to one player. A
+          25%+ target share is elite — roughly one of every four throws — and is
+          one of the stickiest, most predictive signals a receiver or pass-catching
+          back carries from year to year, because it reflects a role the offense
+          has chosen to build around them. It drives the
+          <a href="/rules-opportunity.html">Target Share Premium</a> rule.
+        </dd>
+
+        <dt id="carry-share">Carry share</dt>
+        <dd>
+          The percentage of a team's running-back carries that go to one back. It
+          separates a true lead back from a member of a committee. Under 50% flags
+          a committee (a penalty); under 30% flags a pure handcuff or change-of-pace
+          back. See <a href="/rules-workload.html">volume &amp; workload</a>.
+        </dd>
+
+        <dt id="snap-share">Snap share (snap %)</dt>
+        <dd>
+          The percentage of his team's offensive plays a player was on the field
+          for. It is the broadest measure of a player's role: you cannot produce
+          on plays you watch from the sideline. A snap share falling under 55%
+          usually signals a shrinking role, which AutoTiers can penalize.
+        </dd>
+
+        <dt id="red-zone-looks">Red-zone looks</dt>
+        <dd>
+          Carries plus targets inside the opponent's 20-yard line — the touches
+          most likely to become touchdowns. Because touchdowns are worth six
+          points and are hard to project directly, red-zone <em>opportunity</em>
+          is a more stable leading indicator than red-zone <em>scoring</em>. A
+          heavy red-zone role (25+ looks in a season) earns a boost; see
+          <a href="/rules-opportunity.html">opportunity &amp; usage</a>.
+        </dd>
+
+        <dt id="opportunity-score">Opportunity score</dt>
+        <dd>
+          A composite of a player's targets, carries, and red-zone looks that
+          estimates how many fantasy points their <em>usage</em> should have
+          produced, independent of whether the ball actually bounced their way.
+          Comparing real production against opportunity is how AutoTiers spots
+          <a href="/rules-regression.html">regression candidates</a> in both
+          directions.
+        </dd>
+
+        <dt id="td-regression">Touchdown regression</dt>
+        <dd>
+          The tendency of touchdown totals to drift back toward what a player's
+          opportunity implies. Touchdowns are famously noisy: a player who scores
+          three or more times above what his red-zone volume predicts is unlikely
+          to repeat it, and AutoTiers treats that as a
+          <a href="/rules-regression.html">sell signal</a>.
+        </dd>
+
+        <dt id="jenks">Jenks natural breaks</dt>
+        <dd>
+          A one-dimensional clustering algorithm that finds the "natural" gaps in
+          a set of numbers — the cut points that group similar values together
+          and put the biggest jumps <em>between</em> groups. AutoTiers uses it to
+          draw tiers, because the whole point of a tier is that the players inside
+          it are interchangeable and the drop to the next tier is real. We use
+          Jenks up to 11 tiers; above that the score distribution is smooth enough
+          that equal-size <a href="#quantile">quantile</a> splits are more honest
+          than letting Jenks chase noise.
+        </dd>
+
+        <dt id="quantile">Quantile splits</dt>
+        <dd>
+          Dividing ranked players into equal-size groups (e.g. twelve tiers of
+          equal count). AutoTiers falls back to quantiles when you ask for a large
+          number of tiers, where genuine value cliffs are too small for Jenks to
+          separate from random variation.
+        </dd>
+
+        <dt id="superflex">Superflex</dt>
+        <dd>
+          A league format with a flex spot that can start a quarterback, so most
+          teams start two. This roughly doubles quarterback demand and pushes the
+          <a href="#replacement-level">replacement-level</a> quarterback far deeper
+          (to about QB18 in a 12-team league), which sharply raises what elite
+          quarterbacks are worth in <a href="#vbd">VBD</a> terms. AutoTiers adjusts
+          the quarterback baseline automatically when you set two QB starters.
+        </dd>
+
+        <dt id="adp">ADP (average draft position)</dt>
+        <dd>
+          Where a player is being drafted on average across public leagues. ADP is
+          a measure of <em>market opinion</em>, not projected value, so AutoTiers
+          never feeds it into a player's score. It is used only as a
+          <strong>tiebreaker</strong> for ordering players who land in the same
+          tier. The <a href="/faq.html">FAQ</a> explains why.
+        </dd>
+
+        <dt id="ppr">PPR / half-PPR / standard</dt>
+        <dd>
+          Scoring formats that award one point (PPR), half a point (half-PPR), or
+          zero points (standard) per reception. The choice reshapes the entire
+          board: full PPR lifts high-volume receivers and pass-catching backs,
+          while standard scoring rewards touchdown-dependent runners. AutoTiers
+          re-scores every player for the format you pick.
+        </dd>
+
+        <dt id="games-discount">Prior-year games discount</dt>
+        <dd>
+          A weighting that keeps a partial prior season from dragging a player
+          down unfairly. Last year's <em>point total</em> silently bakes in zeros
+          for missed games, so AutoTiers scales the prior-year term by games
+          played, reaching full weight around a 14-game season. An injured star's
+          four healthy games no longer read as a full, terrible year.
+        </dd>
+      </dl>
+
+      <div class="related">
+        <h2>Related guides</h2>
+        <div class="cards">
+          <a class="card" href="/methodology.html">
+            <span class="card-title">How AutoTiers works</span>
+            <span class="card-desc">The end-to-end pipeline these terms describe.</span>
+          </a>
+          <a class="card" href="/faq.html">
+            <span class="card-title">FAQ</span>
+            <span class="card-desc">Scoring formats, superflex, and the ADP question.</span>
+          </a>
+          <a class="card" href="/content.html">
+            <span class="card-title">All guides</span>
+            <span class="card-desc">The full content library.</span>
+          </a>
+        </div>
+      </div>
+
+      <a class="back" href="https://auto-tiers.com">← Back to AutoTiers</a>
+
+      <footer>
+        &copy; 2026 AutoTiers &mdash; <a href="https://auto-tiers.com">auto-tiers.com</a>.
+        See also our <a href="/privacy.html">Privacy Policy</a> and
+        <a href="/terms.html">Terms of Service</a>.
+      </footer>
+    </div>
+  </body>
+</html>

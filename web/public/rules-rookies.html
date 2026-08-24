@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rookies &amp; Draft Capital Rules — AutoTiers</title>
+    <meta name="description" content="Why draft capital is the best public predictor of rookie fantasy production, and how AutoTiers boosts early-round rookie running backs and receivers — with a deliberately smaller boost for the noisier WR position." />
+    <link rel="canonical" href="https://auto-tiers.com/rules-rookies.html" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/content.css" />
+  </head>
+  <body>
+    <div class="container">
+      <nav class="breadcrumb" aria-label="Breadcrumb">
+        <a href="https://auto-tiers.com">AutoTiers</a><span>/</span>
+        <a href="/content.html">Guides</a><span>/</span>Rookies &amp; draft capital
+      </nav>
+
+      <h1>Rookies &amp; draft capital</h1>
+      <p class="lead">
+        Rookies are the hardest players to project, because they have no NFL usage
+        history to anchor on. With no player-specific track record, the most
+        predictive public signal available is <strong>draft capital</strong> —
+        where the NFL itself chose to draft the player. A team that spends an
+        early pick has told you, in the most expensive way possible, that it plans
+        to give that player opportunity. These two rules turn that signal into a
+        boost, calibrated to how reliably it holds at each position.
+      </p>
+
+      <p>
+        Both rules share the same logic. A team that invests premium capital in a
+        player is committing to feed him — early-round backs inherit early-down and
+        goal-line work, early-round receivers get run as route-runners and target
+        earners — precisely to justify the pick. Draft capital is the market's
+        aggregated pre-draft evaluation of talent <em>and</em> the best available
+        proxy for the opportunity the player will actually receive. Crucially, both
+        rules gate on the first two rounds only; day-three and undrafted players are
+        treated as speculative and get no boost. A player whose draft round is
+        unknown also gets nothing — the safe default, so an unmatched draft record
+        never hands out a boost by accident.
+      </p>
+
+      <div class="rule">
+        <h3>Rookie RB Draft Capital <span class="effect boost">+8%</span></h3>
+        <p>
+          <strong>Fires when</strong> a running back is in his first NFL season and
+          was drafted in round 1 or 2.
+        </p>
+        <p>
+          Running back is the position where draft capital predicts rookie success
+          most cleanly. Backs taken in the first two rounds convert to
+          fantasy-relevant rookie seasons at a materially higher rate than
+          later-round backs, who hit only sporadically. The reason is structural:
+          early-round backs walk into defined, high-volume roles, and volume is what
+          drives running-back scoring. AutoTiers adds 8% — the same magnitude as the
+          <a href="/rules-aging.html">Sophomore Leap</a> — a deliberately modest
+          number, because draft capital predicts a higher <em>hit rate</em>, not a
+          guaranteed outcome, and the projections already carry some rookie hype that
+          a larger boost would double-count.
+        </p>
+      </div>
+
+      <div class="rule">
+        <h3>Rookie WR Draft Capital <span class="effect boost">+5%</span></h3>
+        <p>
+          <strong>Fires when</strong> a receiver is in his first NFL season and was
+          drafted in round 1 or 2.
+        </p>
+        <p>
+          The same signal applies to receivers — but it is noisier, and the boost is
+          deliberately smaller. Receiver outcomes depend on quarterback play, target
+          competition, and a longer route-running development curve, so even premium
+          capital converts to a productive rookie year less reliably than it does for
+          backs, who inherit volume more directly. That is why this rule is set at
+          +5% rather than the running back's +8%. The gap is intentional and
+          load-bearing: setting the two equal would over-credit rookie receivers
+          relative to what the evidence supports. Together with the
+          <a href="/rules-aging.html">Sophomore Leap</a>, which covers year two, this
+          rule fills the year-zero window for receivers.
+        </p>
+      </div>
+
+      <p>
+        A note on evidence: the direction of both rules — early draft capital means a
+        higher rookie hit rate — is fantasy-analysis consensus, well supported across
+        recent rookie-class studies. The exact round cutoff and the specific boost
+        sizes are calibration choices weighed against the rest of the rule stack, not
+        precise measured effects, and they are the sort of thing that gets revisited
+        as more live seasons of feedback come in.
+      </p>
+
+      <div class="related">
+        <h2>Related guides</h2>
+        <div class="cards">
+          <a class="card" href="/rules-aging.html">
+            <span class="card-title">Age &amp; experience curves</span>
+            <span class="card-desc">The second- and third-year leaps that follow the rookie season.</span>
+          </a>
+          <a class="card" href="/rules-situation.html">
+            <span class="card-title">Team &amp; contract situation</span>
+            <span class="card-desc">Following the money — the same opportunity logic applied to contracts.</span>
+          </a>
+          <a class="card" href="/content.html">
+            <span class="card-title">All guides</span>
+            <span class="card-desc">The full content library.</span>
+          </a>
+        </div>
+      </div>
+
+      <a class="back" href="https://auto-tiers.com">← Back to AutoTiers</a>
+
+      <footer>
+        &copy; 2026 AutoTiers &mdash; <a href="https://auto-tiers.com">auto-tiers.com</a>.
+        See also our <a href="/privacy.html">Privacy Policy</a> and
+        <a href="/terms.html">Terms of Service</a>.
+      </footer>
+    </div>
+  </body>
+</html>
