@@ -55,7 +55,7 @@
     "tailwindcss": "^4.3.1",
     "typescript": "^7.0.2",
     "vite": "^8.2.1",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   },
   "overrides": {
     "@radix-ui/react-focus-scope": "1.1.10",
