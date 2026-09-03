@@ -223,11 +223,12 @@ jobs:
       # Lightweight toolchain — ONLY so the resolve-merge-conflicts skill can
       # regenerate a conflicted lockfile (rm package-lock.json && npm install).
       # We deliberately do NOT install full deps and do NOT run tests (the fix-
-      # checks sweeper owns post-merge breakage). Versions match tests.yml.
+      # checks sweeper owns post-merge breakage). Versions match tests.yml:
+      # jsdom 30's undici 8 dep needs worker_threads.markAsUncloneable (Node 22+).
       - uses: actions/setup-node@v4
         if: steps.budget.outputs.has_budget == 'true'
         with:
-          node-version: "20"
+          node-version: "22"
       - uses: actions/setup-python@v5
         if: steps.budget.outputs.has_budget == 'true'
         with:
