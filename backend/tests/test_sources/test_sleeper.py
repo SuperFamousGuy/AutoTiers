@@ -326,6 +326,13 @@ async def test_sleeper_sanity_floor_blocks_mass_delete_on_degraded_payload(test_
     assert await test_db.scalar(select(Projection).where(Projection.player_id == "seed_0")) is not None
     assert await test_db.scalar(select(ADPData).where(ADPData.player_id == "seed_0")) is not None
 
+    # The trip is a true no-op, not just delete-suppression: the degraded payload
+    # carried seed_0/1/2 as active players, so a partial write would have
+    # overwritten seed_0's name to the payload's "Player seed_0". The savepoint
+    # rollback must revert that staged upsert, leaving the seeded value intact.
+    seed_0 = await test_db.scalar(select(Player).where(Player.id == "seed_0"))
+    assert seed_0.name == "Seed seed_0"
+
 
 @pytest.mark.asyncio
 async def test_sleeper_full_payload_still_prunes_orphans_above_floor(test_db):
