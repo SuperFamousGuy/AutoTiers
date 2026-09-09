@@ -273,6 +273,85 @@ async def test_sleeper_skips_non_fantasy_positions(test_db):
     assert ids == {"4017"}, f"non-fantasy positions leaked into the DB: {ids - {'4017'}}"
 
 
+def _bulk_active_payload(ids):
+    """A healthy-shaped Sleeper feed: one active fantasy player per id."""
+    return {
+        pid: {
+            "player_id": pid, "full_name": f"Player {pid}", "position": "QB",
+            "team": "BUF", "active": True,
+        }
+        for pid in ids
+    }
+
+
+@pytest.mark.asyncio
+async def test_sleeper_sanity_floor_blocks_mass_delete_on_degraded_payload(test_db):
+    """A valid 200 carrying only a handful of players must NOT wipe a populated
+    table. The floor skips the delete, keeps every row (and its dependents), and
+    reports failure rather than a silently-accepted success (#1203)."""
+    from app.models import PlayerStat, Projection, ADPData
+    from datetime import date
+
+    # Seed a baseline of hundreds of players (well above the 500 floor).
+    seeded_ids = [f"seed_{i}" for i in range(600)]
+    for pid in seeded_ids:
+        test_db.add(Player(id=pid, name=f"Seed {pid}", position="QB", team="BUF", active=True))
+    # Dependent rows that a hard-delete cascade would destroy.
+    test_db.add(PlayerStat(player_id="seed_0", season=2025, pass_yards=4000))
+    test_db.add(Projection(
+        player_id="seed_0", source="espn", scoring_format="ppr",
+        projected_points=300.0, last_updated=date.today(),
+    ))
+    test_db.add(ADPData(
+        player_id="seed_0", format="ppr", adp=12.0,
+        adp_source="fantasypros", last_updated=date.today(),
+    ))
+    await test_db.commit()
+
+    # Degraded response: only three active players survive the filter.
+    degraded = _bulk_active_payload(["seed_0", "seed_1", "seed_2"])
+    with respx.mock(base_url="https://api.sleeper.app") as router:
+        router.get("/v1/players/nfl").mock(return_value=Response(200, json=degraded))
+        result = await SleeperFetcher().fetch(test_db)
+
+    # Fetch is reported as a (retryable) failure, not success.
+    assert result.success is False
+    assert result.rows_upserted == 0
+    assert "sanity floor" in (result.error or "")
+
+    # Nothing was deleted — the whole table (and its dependents) survives.
+    remaining = (await test_db.scalars(select(Player))).all()
+    assert len(remaining) == 600
+    assert await test_db.scalar(select(PlayerStat).where(PlayerStat.player_id == "seed_0")) is not None
+    assert await test_db.scalar(select(Projection).where(Projection.player_id == "seed_0")) is not None
+    assert await test_db.scalar(select(ADPData).where(ADPData.player_id == "seed_0")) is not None
+
+
+@pytest.mark.asyncio
+async def test_sleeper_full_payload_still_prunes_orphans_above_floor(test_db):
+    """Regression guard for the floor: a healthy, full-sized payload against a
+    large table still hard-deletes true orphans — the floor is bypassed, not a
+    blanket ban on deletion (#1203)."""
+    live_ids = [f"p_{i}" for i in range(600)]
+    for pid in live_ids:
+        test_db.add(Player(id=pid, name=f"Live {pid}", position="QB", team="BUF", active=True))
+    # A genuine orphan absent from the incoming payload.
+    test_db.add(Player(id="ghost_big", name="Old Guy", position="WR", team="DEN", active=True))
+    await test_db.commit()
+
+    payload = _bulk_active_payload(live_ids)  # 600 players — clears the floor.
+    with respx.mock(base_url="https://api.sleeper.app") as router:
+        router.get("/v1/players/nfl").mock(return_value=Response(200, json=payload))
+        result = await SleeperFetcher().fetch(test_db)
+
+    assert result.success is True
+    assert result.rows_upserted == 600
+    # The orphan is pruned; the live players remain.
+    assert await test_db.scalar(select(Player).where(Player.id == "ghost_big")) is None
+    assert await test_db.scalar(select(Player).where(Player.id == "p_0")) is not None
+    assert len((await test_db.scalars(select(Player))).all()) == 600
+
+
 @pytest.mark.asyncio
 async def test_sleeper_handles_http_error(test_db):
     with respx.mock(base_url="https://api.sleeper.app") as router:

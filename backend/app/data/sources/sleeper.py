@@ -1,6 +1,7 @@
 """Sleeper API fetcher — the master player list."""
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import ClassVar
 
@@ -12,8 +13,43 @@ from app.data.sources.base import SourceResult
 from app.models import Player
 
 
+logger = logging.getLogger(__name__)
+
 _FANTASY_POSITIONS = {"QB", "RB", "WR", "TE", "K", "DST", "DEF"}
 _POSITION_NORMALIZE = {"DEF": "DST"}
+
+# --- Orphan-delete sanity floor (#1203) ---
+#
+# ``fetch`` hard-deletes every existing Player whose id is absent from the
+# current Sleeper response, cascading via FK to PlayerStat/Projection/ADPData.
+# The only pre-existing guard is ``resp.raise_for_status()``, which catches
+# non-2xx and JSON-parse failures only. A valid HTTP 200 that nonetheless
+# carries a degraded payload — transient Sleeper degradation, a field rename
+# that filters every row out, an empty ``{}`` body, a truncated/paginated
+# response, or a CDN serving a stale cached error page as JSON — would leave
+# ``seen_ids`` near-empty and delete essentially the whole player table (plus
+# all dependent stat/projection/ADP rows) while still returning ``success=True``.
+# Because Sleeper runs first in ``DataFetcher.refresh_all``, that also poisons
+# the subsequent nfl_data/fantasypros/cbs matches for the cycle.
+#
+# Guard: once we already hold a substantial table (>= ``_ABSOLUTE_FLOOR`` rows),
+# refuse to run the delete when the number of players we would *retain* is
+# anomalously low relative to what we have — i.e. when
+# ``len(seen_ids) < max(_ABSOLUTE_FLOOR, existing_count * _RETAIN_FRACTION)``.
+# A healthy Sleeper feed yields many hundreds of active fantasy-relevant players,
+# so a retained set below 500 (or below half the current table) is treated as a
+# failed refresh: we discard the pending upserts, keep every existing row, log a
+# warning, and return ``success=False`` so the cycle is retried rather than
+# silently accepted as good.
+#
+# The floor deliberately does NOT engage while the table is small
+# (< ``_ABSOLUTE_FLOOR``): a fresh/bootstrapping DB legitimately holds few rows
+# and has no large table to protect, so the normal orphan-delete runs. The
+# trade-off is that a real table sized right at the floor that legitimately loses
+# a player or two registers a (retryable, non-destructive) soft failure — an
+# acceptable price given the severity of wiping the entire table.
+_ABSOLUTE_FLOOR = 500
+_RETAIN_FRACTION = 0.5
 
 
 class SleeperFetcher:
@@ -79,6 +115,29 @@ class SleeperFetcher:
                 existing.espn_id = str(raw["espn_id"])
             existing.active = True
             upserted += 1
+
+        # Sanity floor before the destructive delete loop (#1203). Skip the
+        # delete entirely — and fail the refresh — when a populated table would
+        # be gutted by an anomalously small retained set (a degraded-but-200
+        # payload). See the module-level constants for the threshold rationale.
+        existing_count = len(existing_by_id)
+        if existing_count >= _ABSOLUTE_FLOOR:
+            sanity_floor = max(_ABSOLUTE_FLOOR, int(existing_count * _RETAIN_FRACTION))
+            if len(seen_ids) < sanity_floor:
+                # Discard the pending upserts too: a degraded payload must be a
+                # no-op failed refresh, not a partial write. rollback() returns
+                # the shared session to its pre-fetch state so refresh_all's
+                # status bookkeeping can still commit around it.
+                await db.rollback()
+                msg = (
+                    f"sanity floor tripped: payload would retain only "
+                    f"{len(seen_ids)} of {existing_count} existing players "
+                    f"(floor={sanity_floor}); skipping orphan delete and failing "
+                    f"the refresh to avoid wiping the player table"
+                )
+                logger.warning("sleeper: %s", msg)
+                return SourceResult(source=self.name, rows_upserted=0,
+                                    last_attempted=attempted, success=False, error=msg)
 
         # Hard-delete players Sleeper has dropped from its player list *entirely*
         # (id absent from the response), plus any it now marks inactive. A player
