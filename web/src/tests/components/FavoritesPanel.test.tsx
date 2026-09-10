@@ -285,6 +285,40 @@ describe("FavoritesPanel", () => {
     expect(addButton).toBeDisabled();
   });
 
+  it("cap-reached warnings use WCAG-AA amber classes in both themes (#1054)", () => {
+    const tooManyPlayers = Array.from({ length: 20 }, (_, i) => `p${i}`);
+    render(
+      <FavoritesPanel
+        favoritePlayerIds={tooManyPlayers}
+        favoriteTeams={["KC", "BUF", "PHI", "SF"]}
+        onTogglePlayer={vi.fn()}
+        onToggleTeam={vi.fn()}
+        searchPlayers={vi.fn(async () => [])}
+        batchPlayers={defaultBatch}
+      />
+    );
+    // Count badges (amber-600 failed light mode) and "Limit reached" copy
+    // (amber-700 failed the default dark mode) both move to a mode-aware pair
+    // that clears 4.5:1 in each theme.
+    const playerCount = screen.getByText("20 / 20");
+    expect(playerCount.className).toContain("text-amber-800");
+    expect(playerCount.className).toContain("dark:text-amber-500");
+    const teamCount = screen.getByText("4 / 4");
+    expect(teamCount.className).toContain("text-amber-800");
+    expect(teamCount.className).toContain("dark:text-amber-500");
+    const playerLimit = screen.getByText(/limit reached \(20 players\)/i);
+    expect(playerLimit.className).toContain("text-amber-800");
+    expect(playerLimit.className).toContain("dark:text-amber-500");
+    const teamLimit = screen.getByText(/limit reached \(4 teams\)/i);
+    expect(teamLimit.className).toContain("text-amber-800");
+    expect(teamLimit.className).toContain("dark:text-amber-500");
+    // The reported failing shades must be gone.
+    for (const el of [playerCount, teamCount, playerLimit, teamLimit]) {
+      expect(el.className).not.toMatch(/(?<!dark:)text-amber-600\b/);
+      expect(el.className).not.toMatch(/(?<!dark:)text-amber-700\b/);
+    }
+  });
+
   it("team grid renders 32 teams with full-name aria-labels grouped by conference and division", () => {
     render(
       <FavoritesPanel
