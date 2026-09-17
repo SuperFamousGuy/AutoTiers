@@ -28,7 +28,7 @@ dependencies = [
     "argon2-cffi>=25.1.0",
     "pyjwt>=2.13.0",
     "cryptography>=50.0.1",
-    "aiobotocore[boto3]>=3.9.0",
+    "aiobotocore[boto3]>=3.9.1",
 ]
 
 [project.optional-dependencies]
