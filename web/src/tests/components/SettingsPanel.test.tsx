@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { SettingsPanel, TIER_COUNT_OPTIONS, LEAGUE_SIZES } from "@/components/SettingsPanel";
@@ -304,6 +304,52 @@ describe("SettingsPanel — Superflex / 2-QB toggle (#724)", () => {
     await user.click(screen.getByRole("switch", { name: "Superflex / 2-QB league" }));
     const last = spy.mock.calls[spy.mock.calls.length - 1][0] as SettingsState;
     expect(last.qb_starters).toBe(1);
+  });
+});
+
+describe("SettingsPanel — First Down Bonus toggle (#1075)", () => {
+  it("renders the switch enabled and interactive (not disabled)", () => {
+    render(<StatefulFullPanel />);
+    const toggle = screen.getByRole("switch", { name: "First Down Bonus" });
+    expect(toggle).toBeEnabled();
+    expect(toggle).not.toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("no longer shows the 'Coming soon' copy on the First Down Bonus row", () => {
+    render(<StatefulFullPanel />);
+    const row = screen
+      .getByRole("switch", { name: "First Down Bonus" })
+      .closest("div");
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).queryByText(/coming soon/i)).not.toBeInTheDocument();
+  });
+
+  it("defaults to off (unchecked) when bonus_first_downs is false", () => {
+    render(<StatefulFullPanel />);
+    expect(screen.getByRole("switch", { name: "First Down Bonus" })).not.toBeChecked();
+  });
+
+  it("reflects a stored bonus_first_downs of true as checked", () => {
+    render(<StatefulFullPanel initial={{ bonus_first_downs: true }} />);
+    expect(screen.getByRole("switch", { name: "First Down Bonus" })).toBeChecked();
+  });
+
+  it("enabling the toggle flows bonus_first_downs: true into settings", async () => {
+    const spy = vi.fn();
+    render(<StatefulFullPanel onChangeSpy={spy} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("switch", { name: "First Down Bonus" }));
+    const last = spy.mock.calls[spy.mock.calls.length - 1][0] as SettingsState;
+    expect(last.bonus_first_downs).toBe(true);
+  });
+
+  it("disabling the toggle flows bonus_first_downs: false into settings", async () => {
+    const spy = vi.fn();
+    render(<StatefulFullPanel initial={{ bonus_first_downs: true }} onChangeSpy={spy} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("switch", { name: "First Down Bonus" }));
+    const last = spy.mock.calls[spy.mock.calls.length - 1][0] as SettingsState;
+    expect(last.bonus_first_downs).toBe(false);
   });
 });
 
