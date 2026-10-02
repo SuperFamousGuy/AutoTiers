@@ -97,7 +97,7 @@ export function FavoritesPanel({
       <section data-testid="player-favorites" data-batchloading={String(batchLoading)}>
         <header className="flex items-center justify-between mb-2">
           <h3 className="font-medium">Favorite Players</h3>
-          <span className={`text-xs ${playersAtCap ? "text-amber-600" : "text-muted-foreground"}`}>
+          <span className={`text-xs ${playersAtCap ? "text-amber-800 dark:text-amber-500" : "text-muted-foreground"}`}>
             {favoritePlayerIds.length} / {PLAYER_CAP}
           </span>
         </header>
@@ -165,7 +165,7 @@ export function FavoritesPanel({
           aria-label="Search players"
         />
         {playersAtCap && (
-          <p className="text-xs text-amber-700 mt-1">
+          <p className="text-xs text-amber-800 dark:text-amber-500 mt-1">
             Limit reached ({PLAYER_CAP} players). Remove one to add another.
           </p>
         )}
@@ -198,12 +198,12 @@ export function FavoritesPanel({
       <section>
         <header className="flex items-center justify-between mb-2">
           <h3 className="font-medium">Favorite Teams</h3>
-          <span className={`text-xs ${teamsAtCap ? "text-amber-600" : "text-muted-foreground"}`}>
+          <span className={`text-xs ${teamsAtCap ? "text-amber-800 dark:text-amber-500" : "text-muted-foreground"}`}>
             {favoriteTeams.length} / {TEAM_CAP}
           </span>
         </header>
         {teamsAtCap && (
-          <p className="text-xs text-amber-700 mb-1">
+          <p className="text-xs text-amber-800 dark:text-amber-500 mb-1">
             Limit reached ({TEAM_CAP} teams). Remove one to add another.
           </p>
         )}
