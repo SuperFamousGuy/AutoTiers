@@ -233,6 +233,7 @@ export function SettingsPanel({ value, onChange }: SettingsPanelProps) {
         {([
           ["bonus_100yd_rushing", "100-yd Rushing"],
           ["bonus_100yd_receiving", "100-yd Receiving"],
+          ["bonus_first_downs", "First Down Bonus"],
         ] as const).map(([key, label]) => (
           <div key={key} className="flex items-center justify-between">
             <Label htmlFor={key} className="cursor-pointer">{label}</Label>
@@ -243,18 +244,6 @@ export function SettingsPanel({ value, onChange }: SettingsPanelProps) {
             />
           </div>
         ))}
-        <div className="flex items-center justify-between opacity-50">
-          <div className="space-y-0.5">
-            <Label htmlFor="bonus_first_downs" className="cursor-not-allowed">First Down Bonus</Label>
-            <p className="text-xs text-muted-foreground">Coming soon</p>
-          </div>
-          <Switch
-            id="bonus_first_downs"
-            checked={value.bonus_first_downs}
-            disabled
-            aria-disabled="true"
-          />
-        </div>
       </div>
 
       <div className="space-y-2">
