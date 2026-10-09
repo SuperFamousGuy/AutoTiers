@@ -41,7 +41,21 @@ export function GenerateButton({ disabled, isPending, onClick, disabledReason }:
         title={showReason ? disabledReason : undefined}
         aria-describedby={showReason ? reasonId : undefined}
         size="default"
-        className="bg-amber-500 hover:bg-amber-600 text-white border-0 disabled:opacity-70 aria-disabled:opacity-70 aria-disabled:cursor-not-allowed lg:h-11 lg:px-8 lg:text-base"
+        // WCAG AA text contrast (#1054). White on amber-500 was ~2.2:1; amber-700
+        // clears 4.5:1 (≈5.0), amber-800 on hover clears it further. The disabled
+        // states can't rely on a big opacity dim: blending white text + amber toward
+        // the page background collapses contrast below 4.5:1 at any amber shade, so
+        // instead of `opacity-70` we darken to amber-900 (white ≈9:1 solid) and dim
+        // only to opacity-90 — that keeps ≥4.5:1 in light mode (dark mode only raises
+        // it, since the blend goes darker) across the aria-disabled (precondition) and
+        // native disabled (pending) states. cn()/twMerge lets these override the
+        // Button base's `disabled:opacity-50`.
+        // The aria-disabled path stays hoverable (native `disabled` would suppress
+        // hover), so pin its hover fill to amber-900 too — otherwise `hover:bg-amber-800`
+        // and `aria-disabled:bg-amber-900` both apply and the winner would depend on
+        // Tailwind variant ordering, risking a lighter fill (below 4.5:1) and a
+        // misleading hover affordance on a disabled control.
+        className="bg-amber-700 hover:bg-amber-800 text-white border-0 disabled:bg-amber-900 disabled:opacity-90 aria-disabled:bg-amber-900 aria-disabled:hover:bg-amber-900 aria-disabled:opacity-90 aria-disabled:cursor-not-allowed lg:h-11 lg:px-8 lg:text-base"
       >
         {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
         Generate
