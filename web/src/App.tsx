@@ -390,10 +390,13 @@ export default function App() {
           const main = document.getElementById("main-content");
           if (!main) return;
           e.preventDefault();
-          // Mirror what a real fragment link does — update the URL hash — then
-          // move focus explicitly, since bare fragment navigation doesn't
-          // reliably shift focus across browsers/AT.
-          window.history.pushState(null, "", "#main-content");
+          // Reflect the fragment in the URL like a real anchor would, then move
+          // focus explicitly, since bare fragment navigation doesn't reliably
+          // shift focus across browsers/AT. Use replaceState, not pushState:
+          // skipping to main is a within-page jump, not navigation, so it
+          // shouldn't leave an extra Back-button stop that returns the user to
+          // the top of the same page.
+          window.history.replaceState(null, "", "#main-content");
           main.focus();
           main.scrollIntoView();
         }}
