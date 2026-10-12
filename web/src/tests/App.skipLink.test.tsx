@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -64,6 +64,30 @@ describe("App skip-to-main-content link (#811)", () => {
 
     const main = document.getElementById("main-content");
     expect(main).toHaveFocus();
+  });
+
+  it("updates the URL hash without pushing a new history entry", async () => {
+    renderApp();
+    const user = userEvent.setup();
+
+    const link = screen.getByRole("link", { name: /skip to main content/i });
+    await user.tab();
+    expect(link).toHaveFocus();
+
+    // Spy only around the activation so unrelated history writes during render
+    // can't leak into the assertion. Skipping to main is a within-page jump,
+    // not navigation, so it must use replaceState — never pushState — to avoid
+    // leaving a redundant Back-button stop on the same page.
+    const pushSpy = vi.spyOn(window.history, "pushState");
+    const replaceSpy = vi.spyOn(window.history, "replaceState");
+    await user.keyboard("{Enter}");
+
+    expect(replaceSpy).toHaveBeenCalledWith(null, "", "#main-content");
+    expect(pushSpy).not.toHaveBeenCalled();
+    expect(window.location.hash).toBe("#main-content");
+
+    pushSpy.mockRestore();
+    replaceSpy.mockRestore();
   });
 
   it("stays visually hidden until focused (off-screen, not display:none)", () => {
