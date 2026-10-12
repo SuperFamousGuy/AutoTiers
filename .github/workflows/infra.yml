@@ -35,15 +35,14 @@
 name: infra
 
 on:
-  pull_request:
-    paths:
-      - "infra/**"
-      - ".github/workflows/infra.yml"
-  push:
-    branches: [main]
-    paths:
-      - "infra/**"
-      - ".github/workflows/infra.yml"
+  # DISABLED 2026-10-12 — AWS hosting torn down to cut cost to ~$0 after draft
+  # season. The `apply` job below runs `terraform apply -auto-approve` on push
+  # to main touching infra/**, which would RECREATE the entire destroyed stack
+  # (Aurora, ECS, ALB, NAT, CloudFront — ~$200/mo). Left as manual-dispatch only
+  # so an infra push or an agentic sweeper merge can't silently resurrect it.
+  # TO RELAUNCH: restore the pull_request + push(main) triggers below, then let
+  # a push to main re-apply infra/ (code + S3 state are intact).
+  workflow_dispatch:
 
 # Least privilege for GITHUB_TOKEN. AWS calls use explicit IAM credentials.
 # The plan job needs pull-requests: write to post its sticky comment.
