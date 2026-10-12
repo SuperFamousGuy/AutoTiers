@@ -34,14 +34,10 @@ name: weekly-release
 # Version core is unit-tested: backend/tests/test_weekly_release_version.py.
 
 on:
-  schedule:
-    # Mondays at 15:23 UTC. Off-minute (23) to dodge the cron-collision gotcha:
-    # a cron fires AT its minute field regardless of the hour/step field, so the
-    # MINUTE must be unique among scheduled workflows. Taken minutes are
-    # copilot-review=0, recommender(6:10)=10, sweeper-health=17, fix-checks=30,
-    # orphan-sweeper=40, resolve-conflicts=45, auto-merge=50 -- minute 23 is
-    # free. Weekly (day-of-week=1) is ample for a release cadence.
-    - cron: "23 15 * * 1"
+  # Weekly schedule DISABLED 2026-10-12 — AWS hosting torn down (cost reduction).
+  # Auto-cutting a release every Monday would only trigger deploy.yml against
+  # destroyed infra (and deploy.yml is itself disabled). Manual-dispatch only.
+  # TO RELAUNCH: restore the `schedule: - cron: "23 15 * * 1"` block above.
   workflow_dispatch:
     inputs:
       dry_run:

@@ -38,9 +38,11 @@
 name: deploy
 
 on:
-  release:
-    types: [published]
-  workflow_dispatch: # allow manual re-runs via gh workflow run or GitHub UI
+  # DISABLED 2026-10-12 — AWS hosting torn down (cost reduction). The `release`
+  # trigger deployed images/assets to ECS/S3/CloudFront that no longer exist, so
+  # every published release would fail here. Manual-dispatch only until relaunch.
+  # TO RELAUNCH: restore `release: { types: [published] }` above workflow_dispatch.
+  workflow_dispatch: # manual only
 
 # Limit GITHUB_TOKEN to the minimum needed. AWS calls use explicit IAM credentials.
 permissions:
